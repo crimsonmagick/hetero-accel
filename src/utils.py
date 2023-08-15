@@ -1,0 +1,538 @@
+"""Utility functions"""
+import logging
+import logging.config
+import argparse
+import yaml
+import os
+import sys
+import re
+import pandas as pd
+import numpy as np
+import torch
+import random
+from enum import Enum
+from datetime import datetime
+from errno import ENOENT
+from numbers import Number
+from copy import deepcopy
+from collections import OrderedDict
+from types import SimpleNamespace
+from glob import glob
+from tabulate import tabulate
+from src import project_dir
+from src.args import app_args, model_args
+
+
+__all__ = [
+    'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
+    'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
+    'log_training_progress',
+    'get_dummy_input', 'model_io_summary',
+    'handle_model_subapps',
+]
+
+logger = logging.getLogger(__name__)
+
+
+def env_cfg():
+    """Configure the environment to run the optimization"""
+    parser = argparse.ArgumentParser("Hetero-Accel")
+    parser = app_args(parser)
+    parser = model_args(parser)
+    # parse command arguments 
+    args = parser.parse_args()
+
+    # overwrite if a yaml configuration file is given
+    assert args.yaml_cfg_file is not None, "Specify a yaml file to configure the experiment"
+    cfg_from_yaml(args, args.yaml_cfg_file)
+
+    # configure logging 
+    logging_cfg(args)
+
+    # setup deterministic execution
+    if args.deterministic:
+        set_deterministic(args.global_seed)
+
+    # fix deepcopy recursion problem by increasing the limit, if necessary
+    if sys.getrecursionlimit() < 10000:
+        sys.setrecursionlimit(10000)
+
+    return args
+
+
+def cfg_from_yaml(args, cfg_yaml_file):
+    """Configure environment based on arguments from a yaml file
+    """
+    def check_arg(name, value):
+        """Check if a YAML argument should be the final value.
+           Unless it is an Enum argument, YAML arguments have priority
+        """
+        replace = True
+        if isinstance(getattr(args, name), Enum):
+            replace = False
+        return replace
+
+    # read configuration file
+    with open(cfg_yaml_file, 'r') as stream:
+        yaml_dict = yaml.safe_load(stream)
+
+    # inspect all arguments
+    for name, value in yaml_dict.items():
+        # we assume a two-level nested dictionary
+        if isinstance(value, dict):
+            # usually this branch gets executed
+            for _name, _value in value.items():
+                if check_arg(_name, _value):
+                    setattr(args, _name, _value)
+        else:
+            # this is rarely executed
+            if check_arg(name, value):
+                setattr(args, name, value)
+
+
+def logging_cfg(args):
+    """Configure logging for entire framework"""
+    if not os.path.exists(os.path.join(project_dir, 'logs')):
+        os.makedirs(os.path.join(project_dir, 'logs'))
+
+    # set the name of the log file and directory
+    timestr = datetime.utcnow().strftime("%Y.%m.%d-%H.%M.%S.%f")[:-3]
+    exp_full_name = timestr if args.name is None else args.name + '___' + timestr
+    logdir = os.path.join(project_dir, 'logs', exp_full_name)
+    if not os.path.exists(logdir):
+        os.makedirs(logdir)
+
+    # use the logging config file
+    log_filename = os.path.join(logdir, exp_full_name + '.log')
+    logging.config.fileConfig(
+        os.path.join(project_dir, 'logging.conf'),
+        disable_existing_loggers=False,
+        defaults={
+            'main_log_filename': f'{project_dir}/logs/out.log',
+            'all_log_filename': log_filename,
+        }
+    )
+
+    # disable logging for specific modules
+    for module_name in ['absl', 'matplotlib']:
+        logging.getLogger(module_name).setLevel(logging.WARN)
+    
+    # save the experiment logging directory and file as root logger attributes
+    logging.getLogger().logdir = logdir
+    logging.getLogger().log_filename = log_filename
+
+    # first messages logging the command executed for this experiment
+    logger.info('Log file for this run: ' + os.path.realpath(log_filename))
+    logger.debug("Command line: {}".format(" ".join(sys.argv)))
+    arguments = {argument: getattr(args, argument) for argument in dir(args)
+                 if not callable(getattr(args, argument)) and not argument.startswith('__')}
+    logger.debug(f"Arguments: {arguments}")
+
+    # Create a symbollic link to the last log file created (for easier access)
+    try:
+        os.unlink("latest_log_file")
+    except FileNotFoundError:
+        pass
+    try:
+        os.unlink("latest_log_dir")
+    except FileNotFoundError:
+        pass
+    try:
+        os.symlink(logdir, "latest_log_dir")
+        os.symlink(log_filename, "latest_log_file")
+    except OSError:
+        logger.debug("Failed to create symlinks to latest logs")
+
+
+def set_deterministic(seed):
+    """Try to configure the system for reproducible results.
+       Seed the PRNG for the CPU, Cuda, numpy and Python
+    """
+    logger.debug('Deterministic configuration was invoked')
+    if seed is None:
+        seed = 123
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    set_random_seed(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
+
+def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False, verbose=True):
+    """Load a pytorch training checkpoint.
+        Args:
+            model: the pytorch model to which we will load the parameters.  You can
+                specify model=None if the checkpoint contains enough metadata to infer
+                the model.  The order of the arguments is misleading and clunky, and is
+                kept this way for backward compatibility.
+            chkpt_path: the checkpoint file
+            model_device [str]: if set, call model.to($model_device)
+                    This should be set to either 'cpu' or 'cuda'.
+        :returns: updated model, optimizer, start_epoch
+        """
+    def get_contents_table(d):
+        def inspect_val(val):
+            if isinstance(val, (Number, str)):
+                return val
+            elif isinstance(val, type):
+                return val.__name__
+            return None
+
+        contents = [[k, type(d[k]).__name__, inspect_val(d[k])] for k in d.keys()]
+        contents = sorted(contents, key=lambda entry: entry[0])
+        return tabulate(contents, headers=["Key", "Type", "Value"], tablefmt="psql")
+
+    def _load_optimizer():
+        """Initialize optimizer with model parameters and load src_state_dict"""
+        try:
+            cls, src_state_dict = checkpoint['optimizer_type'], checkpoint['optimizer_state_dict']
+            # Initialize the dest_optimizer with a dummy learning rate,
+            # this is required to support SGD.__init__()
+            dest_optimizer = cls(model.parameters(), lr=1)
+            dest_optimizer.load_state_dict(src_state_dict)
+            logger.info('Optimizer of type {type} was loaded from checkpoint'.format(
+                type=type(dest_optimizer)))
+            optimizer_param_groups = dest_optimizer.state_dict()['param_groups']
+            logger.debug('Optimizer Args: {}'.format(
+                dict((k, v) for k, v in optimizer_param_groups[0].items()
+                     if k != 'params')))
+            return dest_optimizer
+        except KeyError:
+            # Older checkpoints do support optimizer loading: They either had an 'optimizer' field
+            # (different name) which was not used during the load, or they didn't even checkpoint
+            # the optimizer.
+            if verbose:
+                logger.debug('Optimizer could not be loaded from checkpoint.')
+            return None
+
+    def _create_model_from_ckpt():
+        try:
+            return create_model(checkpoint['arch'], checkpoint['dataset'], False,
+                                checkpoint['is_parallel'], device_ids=None)
+        except KeyError:
+            return None
+
+    def _sanity_check():
+        try:
+            if model.arch != checkpoint["arch"]:
+                raise ValueError("The model architecture does not match the checkpoint architecture")
+        except (AttributeError, KeyError):
+            # One of the values is missing, so we can't perform the comparison
+            pass
+
+    chkpt_file = os.path.expanduser(chkpt_path)
+    if not os.path.isfile(chkpt_file):
+        raise IOError(ENOENT, 'Could not find a checkpoint file at', chkpt_file)
+
+    if verbose:
+        logger.info(f"=> loading checkpoint {chkpt_file}")
+    checkpoint = torch.load(chkpt_file, map_location=lambda storage, loc: storage)
+
+    # log the contents of the checkpoint
+    if verbose:
+        logger.info('=> Checkpoint contents: \n{}\n'.format(get_contents_table(checkpoint)))
+        if 'extras' in checkpoint:
+            logger.info("=> Checkpoint['extras'] contents:\n{}\n".format(get_contents_table(checkpoint['extras'])))
+
+    # load last training epoch if it exists
+    start_epoch = checkpoint.get('epoch', -1) + 1
+
+    # load parameters from checkpoint
+    if 'state_dict' not in checkpoint:
+        # workaround for loading checkpoint from cifar10_100_playground
+        if 'net' not in checkpoint:
+            raise ValueError("Checkpoint must contain the model parameters under the key 'state_dict'")
+        else:
+            state_dict = deepcopy(checkpoint.get('net'))
+    else:
+        state_dict = deepcopy(checkpoint.get('state_dict'))
+
+    new_state_dict = OrderedDict()
+    for name, param in state_dict.items():
+        new_name = name
+        # in case of the checkpoint param names having the DataParallel 'module' prefix
+        if to_cpu:
+            new_name = re.sub('^module[.]', '', new_name)
+        # in case the current model has a 'wrapped_module' but the checkpoint does not
+        if re.sub('(weight|bias)', r'wrapped_module.\1', new_name) in model.state_dict():
+            new_name = re.sub('(weight|bias)', r'wrapped_module.\1', new_name)
+        # in case the current model does not contain a 'wrapped_module', load the parameter without the wrapper
+        if 'wrapped_module' in new_name and new_name.replace('.wrapped_module', '') in model.state_dict():
+            new_name = new_name.replace('.wrapped_module', '')
+
+        new_state_dict[new_name] = param
+    checkpoint['state_dict'] = new_state_dict
+
+    # if a model was not created before, load it from the checkpoint
+    if not model:
+        model = _create_model_from_ckpt()
+        if not model:
+            raise ValueError(f"You didn't provide a model, and the checkpoint {chkpt_file} doesn't contain "
+                             "enough information to create one")
+
+    # check for inconsistencies in the new parameters
+    anomalous_keys = model.load_state_dict(checkpoint['state_dict'], strict)
+    if anomalous_keys:
+        missing_keys, unexpected_keys = anomalous_keys
+        if verbose:
+            logger.debug(f'Missing keys: {missing_keys}')
+            logger.debug(f'Unexpected keys: {unexpected_keys}')
+
+        if unexpected_keys:
+            if verbose:
+                logger.warning(f"Warning: the loaded checkpoint ({chkpt_file}) contains {len(unexpected_keys)} "
+                                  f"unexpected state keys")
+
+            # Some masks may have been loaded and characterized as unexpected keys (not recongized in the
+            #  initialized model). In that case, register them as buffers to the correct module
+            for key in unexpected_keys:
+                if 'mask' in key:
+                    mod_name = key.replace('.mask', '')
+                    if to_cpu:
+                        mod_name = re.sub('^module[.]', '', mod_name)
+                    module = dict(model.named_modules()).get(mod_name)
+                    module.register_buffer('mask', new_state_dict[key])
+
+        if missing_keys:
+            raise ValueError(f"The loaded checkpoint ({chkpt_file}) is missing {len(missing_keys)} state keys")
+
+    if model_device is not None:
+        model.to(model_device)
+
+    optimizer = _load_optimizer()
+    _sanity_check()
+    return model, optimizer, start_epoch
+
+
+def save_checkpoint(arch, model, epoch=0, optimizer=None, extras=None, is_best=False, 
+                    name=None, savedir='.', verbose=True):
+    """Save a pytorch training checkpoint
+    Args:
+        arch: name of the network architecture/topology
+        model: a pytorch model
+        epoch: current epoch number
+        optimizer: the optimizer used in the training session
+        extras: optional dict with additional user-defined data to be saved in the checkpoint.
+            Will be saved under the key 'extras'
+        is_best: If true, will save the checkpoint with the suffix 'best'
+        name: the name of the checkpoint file
+        savedir: directory in which to save the checkpoint
+    """
+    if not os.path.isdir(savedir):
+        raise IOError(ENOENT, 'Checkpoint directory does not exist at', os.path.abspath(savedir))
+
+    if extras is not None and not isinstance(extras, dict):
+        raise TypeError('extras must be either a dict or None')
+
+    if name is None:
+        epoch_str = str(epoch).zfill(4)
+        name = f'best' if is_best else 'checkpoint_' + str(epoch).zfill(4)
+    filename = name + '.pth.tar'
+    fullpath = os.path.join(savedir, filename)
+    model_filename = 'fullmodel_' + name
+    model_fullpath = os.path.join(savedir, model_filename)
+
+    checkpoint = {'epoch': epoch, 'state_dict': model.state_dict(), 'arch': arch}
+    try:
+        checkpoint['is_parallel'] = model.is_parallel
+        checkpoint['dataset'] = model.dataset
+        if not arch:
+            checkpoint['arch'] = model.arch
+    except AttributeError:
+        pass
+
+    if extras is not None:
+        checkpoint['extras'] = extras
+    if optimizer is not None:
+        checkpoint['optimizer_state_dict'] = optimizer.state_dict()
+        checkpoint['optimizer_type'] = type(optimizer)
+
+    # save the approximate multipliers f
+    checkpoint['ax_mults'] = OrderedDict()
+    for name, module in model.named_modules():
+        if hasattr(module, 'axx_mult'):
+            checkpoint['ax_mults'][name] = module.axx_mult
+
+    torch.save(checkpoint, fullpath)
+    try:
+        torch.save(model, model_fullpath)
+    except TypeError:
+        # some pickling error when saving full model
+        pass
+
+    if verbose:
+        logger.info(f"Saving checkpoint to: {fullpath}")
+
+
+def weight_init(module):
+    if isinstance(module, (torch.nn.Linear, torch.nn.Conv2d)):
+        torch.nn.init.xavier_normal_(module.weight)
+
+
+def transform_model(model, replacement_factory, replace_by_name=False):
+    """Transform a model by replacing specific modules with new ones
+    :param replace_by_name [bool]: if true, the replacement_factory contains
+            a layer-name-to-replacement-module type. Otherwise, the mapping
+            will be done by module type
+    """
+    def has_children(module):
+        try:
+            next(module.children())
+            return True
+        except StopIteration:
+            return False
+
+    def _replace_modules(container, prefix=''):
+        for name, module in container.named_children():
+            full_name = prefix + name
+
+            if module in processed_modules:
+                raise Exception("Has not come up before. Investigate")
+
+            # get the replacement function for this module
+            if replace_by_name:
+                replace_fn = replacement_factory.get(full_name)
+            else:
+                replace_fn = replacement_factory.get(type(module))
+
+            if replace_fn is not None:
+                new_module = replace_fn(module, full_name)
+                setattr(container, name, new_module)
+                processed_modules[module] = new_module
+                logger.debug(f"Replaced {full_name} with {new_module}")
+
+            if has_children(module):
+                _replace_modules(module, full_name + '.')
+
+    processed_modules = OrderedDict()
+    _replace_modules(model)
+
+
+def log_training_progress(stats_dict, epoch, completed, total, freq):
+    stats_dict = stats_dict[1]
+    if epoch > -1:
+        log = 'Epoch: [{}][{:5d}/{:5d}]    '.format(epoch, completed, int(total))
+    else:
+        log = 'Test: [{:5d}/{:5d}]    '.format(completed, int(total))
+    for name, val in stats_dict.items():
+        if isinstance(val, int):
+            log = log + '{name} {val:.3}    '.format(name=name, val=val)
+        else:
+            log = log + '{name} {val:.6f}    '.format(name=name, val=val)
+    logger.info(log)
+
+
+def get_dummy_input(device=None, input_shape=None):
+    """Generate a representative dummy (random) input.
+    Args:
+        device (str or torch.device): Device on which to create the input
+        input_shape (tuple): Tuple of integers representing the input shape. Can also be a tuple of tuples, allowing
+          arbitrarily complex collections of tensors.
+    """
+    def create_single(shape):
+        t = torch.randn(shape)
+        if device:
+            t = t.to(device)
+        return t
+
+    def create_recurse(shape):
+        if all(isinstance(x, int) for x in shape):
+            return create_single(shape)
+        return tuple(create_recurse(s) for s in shape)
+
+    return create_recurse(input_shape)
+
+
+def model_io_summary(model):
+    """Record statistics for input/output dimentions of each layer of a given model
+    """
+    def register_hook(module):
+        def stats_hook(module, input, output):
+            # access info via attribute
+            info = SimpleNamespace()
+            dimentions = OrderedDict()
+
+            # input and output tensor sizes
+            try:
+                ifm = input[0].size()
+            except AttributeError:
+                ifm = input[0][0].size()
+            ofm = output.size()
+            
+            if isinstance(module, torch.nn.Conv2d):
+                # input shape of (batch_size, nfm, fm_h, fm_w)
+                # naming conventions taken from DiGamma: https://arxiv.org/abs/2201.11220
+                dimentions['K'] = ofm[-3]
+                dimentions['Yo'] = ofm[-2]
+                dimentions['Xo'] = ofm[-1]
+                dimentions['C'] = ifm[-3]
+                dimentions['Yi'] = ifm[-2]
+                dimentions['Xi'] = ifm[-1]
+                dimentions['R'] = module.kernel_size[0]
+                dimentions['S'] = module.kernel_size[1]
+                info.stride = module.stride[0]
+                info.is_conv = True
+                info.type_int = 0
+                info.layer_type = 'CONV'
+
+            elif isinstance(module, torch.nn.Linear):
+                # input shape of (batch_size, n_neurons)
+                dimentions['K'] = module.out_features
+                dimentions['C'] = module.in_features
+                dimentions['Yo'] = dimentions['Xo'] = ofm[-1]
+                dimentions['Yi'] = dimentions['Xi'] = ifm[-1]
+                dimentions['R'] = dimentions['S'] = 1
+                # NOTE: We set the stride of FC layers to 1 (instead of 0), to avoid ZeroDivisionErrors
+                info.stride = 1
+                info.is_conv = False
+                info.type_int = 1
+                # NOTE: writing this is as 'CONV' also, to comply with Maestro's conventions
+                info.layer_type = 'CONV'
+
+            # store all data, accessible by layer name
+            info.dimentions = dimentions
+            summary[module.full_name] = info
+
+        handle = module.register_forward_hook(stats_hook)
+        hook_handles.append(handle)
+
+    summary = OrderedDict()
+    hook_handles = []
+
+    # apply the hooks and record the statistics
+    model.eval()
+    model.apply(register_hook)
+
+    # execute a forward pass
+    dummy_input = get_dummy_input(model.device, model.input_shape)
+    model(dummy_input)
+
+    # remove the hooks
+    for handle in hook_handles:
+        handle.remove()
+
+    return summary
+
+
+def handle_model_subapps(net_wrapper, args):
+    """Used to handle different modes of operation associated with the DNN model
+    """
+    do_exit = False
+
+    # perform inference on the registered DNN model
+    if args.evaluate_model_mode:
+        net_wrapper.args.verbose = True
+        logger.info(f"Evaluating {net_wrapper.model.arch} model\n{net_wrapper.model}")
+        net_wrapper.test()
+        do_exit = True
+
+    # perform training on DNN model
+    elif args.train_model_mode:
+        net_wrapper.args.verbose = True
+        net_wrapper.train(args.train_epochs)
+        do_exit = True
+
+    return do_exit
+
