@@ -10,15 +10,12 @@ app_args:
 op_mode_args:
         evaluate_model_mode: False
         train_model_mode: False
+        test_timeloop_accelergy_mode: True
 
 model_args:
-        arch: mobilenet
-        dataset: cifar10
-        #dataset: Imagenet
-        datadir: /workspace/data/cifar10
-        #datadir: /workspace/data/Imagenet
-        resumed_checkpoint_path: /workspace/chkpts/cifar10/mobilenet_cifar10.pth
-        #pretrained: True
+        arch: [mobilenet_cifar10, resnet18_cifar100]
+        #resumed_checkpoint_path: /workspace/chkpts/cifar10/mobilenet_cifar10.pth
+        pretrained: True
         workers: 15
         batch_size: 64
         load_serialized: False

@@ -1,4 +1,9 @@
 github_balaskas
 
+**/__pycache__
 logs/
 **/*.pth*
+latest_log_dir
+latest_log_file
+wandb
+

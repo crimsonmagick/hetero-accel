@@ -6,6 +6,7 @@ for more details.
 import torch
 import torch.nn as nn
 from collections import OrderedDict
+from functools import partial
 
 
 class Block(nn.Module):
@@ -56,7 +57,7 @@ class MobileNet(nn.Module):
         return out
 
 
-def mobilenet_cifar(pretrained=False, num_classes=10):
+def _mobilenet_cifar(pretrained=False, num_classes=10):
     model = MobileNet(num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -68,4 +69,8 @@ def mobilenet_cifar(pretrained=False, num_classes=10):
         model.load_state_dict(new_state_dict)
         # model.load_state_dict(m['net'], strict=False)
     return model
+
+
+mobilenet_cifar10 = partial(_mobilenet_cifar, num_classes=10)
+mobilenet_cifar100 = partial(_mobilenet_cifar, num_classes=100)
 

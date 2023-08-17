@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from collections import OrderedDict
+from functools import partial
 
 
 cfg = {
@@ -38,7 +39,7 @@ class VGG(nn.Module):
         return nn.Sequential(*layers)
 
 
-def vgg11_cifar(pretrained=False, num_classes=10):
+def _vgg11_cifar(pretrained=False, num_classes=10):
     model = VGG('VGG11', num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -52,7 +53,7 @@ def vgg11_cifar(pretrained=False, num_classes=10):
     return model
 
 
-def vgg13_cifar(pretrained=False, num_classes=10):
+def _vgg13_cifar(pretrained=False, num_classes=10):
     model = VGG('VGG13', num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -66,7 +67,7 @@ def vgg13_cifar(pretrained=False, num_classes=10):
     return model
 
 
-def vgg16_cifar(pretrained=False, num_classes=10):
+def _vgg16_cifar(pretrained=False, num_classes=10):
     model = VGG('VGG16', num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -80,7 +81,7 @@ def vgg16_cifar(pretrained=False, num_classes=10):
     return model
 
 
-def vgg19_cifar(pretrained=False, num_classes=10):
+def _vgg19_cifar(pretrained=False, num_classes=10):
     model = VGG('VGG19', num_classes)
     if pretrained is not None:
         checkpoint = torch.load(pretrained)
@@ -92,4 +93,14 @@ def vgg19_cifar(pretrained=False, num_classes=10):
         model.load_state_dict(new_state_dict)
         # model.load_state_dict(m['net'], strict=False)
     return model
+
+
+vgg11_cifar10 = partial(_vgg11_cifar, num_classes=10)
+vgg11_cifar100 = partial(_vgg11_cifar, num_classes=100)
+vgg13_cifar10 = partial(_vgg13_cifar, num_classes=10)
+vgg13_cifar100 = partial(_vgg13_cifar, num_classes=100)
+vgg16_cifar10 = partial(_vgg16_cifar, num_classes=10)
+vgg16_cifar100 = partial(_vgg16_cifar, num_classes=100)
+vgg19_cifar10 = partial(_vgg19_cifar, num_classes=10)
+vgg19_cifar100 = partial(_vgg19_cifar, num_classes=100)
 

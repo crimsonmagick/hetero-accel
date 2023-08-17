@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from collections import OrderedDict
+from functools import partial
 
 
 class BasicBlock(nn.Module):
@@ -96,7 +97,7 @@ class ResNet(nn.Module):
         return out
 
 
-def resnet18_cifar(pretrained=False, num_classes=10):
+def _resnet18_cifar(pretrained=False, num_classes=10):
     model = ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -109,7 +110,7 @@ def resnet18_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
-def resnet34_cifar(pretrained=False, num_classes=10):
+def _resnet34_cifar(pretrained=False, num_classes=10):
     model = ResNet(BasicBlock, [3,4,6,3], num_classes=num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -122,7 +123,7 @@ def resnet34_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
-def resnet50_cifar(pretrained=False, num_classes=10):
+def _resnet50_cifar(pretrained=False, num_classes=10):
     model = ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -135,7 +136,7 @@ def resnet50_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
-def resnet101_cifar(pretrained=False, num_classes=10):
+def _resnet101_cifar(pretrained=False, num_classes=10):
     model = ResNet(Bottleneck, [3,4,23,3], num_classes=num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -148,7 +149,7 @@ def resnet101_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
-def resnet152_cifar(pretrained=False, num_classes=10):
+def _resnet152_cifar(pretrained=False, num_classes=10):
     model = ResNet(Bottleneck, [3,8,36,3], num_classes=num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -161,4 +162,15 @@ def resnet152_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
+
+resnet18_cifar10 = partial(_resnet18_cifar, num_classes=10)
+resnet18_cifar100 = partial(_resnet18_cifar, num_classes=100)
+resnet34_cifar10 = partial(_resnet34_cifar, num_classes=10)
+resnet34_cifar100 = partial(_resnet34_cifar, num_classes=100)
+resnet50_cifar10 = partial(_resnet50_cifar, num_classes=10)
+resnet50_cifar100 = partial(_resnet50_cifar, num_classes=100)
+resnet101_cifar10 = partial(_resnet101_cifar, num_classes=10)
+resnet101_cifar100 = partial(_resnet101_cifar, num_classes=100)
+resnet152_cifar10 = partial(_resnet152_cifar, num_classes=10)
+resnet152_cifar100 = partial(_resnet152_cifar, num_classes=100)
 

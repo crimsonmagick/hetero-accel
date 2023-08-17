@@ -6,6 +6,7 @@ Mobile Networks for Classification, Detection and Segmentation" for more details
 import torch
 import torch.nn as nn
 from collections import OrderedDict
+from functools import partial
 
 
 class Block(nn.Module):
@@ -82,7 +83,7 @@ class MobileNetV2(nn.Module):
         return out
 
 
-def mobilenetv2_cifar(pretrained=False, num_classes=10):
+def _mobilenetv2_cifar(pretrained=False, num_classes=10):
     model = MobileNetV2(num_classes)
     if pretrained:
         checkpoint = torch.load(pretrained)
@@ -94,3 +95,8 @@ def mobilenetv2_cifar(pretrained=False, num_classes=10):
         model.load_state_dict(new_state_dict)
         # model.load_state_dict(m['net'], strict=False)
     return model
+
+
+mobilenetv2_cifar10 = partial(_mobilenetv2_cifar, num_classes=10)
+mobilenetv2_cifar100 = partial(_mobilenetv2_cifar, num_classes=100)
+

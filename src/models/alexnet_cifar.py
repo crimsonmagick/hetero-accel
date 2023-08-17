@@ -1,4 +1,5 @@
 import torch.nn as nn
+from functools import partial
 # import torch.nn.functional as F
 
 
@@ -40,7 +41,9 @@ class AlexNet(nn.Module):
         return out
 
 
-def alexnet_cifar(num_classes=10):
+def _alexnet_cifar(num_classes=10):
     model = AlexNet(num_classes)
     return model
 
+alexnet_cifar10 = partial(_alexnet_cifar, num_classes=10)
+alexnet_cifar100 = partial(_alexnet_cifar, num_classes=100)

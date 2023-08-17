@@ -43,26 +43,31 @@ RUN pip install --upgrade pip && \
 
 # install timeloop-accelergy
 #RUN git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
-#WORKDIR accelergy-timeloop-infrastructure
-#RUN make pull
-#WORKDIR src/cacti
-#RUN make
-#WORKDIR ../accelergy
-#RUN pip install --upgrade pip && \
-#	pip install .
-#WORKDIR ../accelergy-aladdin-plug-in/
-#RUN pip install .
-#WORKDIR ../accelergy-cacti-plug-in/
-#RUN pip install .
-#RUN cp -r ../cacti /root/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
-#WORKDIR ../accelergy-table-based-plug-ins/
-#RUN pip install .
-#WORKDIR ../timeloop/src/
-#RUN ln -s ../pat-public/src/pat .
-#WORKDIR ..
-#RUN scons -j4 --accelergy --static
-#RUN cp build/timeloop-* /root/.local/bin
-#ENV PATH $PATH:~/local/.bin
+WORKDIR accelergy-timeloop-infrastructure
+RUN make pull
+WORKDIR src/cacti
+RUN make
+WORKDIR ../accelergy
+RUN pip install --upgrade pip && \
+	pip install .
+WORKDIR ../accelergy-aladdin-plug-in/
+RUN pip install .
+WORKDIR ../accelergy-cacti-plug-in/
+RUN pip install .
+RUN cp -r ../cacti /root/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
+WORKDIR ../accelergy-table-based-plug-ins/
+RUN pip install .
+WORKDIR ../timeloop/src/
+RUN ln -s ../pat-public/src/pat .
+WORKDIR ..
+RUN scons -j4 --accelergy --static
+RUN cp build/timeloop-* /root/.local/bin
+WORKDIR ../../..
+RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+	accelergy && \
+	accelergyTables
+RUN pip install git+https://github.com/Fibertree-Project/fibertree jupyter
+ENV PATH $PATH:~/local/.bin
 
 WORKDIR /workspace/hetero-accel
 SHELL ["/bin/bash", "--login", "-c"]

@@ -8,17 +8,12 @@ import glob
 import numpy as np
 
 
-ALL_DATASETS = ['cifar10', 'cifar100', 'imagenet', 'tiny-imagenet', 'mnist']
-
 logger = logging.getLogger(__name__)
 
 
 def load_data(dataset, dataset_path, arch, batch_size, workers,
               validation_split, train_size, valid_size, test_size, test_only,
               verbose):
-
-    if dataset.lower() not in ALL_DATASETS:
-        raise ValueError('Dataset {} not supported'.format(dataset))
 
     dataset_fn = __dataset_factory(dataset)
     train_loader, valid_loader, test_loader = get_data_loaders(dataset_fn, dataset_path, arch, batch_size, workers,
@@ -32,18 +27,20 @@ def load_data(dataset, dataset_path, arch, batch_size, workers,
                     len(train_loader.sampler), len(valid_loader.sampler), len(test_loader.sampler)
                 )
             )
-
     return train_loader, valid_loader, test_loader
 
 
 def __dataset_factory(dataset):
-    return {
-        'cifar10': get_cifar10_dataset,
-        'cifar100': get_cifar100_dataset,
-        'imagenet': get_imagenet_dataset,
-        'tiny-imagenet': get_tinyimagenet_dataset,
-        'mnist': get_mnist_dataset
-    }.get(dataset.lower(), None)
+    try:
+        return {
+            'cifar10': get_cifar10_dataset,
+            'cifar100': get_cifar100_dataset,
+            'imagenet': get_imagenet_dataset,
+            'tiny-imagenet': get_tinyimagenet_dataset,
+            'mnist': get_mnist_dataset
+        }.get(dataset.lower(), None)
+    except KeyError:
+        raise ValueError('Dataset {} not supported'.format(dataset))
 
 
 def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation_split,
@@ -154,7 +151,8 @@ def get_cifar100_dataset(cifar100_path, arch, load_train, load_test):
 
 
 def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
-    """Load the ImageNet dataset. """
+    """Load the ImageNet dataset
+    """
     if 'inception' in arch.lower():
         resize, crop = 336, 299
     else:
@@ -194,7 +192,7 @@ def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
     return train_dataset, test_dataset
 
 
-def get_tinyimagenet_dataset(data_dir, arch, load_train=True, load_test=True):
+def get_tinyimagenet_dataset(data_dir, load_train=True, load_test=True):
     """Load tiny-imagenet 200 dataset"""
     def restructure_tiny_imagenet():
         val_dir = os.path.join(data_dir, 'val')
@@ -250,7 +248,7 @@ def get_tinyimagenet_dataset(data_dir, arch, load_train=True, load_test=True):
     return train_dataset, test_dataset
 
 
-def get_mnist_dataset(data_dir, load_train=True, load_test=True):
+def get_mnist_dataset(data_dir, arch, load_train=True, load_test=True):
     """Load the MNIST dataset."""
     train_dataset = None
     if load_train:
@@ -268,7 +266,7 @@ def get_mnist_dataset(data_dir, load_train=True, load_test=True):
             transforms.Normalize((0.1307,), (0.3081,))
         ])
         test_dataset = datasets.MNIST(root=data_dir, train=False,
-                                      transform=test_transform)
+                                      download=True, transform=test_transform)
 
     return train_dataset, test_dataset
 

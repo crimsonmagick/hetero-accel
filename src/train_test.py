@@ -15,20 +15,15 @@ def train(train_loader, model, criterion, optimizer, profiler,
           compression_scheduler, epoch, steps_per_epoch, verbose, print_frequency):
     """Training-with-compression loop for one epoch"""
     def _log_training_progress():
-        # Log some statistics
-        errs = OrderedDict()
-        errs['Top1'] = classerr.value(1)
-        errs['Top5'] = classerr.value(5)
-
         stats_dict = OrderedDict()
+        stats_dict['Top1'] = classerr.value(1)
+        stats_dict['Top5'] = classerr.value(5)
         for loss_name, meter in losses.items():
             stats_dict[loss_name] = meter.mean
-        stats_dict.update(errs)
         stats_dict['LR'] = optimizer.param_groups[0]['lr']
         stats_dict['Time'] = batch_time.mean
-        stats = ('Performance/Training/', stats_dict)
 
-        log_training_progress(stats, epoch, steps_completed, steps_per_epoch, print_frequency)
+        log_training_progress(stats_dict, epoch, steps_completed, steps_per_epoch)
 
     losses = OrderedDict([('Overall Loss', tnt.AverageValueMeter()),
                           ('Objective Loss', tnt.AverageValueMeter())])
@@ -129,8 +124,7 @@ def validate(valid_loader, model, criterion, epoch, verbose, print_frequency):
         stats_dict = OrderedDict([('Loss', losses['objective_loss'].mean),
                                   ('Top1', classerr.value(1)),
                                   ('Top5', classerr.value(5))])
-        stats = ('Performance/Validation/', stats_dict)
-        log_training_progress(stats, epoch, steps_completed, total_steps, print_frequency)
+        log_training_progress(stats_dict, epoch, steps_completed, total_steps)
 
     """Execute the validation/test loop."""
     losses = {'objective_loss': tnt.AverageValueMeter()}

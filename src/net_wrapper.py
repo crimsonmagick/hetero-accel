@@ -2,26 +2,41 @@ import torch
 import logging
 import os
 import re
+from types import SimpleNamespace
 from copy import deepcopy
 from collections import OrderedDict
-from src.args import OptimizerType, AxLayerType
 from src.utils import weight_init, load_checkpoint, model_io_summary, transform_model, save_checkpoint
 from src.train_test import train, validate
 from src.dataset import load_data
-from src.models.torch import create_model
+from src.models import create_model
+from src.args import OptimizerType
 
 logger = logging.getLogger(__name__)
+
+
+def dnn_setup(args):
+    """Setup a DNN wrapper and handle sub-applications
+    """
+    # model-specific arguments for network wrapper
+    model_args = SimpleNamespace(arch=args.arch,
+                                 dataset=args.dataset,
+                                 gpus=args.gpus,
+                                 cpu=args.cpu,
+                                 load_serialized=args.load_serialized,
+                                 pretrained=args.pretrained,
+                                 resumed_checkpoint_path=args.resumed_checkpoint_path,
+                                 profile_model=args.use_profiler,
+                                 logdir=args.logdir,
+                                 )
+    return TorchNetworkWrapper(model_args)
 
 
 class TorchNetworkWrapper:
     def __init__(self, model_args):
         self.args = model_args
         self.config_compute_device()
-        self.init_learner()
-        self.init_data_loaders()
-
-        # logging directory
-        self.logdir = model_args.logdir
+        self.init_model()
+        self.logdir = self.args.logdir
 
     def config_compute_device(self):
         if self.args.cpu or not torch.cuda.is_available():
@@ -44,75 +59,29 @@ class TorchNetworkWrapper:
                 # Set default device in case the first one on the list != 0
                 torch.cuda.set_device(self.args.gpus[0])
 
-    def init_learner(self):
-        # Create the model
-        self.model = create_model(self.args.arch, self.args.dataset, self.args.pretrained,
-                                  parallel=not self.args.load_serialized, device_ids=self.args.gpus,)
+    def init_model(self):
+        self.model = create_model(self.args.arch,
+                                  self.args.dataset,
+                                  self.args.pretrained,
+                                  parallel=not self.args.load_serialized,
+                                  device_ids=self.args.gpus,)
                                   #verbose=self.args.verbose)
         self.model.apply(weight_init)
 
-        self.optimizer = None
-
-        # load model from checkpoint
         if self.args.resumed_checkpoint_path is not None:
-            self.model, self.optimizer, _ = load_checkpoint(
-                self.model, self.args.resumed_checkpoint_path,
+            self.model, _ = load_checkpoint(
+                self.model,
+                self.args.resumed_checkpoint_path,
                 model_device=self.args.device,
                 to_cpu=self.args.device == 'cpu',
                 #verbose=self.args.verbose
             )
 
-        # save the loaded model
-        self.original_model = deepcopy(self.model)
-
-        # define optimizer
-        if self.optimizer is None and not self.args.evaluate:
-            self.init_optimizer()
-            logger.debug(f'Optimizer Type: {type(self.optimizer)}')
-            logger.debug(f'Optimizer args: {self.optimizer.defaults}')
-
-        # define loss function (criterion)
-        self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
-
-    def init_optimizer(self):
-        """Initialize an optimizer instance"""
-        if self.args.optimizer_type == OptimizerType.SGD:
-            # SGD optimizer
-            self.optimizer = torch.optim.SGD(self.model.parameters(),
-                                             lr=self.args.learning_rate,
-                                             momentum=self.args.momentum,
-                                             weight_decay=self.args.weight_decay)
-            # ADAM optimizer
-        elif self.args.optimizer_type == OptimizerType.Adam:
-            self.optimizer = torch.optim.Adam(self.model.parameters(),
-                                              lr=self.args.learning_rate,
-                                              weight_decay=self.args.weight_decay)
-
-    def init_data_loaders(self):
-        """Load the dataset and data loaders
-        """
-        torch.cuda.empty_cache()
-        self.train_loader, self.valid_loader, self.test_loader = load_data(
-            self.args.dataset, os.path.expanduser(self.args.dataset_dir),
-            self.model.arch,
-            self.args.batch_size, self.args.workers,
-            self.args.validation_split,
-            self.args.effective_train_size,
-            self.args.effective_valid_size,
-            self.args.effective_test_size,
-            self.args.evaluate,
-            True, #self.args.verbose
-        )
-
-
-    def log_model(self, tb_logger):
+    def log_model(self, test_loader, tb_logger):
         """Record the graph of the model and its various statistics using TensorBoard
         """
-        if self.args.evaluate:
-            return
-
         # save the model graph using Tensorboard
-        inputs, labels = next(iter(self.test_loader))
+        inputs, labels = next(iter(test_loader))
         tb_logger.add_graph(self.model, inputs)
 
         # profile the model operations and GPU utilization
@@ -132,44 +101,41 @@ class TorchNetworkWrapper:
             if param.grad is not None:
                 tb_logger.add_histogram(name + '.grad', param.grad, 0)
 
-    def train(self, epochs, steps_per_epoch=None, profiler=None):
+    def train(self, epochs, train_loader, criterion, optimizer, steps_per_epoch=None, profiler=None):
         """Run some training epochs on the model
         """
         train_metrics = []
         if steps_per_epoch is None:
-            steps_per_epoch = len(self.train_loader)
+            steps_per_epoch = len(train_loader)
 
         for epoch in range(epochs):
-            top1, top5, loss = train(self.train_loader, self.model, self.criterion, self.optimizer, profiler,
-                                     None, epoch, steps_per_epoch, self.args.verbose, self.args.print_frequency)
+            top1, top5, loss = train(train_loader, self.model, criterion, optimizer, profiler,
+                                     None, epoch, steps_per_epoch,
+                                     self.args.verbose, self.args.print_frequency)
             train_metrics.extend((top1, top5, loss))
         return train_metrics
 
-    def validate(self):
+    def validate(self, valid_loader, criterion):
         """Run inference on the validation set
         """
         logger.debug(f"Running inference on validation set. Model outline:\n{self.model}")
-        top1, top5, loss = validate(self.valid_loader, self.model, self.criterion, 0,
+        top1, top5, loss = validate(valid_loader, self.model, criterion, 0,
                                     self.args.verbose, self.args.print_frequency)
         return top1, top5, loss
 
-    def test(self):
+    def test(self, test_loader, criterion):
         """Run inference on the test set
         """
         logger.debug(f"Running inference on test set. Model outline:\n{self.model}")
-        top1, top5, loss = validate(self.test_loader, self.model, self.criterion, 0,
+        top1, top5, loss = validate(test_loader, self.model, criterion, 0,
                                     self.args.verbose, self.args.print_frequency)
         return top1, top5, loss
 
 
-    def save_model(self, episode, is_best):
-        """Save the current version of the model, only if the episode is the best so far,
-           or the saving frequency is set accordingly
+    def save_model(self, episode, is_best, verbose=True):
+        """Save the current version of the model
         """
-        if is_best or (getattr(self.args, 'save_frequency', None) and 
-                       episode + 1 % self.args.save_frequency == 0):
-
-            save_checkpoint(arch=self.model.arch, model=self.model,
-                            epoch=episode, is_best=is_best, savedir=self.logdir, verbose=self.args.verbose)
-            logger.debug(f"Saved model:\n{self.model}")
+        save_checkpoint(arch=self.model.arch, model=self.model,
+                        epoch=episode, is_best=is_best, savedir=self.logdir, verbose=verbose)
+        logger.debug(f"Saved model:\n{self.model}")
 

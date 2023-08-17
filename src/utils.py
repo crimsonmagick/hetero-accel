@@ -6,10 +6,11 @@ import yaml
 import os
 import sys
 import re
-import pandas as pd
 import numpy as np
 import torch
 import random
+import wandb
+import subprocess as sp
 from enum import Enum
 from datetime import datetime
 from errno import ENOENT
@@ -19,8 +20,8 @@ from collections import OrderedDict
 from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
-from src import project_dir
-from src.args import app_args, model_args
+from src import project_dir, timeloop_bin_dir, cacti_bin_dir, accelergy_dir
+from src.args import app_args, model_args, check_args
 
 
 __all__ = [
@@ -46,6 +47,9 @@ def env_cfg():
     assert args.yaml_cfg_file is not None, "Specify a yaml file to configure the experiment"
     cfg_from_yaml(args, args.yaml_cfg_file)
 
+    # check if there were errors in the argument parsing
+    check_args(args)
+
     # configure logging 
     logging_cfg(args)
 
@@ -68,7 +72,7 @@ def cfg_from_yaml(args, cfg_yaml_file):
            Unless it is an Enum argument, YAML arguments have priority
         """
         replace = True
-        if isinstance(getattr(args, name), Enum):
+        if isinstance(getattr(args, name, None), Enum):
             replace = False
         return replace
 
@@ -154,24 +158,14 @@ def set_deterministic(seed):
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
-    set_random_seed(seed)
 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 
 
-def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False, verbose=True):
+def load_checkpoint(model, chkpt_path=None, model_device='cuda', to_cpu=False, strict=False, verbose=True):
     """Load a pytorch training checkpoint.
-        Args:
-            model: the pytorch model to which we will load the parameters.  You can
-                specify model=None if the checkpoint contains enough metadata to infer
-                the model.  The order of the arguments is misleading and clunky, and is
-                kept this way for backward compatibility.
-            chkpt_path: the checkpoint file
-            model_device [str]: if set, call model.to($model_device)
-                    This should be set to either 'cpu' or 'cuda'.
-        :returns: updated model, optimizer, start_epoch
-        """
+    """
     def get_contents_table(d):
         def inspect_val(val):
             if isinstance(val, (Number, str)):
@@ -207,21 +201,6 @@ def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False,
                 logger.debug('Optimizer could not be loaded from checkpoint.')
             return None
 
-    def _create_model_from_ckpt():
-        try:
-            return create_model(checkpoint['arch'], checkpoint['dataset'], False,
-                                checkpoint['is_parallel'], device_ids=None)
-        except KeyError:
-            return None
-
-    def _sanity_check():
-        try:
-            if model.arch != checkpoint["arch"]:
-                raise ValueError("The model architecture does not match the checkpoint architecture")
-        except (AttributeError, KeyError):
-            # One of the values is missing, so we can't perform the comparison
-            pass
-
     chkpt_file = os.path.expanduser(chkpt_path)
     if not os.path.isfile(chkpt_file):
         raise IOError(ENOENT, 'Could not find a checkpoint file at', chkpt_file)
@@ -235,9 +214,6 @@ def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False,
         logger.info('=> Checkpoint contents: \n{}\n'.format(get_contents_table(checkpoint)))
         if 'extras' in checkpoint:
             logger.info("=> Checkpoint['extras'] contents:\n{}\n".format(get_contents_table(checkpoint['extras'])))
-
-    # load last training epoch if it exists
-    start_epoch = checkpoint.get('epoch', -1) + 1
 
     # load parameters from checkpoint
     if 'state_dict' not in checkpoint:
@@ -264,13 +240,6 @@ def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False,
 
         new_state_dict[new_name] = param
     checkpoint['state_dict'] = new_state_dict
-
-    # if a model was not created before, load it from the checkpoint
-    if not model:
-        model = _create_model_from_ckpt()
-        if not model:
-            raise ValueError(f"You didn't provide a model, and the checkpoint {chkpt_file} doesn't contain "
-                             "enough information to create one")
 
     # check for inconsistencies in the new parameters
     anomalous_keys = model.load_state_dict(checkpoint['state_dict'], strict)
@@ -302,8 +271,7 @@ def load_checkpoint(model, chkpt_path, model_device, to_cpu=False, strict=False,
         model.to(model_device)
 
     optimizer = _load_optimizer()
-    _sanity_check()
-    return model, optimizer, start_epoch
+    return model, optimizer
 
 
 def save_checkpoint(arch, model, epoch=0, optimizer=None, extras=None, is_best=False, 
@@ -410,8 +378,9 @@ def transform_model(model, replacement_factory, replace_by_name=False):
     _replace_modules(model)
 
 
-def log_training_progress(stats_dict, epoch, completed, total, freq):
-    stats_dict = stats_dict[1]
+def log_training_progress(stats_dict, epoch, completed, total):
+    """Log statistics about the training/inference procedure
+    """
     if epoch > -1:
         log = 'Epoch: [{}][{:5d}/{:5d}]    '.format(epoch, completed, int(total))
     else:
@@ -421,6 +390,9 @@ def log_training_progress(stats_dict, epoch, completed, total, freq):
             log = log + '{name} {val:.3}    '.format(name=name, val=val)
         else:
             log = log + '{name} {val:.6f}    '.format(name=name, val=val)
+
+    if wandb.run is not None:
+        wandb.log(stats_dict)
     logger.info(log)
 
 
@@ -516,23 +488,41 @@ def model_io_summary(model):
     return summary
 
 
-def handle_model_subapps(net_wrapper, args):
+def handle_model_subapps(net_wrapper, data_loaders, args):
     """Used to handle different modes of operation associated with the DNN model
     """
     do_exit = False
+    train_loader, valid_loader, test_loader = data_loaders
 
     # perform inference on the registered DNN model
     if args.evaluate_model_mode:
         net_wrapper.args.verbose = True
+        net_wrapper.args.print_frequency = args.batch_print_frequency
         logger.info(f"Evaluating {net_wrapper.model.arch} model\n{net_wrapper.model}")
-        net_wrapper.test()
+        net_wrapper.test(test_loader, torch.nn.CrossEntropyLoss().to(net_wrapper.model.device))
         do_exit = True
 
     # perform training on DNN model
     elif args.train_model_mode:
         net_wrapper.args.verbose = True
-        net_wrapper.train(args.train_epochs)
+        net_wrapper.args.print_frequency = args.batch_print_frequency
+        optimizer = torch.optim.Adam(net_wrapper.model.parameters(),
+                                     lr=0.01, weight_decay=1e-4)
+        net_wrapper.train(args.train_epochs, train_loader,
+                          torch.nn.CrossEnropyLoss().to(net_wrapper.model.device),
+                          optimizer)
         do_exit = True
+
+    elif args.test_timeloop_accelergy_mode:
+        inputs_dir = os.path.join(accelergy_dir, 'examples', 'hierarcy', 'input')
+        positional_args = '*.yaml components/*.yaml'
+        command = f'cd {inputs_dir} && '\
+                  f'accelergy {positional_args} '\
+                  f'--output {net_wrapper.logdir} ' \
+                  f'--output_files energy_estimation ERT_summary ART_summary flattened_arch '\
+                  f'--oprefix {net_wrapper.model.arch} '\
+                  f'--verbose 1 --precision 3'
+        sp.run(command, shell=True, check=True, capture_output=True)
 
     return do_exit
 

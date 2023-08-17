@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
+from functools import partial
 
 
 class Block(nn.Module):
@@ -78,7 +79,7 @@ class EfficientNet(nn.Module):
         return out
 
 
-def efficientnet_cifar(pretrained=False, num_classes=10):
+def _efficientnet_cifar(pretrained=False, num_classes=10):
     # EfficientNetB0
     # (expansion, out_planes, num_blocks, stride)
     cfg = [(1,  16, 1, 2),
@@ -100,3 +101,6 @@ def efficientnet_cifar(pretrained=False, num_classes=10):
         # model.load_state_dict(m['net'], strict=False)
     return model
 
+
+efficientnet_cifar10 = partial(_efficientnet_cifar, num_classes=10)
+efficientnet_cifar100 = partial(_efficientnet_cifar, num_classes=100)
