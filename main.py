@@ -6,7 +6,7 @@ from copy import deepcopy
 from collections import OrderedDict
 from src import dataset_dirs, pretrained_checkpoint_paths
 from src.utils import env_cfg, handle_model_subapps
-from src.net_wrapper import dnn_setup
+from src.net_wrapper import TorchNetworkWrapper
 from src.dataset import load_data
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def main():
             dnn_args.resumed_checkpoint_path = pretrained_checkpoint_paths[arch]
             dnn_args.pretrained = False
         # load DNN wrapper
-        net_wrapper = dnn_setup(dnn_args)
+        net_wrapper = TorchNetworkWrapper.from_args(dnn_args)
         dnns[arch] = net_wrapper
 
         do_exit = handle_model_subapps(net_wrapper, data_loaders, args)

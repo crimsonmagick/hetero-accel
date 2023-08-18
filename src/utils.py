@@ -20,7 +20,7 @@ from collections import OrderedDict
 from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
-from src import project_dir, timeloop_bin_dir, cacti_bin_dir, accelergy_dir
+from src import project_dir, accelergy_dir
 from src.args import app_args, model_args, check_args
 
 

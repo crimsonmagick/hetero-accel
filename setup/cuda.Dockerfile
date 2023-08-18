@@ -54,20 +54,20 @@ WORKDIR ../accelergy-aladdin-plug-in/
 RUN pip install .
 WORKDIR ../accelergy-cacti-plug-in/
 RUN pip install .
-RUN cp -r ../cacti /root/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
+RUN cp -r ../cacti /opt/conda/envs/haccel/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
 WORKDIR ../accelergy-table-based-plug-ins/
 RUN pip install .
 WORKDIR ../timeloop/src/
 RUN ln -s ../pat-public/src/pat .
 WORKDIR ..
 RUN scons -j4 --accelergy --static
-RUN cp build/timeloop-* /root/.local/bin
+RUN cp build/timeloop-* /opt/conda/envs/haccel/bin
 WORKDIR ../../..
 RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
 	accelergy && \
 	accelergyTables
 RUN pip install git+https://github.com/Fibertree-Project/fibertree jupyter
-ENV PATH $PATH:~/local/.bin
+ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
 SHELL ["/bin/bash", "--login", "-c"]

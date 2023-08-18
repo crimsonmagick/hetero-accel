@@ -14,30 +14,29 @@ from src.args import OptimizerType
 logger = logging.getLogger(__name__)
 
 
-def dnn_setup(args):
-    """Setup a DNN wrapper and handle sub-applications
-    """
-    # model-specific arguments for network wrapper
-    model_args = SimpleNamespace(arch=args.arch,
-                                 dataset=args.dataset,
-                                 gpus=args.gpus,
-                                 cpu=args.cpu,
-                                 load_serialized=args.load_serialized,
-                                 pretrained=args.pretrained,
-                                 resumed_checkpoint_path=args.resumed_checkpoint_path,
-                                 profile_model=args.use_profiler,
-                                 logdir=args.logdir,
-                                 )
-    return TorchNetworkWrapper(model_args)
-
-
 class TorchNetworkWrapper:
+    """DNN wrapper with training/testing functionality
+    """
     def __init__(self, model_args):
         self.args = model_args
         self.config_compute_device()
         self.init_model()
         self.logdir = self.args.logdir
 
+    @classmethod
+    def from_args(cls, args):
+        model_args = SimpleNamespace(arch=args.arch,
+                                     dataset=args.dataset,
+                                     gpus=args.gpus,
+                                     cpu=args.cpu,
+                                     load_serialized=args.load_serialized,
+                                     pretrained=args.pretrained,
+                                     resumed_checkpoint_path=args.resumed_checkpoint_path,
+                                     profile_model=args.use_profiler,
+                                     logdir=args.logdir,
+                                     )
+        return cls(model_args)
+         
     def config_compute_device(self):
         if self.args.cpu or not torch.cuda.is_available():
             # Set GPU index to -1 if using CPU

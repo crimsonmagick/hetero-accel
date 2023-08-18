@@ -32,6 +32,7 @@ def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None,
             module.full_name = name
 
     # initialize model from the available architectures per dataset
+    is_image_classifier = True
     if 'cifar' in dataset:
         model = _create_cifar_model(arch, pretrained)
     elif dataset in ['tiny-imagenet', 'imagenet']:
@@ -63,6 +64,7 @@ def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None,
     model.arch = arch
     model.dataset = dataset
     model.device = device
+    model.is_image_classifier = is_image_classifier
 
     return model.to(device)
 

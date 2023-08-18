@@ -6,8 +6,6 @@ project_dir = os.path.dirname(os.path.dirname(__file__))
 
 _tl_accel_dir = os.path.join(project_dir, 'accelergy-timeloop-infrastructure', 'src')
 accelergy_dir = os.path.join(_tl_accel_dir, 'accelergy')
-timeloop_bin_dir = os.path.join(_tl_accel_dir, 'timeloop', 'bin')
-cacti_bin_dir = os.path.join(_tl_accel_dir, 'cacti')
 
 dataset_dirs = {
         'mnist': os.path.join(os.path.dirname(project_dir), 'data', 'mnist'),
