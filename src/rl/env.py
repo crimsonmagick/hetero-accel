@@ -9,16 +9,17 @@ from collections import OrderedDict, namedtuple
 from time import time
 from types import SimpleNamespace
 from src import project_dir
-from src.loggers import TBLogger, AccuracyEnvCSVLogger
 from src.rl import HW_Metrics, Accuracy_Metrics
+from src.rl.loggers import EnvCSVLogger
 from src.rl.reward import DEFAULT_REWARD
+from src.rl.compressor import PruningQuantizationCompressor
+
 
 logger = logging.getLogger(__name__)
 
 # observation - state space
 Observation = namedtuple('Observation',
                          ['num_of_layers', 
-                          'last_pruning_action', 'last_quant_action',
                           ])
 
 # action space (for verbosity)
@@ -29,7 +30,7 @@ class PruningQuantizationEnvironment(gym.Env):
     """Representation of a DNN for pruning and quantization
        into a gym RL Environment
     """
-    def __init__(self, compressor, data_loaders, state_args):
+    def __init__(self, data_loaders, state_args, model_args):
         super(PruningQuantizationEnvironment, self).__init__()
         self.args = state_args
         self.name = self.__class__.__name__
@@ -38,12 +39,12 @@ class PruningQuantizationEnvironment(gym.Env):
         self.logdir = state_args.logdir
         if not os.path.isdir(self.logdir):
             os.makedirs(self.logdir)
-        self.tb_logger = TBLogger(log_dir=self.logdir)
-        self.csv_logger = AccuracyEnvCSVLogger(log_dir=self.logdir)
+        #TODO: do this with weights&biases
+        #self.tb_logger = TBLogger(log_dir=self.logdir)
+        self.csv_logger = EnvCSVLogger(log_dir=self.logdir)
 
         # wrapper for application neural network
-        self.compressor = compressor
-        _, self.valid_loader, self.test_loader = data_loaders
+        self.compressor = PruningQuantizationCompressor(model_args, data_loaders)
 
         # original accuracy statistics
         original_val_metrics = self.run_inference()
@@ -52,9 +53,12 @@ class PruningQuantizationEnvironment(gym.Env):
 
         # original compression metrics
         original_hw_metrics = self.compute_resources()
+        self.original_hw_metrics = HW_Metrics(*original_hw_metrics)
+        logger.debug(f"{self.name}: Original hardware metrics: {self.original_hw_metrics}")
 
         # define action space
-        self.action_space = gym.spaces.Box(low=0, high=1, dtype='float', seed=state_args.seed)
+        self.action_space = gym.spaces.Box(low=0, high=1, shape=(len(Action._fields),),
+                                           dtype='float', seed=state_args.seed)
         # TODO: define observation space
         self.observation_space = gym.spaces.Box(low=0, high=1, dtype='float', seed=state_args.seed)
 
@@ -141,8 +145,9 @@ class PruningQuantizationEnvironment(gym.Env):
     def compute_resources(self):
         """Compute the compression metrics related to pruning and quantization
         """
-        raise NotImplementedError
-        self.latest_hw_metrics = None
+        sparsity, size = self.compressor.compute_model_statistics()
+        area, latency, power, energy = self.compressor.compute_accelerator_statistics()
+        return area, latency, power, energy, sparsity, size 
 
     def compute_reward(self):
         """Compute the reward based on the current state
@@ -159,7 +164,8 @@ class PruningQuantizationEnvironment(gym.Env):
         self.latest_hw_metrics = HW_Metrics(*hw_metrics)
 
         self.latest_reward = self.args.reward_fn(self.latest_val_metrics, self.latest_hw_metrics,
-                                                 self.accuracy_constraints, self.hw_constraints)
+                                                 self.original_val_metrics, self.original_hw_metrics,
+                                                 self.args.accuracy_constraints, self.args.hw_constraints)
 
         logger.debug("{}: Episode {}.{} (timestep {}): reward={}, top1={}, top5={}, loss={}".format(
                      self.name, self.episode, self.current_state_idx, self.current_timesteps,
@@ -169,8 +175,12 @@ class PruningQuantizationEnvironment(gym.Env):
     def get_state_representation(self):
         """Create a representation of the state space of the model
         """
-        raise NotImplementedError
-        self.state_representation = None
+        #TODO: Figure out what the state should be
+        self.state_representation = np.array([
+                self.compressor.num_layers,
+                ])
+
+        assert len(self.state_representation) == len(Observation._fields), "Mismatch error: wrongly initialized state space."
         logger.debug("{}: Episode {}.{} (timestep {}): State representation:\n{}".format(
                      self.name, self.episode, self.current_state_idx, self.current_timesteps,
                      self.state_representation))
@@ -178,7 +188,7 @@ class PruningQuantizationEnvironment(gym.Env):
     def get_observation(self):
         """Generate an observation of the environment
         """
-        obs = self.state_representation[self.current_state_idx, :]
+        obs = self.state_representation
         logger.debug("{}: Episode {}.{} (timestep {}): obs={}".format(
                      self.name, self.episode, self.current_state_idx, self.current_timesteps,
                      obs))
@@ -196,11 +206,15 @@ class PruningQuantizationEnvironment(gym.Env):
         self.compressor.save_model(self.episode, is_best)
  
         # log the evaluation results of the the current episode
+        logstr = [f'{metric.capitalize()}: {value:.3e}'
+                  for metric, value in self.latest_hw_metrics._asdict().items()
+                  if value is not None]
+        logger.info("{}: {}".format(self.name, ' - '.join(logstr)))
         logger.info("{}: Top1: {:.3f} - Top5: {:.3f} - Loss {:.3f}".format(
                     self.name, *self.latest_val_metrics))
         logger.info(f"{self.name}: Reward: {reward:.3e}")
-        logger.info(f'{self.name}: Episode {self.episode} completed in {time() - self.start_episode:.3f}s')
-        self.record_step(final=True)
+        logger.info(f"{self.name}: Episode {self.episode} completed in {time() - self.start_episode:.3f}s")
+        self.record_step()
 
         # increment episode counter
         self.episode += 1
@@ -208,6 +222,7 @@ class PruningQuantizationEnvironment(gym.Env):
     def record_step(self, final=False):
         """Record the latest statistics of the current step
         """
+        stats = OrderedDict()
         stats['episode'] = self.episode
         stats['reward'] = self.latest_reward
         stats['timestep'] = self.current_timesteps
@@ -215,26 +230,16 @@ class PruningQuantizationEnvironment(gym.Env):
         # include the actions taken by the agent
         stats['action'] = list(self.action_history[-1]._asdict().values())
 
-        raise NotImplementedError
+        # include the accuracy measurements
+        val_stats = self.latest_val_metrics._asdict()
+        stats.update(val_stats)
+        # include the hardware measurements
+        for hw_metric, value in self.latest_hw_metrics._asdict().items():
+            stats['total_' + hw_metric] = value
 
-        if final:
-            # include the accuracy measurements
-            val_stats = self.latest_val_metrics._asdict()
-            stats.update(val_stats)
+        # output the statistics of the episode to csv
+        self.csv_logger.record_and_log_stats(stats)
+        # record the entire episode using Tensorboard
+        #self.tb_logger.log_episode(stats)
 
-            # include accumulated HW metrics, using the 'total' notation to avoid
-            #  overwriting the history of the same metrics
-            for hw_metric, value in vars(self.accum_hw_metrics).items():
-                stats['total_' + hw_metric] = value
-
-            # output the statistics of the episode to csv
-            self.csv_logger.record_and_log_stats(stats)
-            # record the entire episode using Tensorboard
-            self.tb_logger.log_episode(stats)
-            return
-
-        # add a record of the current statistics to csv logger history
-        self.csv_logger.add_record(stats)
-        # record the timestep using TensorBoard
-        self.tb_logger.log_step(stats)
 

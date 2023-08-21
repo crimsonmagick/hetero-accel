@@ -1,6 +1,7 @@
 import os
 from enum import Enum
 from src import project_dir
+from src.rl import reward as rewards
 
 
 def app_args(parser):
@@ -14,7 +15,6 @@ def app_args(parser):
                         help='Global seed for deterministic execution')
     parser.add_argument('--yaml-cfg-file', 
                         help='YAML file containing the experiment description')
-    parser.add_argument('--load-layer-lut-from', help='Path to .pkl file whith results from the first experiment (layer-level)')
 
     op_mode = parser.add_argument_group("Execution mode arguments")
     op_mode_exc = op_mode.add_mutually_exclusive_group()
@@ -84,11 +84,48 @@ def model_args(parser):
     return parser
 
 
+def rl_args(parser):
+    """Arguments for reinforcement learning
+    """
+    ALL_REWARDS = sorted(reward_name for reward_name in rewards.__dict__
+                         if reward_name.islower() and not reward_name.startswith('__')
+                         and callable(rewards.__dict__[reward_name]))
+
+    rl_args = parser.add_argument_group("RL related arguments")
+    rl_args.add_argument('--rl-retrain-epochs', type=int, default=0,
+                         help='Retraining epochs for accuracy exploration')
+    rl_args.add_argument('--rl-reward-type', choices=ALL_REWARDS,
+                         help=f'Type of reward for the RL agent. Choices: {ALL_REWARDS}')
+    rl_args.add_argument('--rl-pruning-high', type=float, default=0.95,
+                         help='Highest bound for sparsity as an RL action')
+    rl_args.add_argument('--rl-pruning-low', type=float, default=0.0,
+                         help='Lowest bound for sparsity as an RL action')
+    rl_args.add_argument('--rl-quant-high', type=int, default=8,
+                         help='Highest bound for weight quantization as an RL action')
+    rl_args.add_argument('--rl-quant-low', type=int, default=2,
+                         help='Lowest bound for weight quantization as an RL action')
+    rl_args.add_argument('--rl-top1-constraint', type=float, default=1,
+                         help='Top1 accuracy loss constraint (default is 1\%)')
+    rl_args.add_argument('--rl-top5-constraint', type=float,
+                         help='Top5 accuracy loss constraint')
+    rl_args.add_argument('--rl-loss-constraint', type=float,
+                         help='Objective loss constraint')
+    rl_args.add_argument('--rl-energy-constraint', type=float, default=10,
+                         help='Energy constraint (default is 10\%)')
+    rl_args.add_argument('--rl-sparsity-constraint', type=float, default=10,
+                         help='Sparsity constraint (default is 10\%)')
+    rl_args.add_argument('--rl-size-constraint', type=float, default=10,
+                         help='Memory size constraint (default is 10\%)')
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """
     if args.resumed_checkpoint_path:
         assert len(args.arch) == args.resumed_checkpoint_path
+    assert 0 <= args.rl_pruning_low <= args.rl_pruning_high <= 1
+    assert 2 <= args.rl_quant_low <= args.rl_quant_high <= 8
 
 
 
@@ -105,6 +142,6 @@ def optimizer_type_arg(argstr):
     try:
         return str_to_optimizer_type_map[argstr.lower()]
     except KeyError:
-        raise argparse.ArgumentTypeError(f"--optimizer-type argument must be one of the following: {str_to_optimizer_type_map.keys()}."
-                                         f" Invalid argument {argstr}")
-    
+        raise argparse.ArgumentTypeError(f"--optimizer-type argument must be one of the following: "
+                                         f"{str_to_optimizer_type_map.keys()}. Invalid argument {argstr}")
+

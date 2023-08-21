@@ -20,15 +20,16 @@ from collections import OrderedDict
 from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
-from src import project_dir, accelergy_dir
-from src.args import app_args, model_args, check_args
+from time import time
+from src import project_dir
+from src.args import app_args, model_args, rl_args, check_args
 
 
 __all__ = [
     'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
     'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
     'log_training_progress',
-    'get_dummy_input', 'model_io_summary',
+    'get_dummy_input', 'model_summary',
     'handle_model_subapps',
 ]
 
@@ -40,6 +41,7 @@ def env_cfg():
     parser = argparse.ArgumentParser("Hetero-Accel")
     parser = app_args(parser)
     parser = model_args(parser)
+    parser = rl_args(parser)
     # parse command arguments 
     args = parser.parse_args()
 
@@ -417,7 +419,7 @@ def get_dummy_input(device=None, input_shape=None):
     return create_recurse(input_shape)
 
 
-def model_io_summary(model):
+def model_summary(model):
     """Record statistics for input/output dimentions of each layer of a given model
     """
     def register_hook(module):
@@ -447,7 +449,10 @@ def model_io_summary(model):
                 info.stride = module.stride[0]
                 info.is_conv = True
                 info.type_int = 0
-                info.layer_type = 'CONV'
+                info.weights_volume = np.prod(module.weight.shape)
+                info.macs = dimentions['K'] * dimentions['Yo'] * dimentions['Xo'] * \
+                            dimentions['C'] / module.groups * dimentions['R'] * dimentions['S']
+                info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
 
             elif isinstance(module, torch.nn.Linear):
                 # input shape of (batch_size, n_neurons)
@@ -460,10 +465,11 @@ def model_io_summary(model):
                 info.stride = 1
                 info.is_conv = False
                 info.type_int = 1
-                # NOTE: writing this is as 'CONV' also, to comply with Maestro's conventions
-                info.layer_type = 'CONV'
+                info.weights_volume = info.macs = np.prod(module.weight.shape)
+                info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
 
             # store all data, accessible by layer name
+            info.layer_type = module.__class__.__name__
             info.dimentions = dimentions
             summary[module.full_name] = info
 
@@ -514,15 +520,30 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         do_exit = True
 
     elif args.test_timeloop_accelergy_mode:
-        inputs_dir = os.path.join(accelergy_dir, 'examples', 'hierarcy', 'input')
-        positional_args = '*.yaml components/*.yaml'
-        command = f'cd {inputs_dir} && '\
-                  f'accelergy {positional_args} '\
-                  f'--output {net_wrapper.logdir} ' \
+        from src import accelergy_dir
+        inputs_dir = os.path.join(accelergy_dir, 'examples', 'hierarchy', 'input')
+        positional_args = f'{inputs_dir}/*.yaml {inputs_dir}/components/*.yaml'
+        command = f'accelergy {positional_args} '\
+                  f'--outdir {net_wrapper.logdir} ' \
                   f'--output_files energy_estimation ERT_summary ART_summary flattened_arch '\
-                  f'--oprefix {net_wrapper.model.arch} '\
+                  f'--oprefix {net_wrapper.model.arch}__ '\
                   f'--verbose 1 --precision 3'
-        sp.run(command, shell=True, check=True, capture_output=True)
+        logger.debug(f'Accelergy command: {command}')
+        start = time()
+        p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
+        logger.debug(f'Stdout: {p.stdout}')
+        logger.debug(f'Stderr: {p.stderr}')
+        logger.debug(f'Executed accelergy command in {time() - start:.3e}s')
+
+        from src import timeloop_dir
+        arch = os.path.join(timeloop_dir, 'arch', )
+        command = f'timeloop-model {arch} {problem} {mapping}'
+        start = time()
+        p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
+        logger.debug(f'Stdout: {p.stdout}')
+        logger.debug(f'Stderr: {p.stderr}')
+        logger.debug(f'Executed timeloop-model command in {time() - start:.3e}s')
+
 
     return do_exit
 

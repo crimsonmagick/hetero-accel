@@ -5,7 +5,7 @@ import re
 from types import SimpleNamespace
 from copy import deepcopy
 from collections import OrderedDict
-from src.utils import weight_init, load_checkpoint, model_io_summary, transform_model, save_checkpoint
+from src.utils import weight_init, load_checkpoint, model_summary, transform_model, save_checkpoint
 from src.train_test import train, validate
 from src.dataset import load_data
 from src.models import create_model
@@ -22,6 +22,8 @@ class TorchNetworkWrapper:
         self.config_compute_device()
         self.init_model()
         self.logdir = self.args.logdir
+        self.summary = model_summary(self.model)
+        self.num_layers = len(self.summary)
 
     @classmethod
     def from_args(cls, args):
@@ -33,6 +35,8 @@ class TorchNetworkWrapper:
                                      pretrained=args.pretrained,
                                      resumed_checkpoint_path=args.resumed_checkpoint_path,
                                      profile_model=args.use_profiler,
+                                     print_frequency=args.print_frequency,
+                                     verbose=args.verbose,
                                      logdir=args.logdir,
                                      )
         return cls(model_args)

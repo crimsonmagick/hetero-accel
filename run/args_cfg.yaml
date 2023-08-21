@@ -3,19 +3,14 @@ app_args:
         name: null
         deterministic: True
         global_seed: 0
-        # this also turns off layer-enironment subapps
-        #load_layer_lut_from: saved_logs/layer_mult_lut.pkl
-        load_layer_lut_from: null
 
 op_mode_args:
         evaluate_model_mode: False
         train_model_mode: False
-        test_timeloop_accelergy_mode: True
+        test_timeloop_accelergy_mode: False
 
 model_args:
         arch: [mobilenet_cifar10, resnet18_cifar100]
-        #resumed_checkpoint_path: /workspace/chkpts/cifar10/mobilenet_cifar10.pth
-        pretrained: True
         workers: 15
         batch_size: 64
         load_serialized: False
@@ -26,11 +21,12 @@ model_args:
         effective_valid_size: 0.5
         effective_test_size: 1
         batch_print_frequency: 100
-        model_verbose: False
+        model_verbose: True
         model_save_frequency: 1
         use_profiler: False
         train_epochs: 1
-        retrain_epochs: 0
+        #resumed_checkpoint_path: /workspace/chkpts/cifar10/mobilenet_cifar10.pth
+        pretrained: True
 
 optimizer_args:
         #optimizer_type: sgd
@@ -38,4 +34,17 @@ optimizer_args:
         momentum: 0.9
         weight_decay: 1.e-4
 
+rl_args:
+        rl_retrain_epochs: 0
+        rl_reward_type: acc_size
+        rl_pruning_high: 0.9
+        rl_pruning_low: 0.05
+        rl_quant_high: 8
+        rl_quant_low: 4
+        rl_top1_constraint: 2
+        rl_top5_constraint: null
+        rl_loss_constraint: null
+        rl_energy_constraint: null
+        rl_sparsity_constraint: null
+        rl_size_constraint: 50
 
