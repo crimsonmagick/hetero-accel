@@ -2,6 +2,7 @@ import os
 from enum import Enum
 from src import project_dir
 from src.rl import reward as rewards
+from src.rl.pruning import PruningGroupType
 
 
 def app_args(parser):
@@ -116,6 +117,8 @@ def rl_args(parser):
                          help='Sparsity constraint (default is 10\%)')
     rl_args.add_argument('--rl-size-constraint', type=float, default=10,
                          help='Memory size constraint (default is 10\%)')
+    rl_args.add_argument('--rl-pruning-group-type', type=pruning_group_type_arg, default='columns',
+                         help='Pruning group type. Default is column pruning')
     return parser
 
 
@@ -144,4 +147,12 @@ def optimizer_type_arg(argstr):
     except KeyError:
         raise argparse.ArgumentTypeError(f"--optimizer-type argument must be one of the following: "
                                          f"{str_to_optimizer_type_map.keys()}. Invalid argument {argstr}")
+
+def pruning_group_type_arg(argstr):
+    try:
+        pruning_group_type_dict = {str(entry.name).lower(): entry for entry in PruningGroupType}
+        return pruning_group_type_dict[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"Invalid argument {argstr} for --pruning-group-type argument")
+
 

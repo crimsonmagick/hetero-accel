@@ -133,25 +133,26 @@ def rl():
                                                                     sparsity=args.rl_sparsity_constraint,
                                                                     size=args.rl_size_constraint),
                                      )
-        model_args = SimpleNamespace(arch=dnn_args.arch,
-                                     dataset=dnn_args.dataset,
-                                     gpus=args.gpus,
-                                     cpu=args.cpu,
-                                     load_serialized=args.load_serialized,
-                                     pretrained=args.pretrained,
-                                     resumed_checkpoint_path=dnn_args.resumed_checkpoint_path,
-                                     profile_model=args.use_profiler,
-                                     print_frequency=args.batch_print_frequency,
-                                     verbose=args.model_verbose,
-                                     logdir=args.logdir,
-                                     # compression arguments
-                                     pruning_high=args.rl_pruning_high,
-                                     pruning_low=args.rl_pruning_low,
-                                     quant_high=args.rl_quant_high,
-                                     quant_low=args.rl_quant_low,
-                                     layer_type_whitelist=(torch.nn.Conv2d,),
-                                     )
-        env = PruningQuantizationEnvironment(data_loaders, state_args, model_args)
+        compression_args = SimpleNamespace(arch=dnn_args.arch,
+                                           dataset=dnn_args.dataset,
+                                           gpus=args.gpus,
+                                           cpu=args.cpu,
+                                           load_serialized=args.load_serialized,
+                                           pretrained=args.pretrained,
+                                           resumed_checkpoint_path=dnn_args.resumed_checkpoint_path,
+                                           profile_model=args.use_profiler,
+                                           print_frequency=args.batch_print_frequency,
+                                           verbose=args.model_verbose,
+                                           logdir=args.logdir,
+                                           # compression arguments
+                                           pruning_high=args.rl_pruning_high,
+                                           pruning_low=args.rl_pruning_low,
+                                           quant_high=args.rl_quant_high,
+                                           quant_low=args.rl_quant_low,
+                                           layer_type_whitelist=(torch.nn.Conv2d,),
+                                           pruning_group_type=args.rl_pruning_group_type,
+                                           )
+        env = PruningQuantizationEnvironment(data_loaders, state_args, compression_args)
         done = False
         while not done:
             action = env.action_space.sample()

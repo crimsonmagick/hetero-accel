@@ -32,11 +32,11 @@ class PruningQuantizationEnvironment(gym.Env):
     """
     def __init__(self, data_loaders, state_args, model_args):
         super(PruningQuantizationEnvironment, self).__init__()
-        self.args = state_args
         self.name = self.__class__.__name__
+        for name, value in vars(state_args).items():
+            setattr(self, name, value)
 
         # configure environment logging
-        self.logdir = state_args.logdir
         if not os.path.isdir(self.logdir):
             os.makedirs(self.logdir)
         #TODO: do this with weights&biases
@@ -153,9 +153,9 @@ class PruningQuantizationEnvironment(gym.Env):
         """Compute the reward based on the current state
         """
         # retrain for a given amount of epochs
-        if self.args.retrain_epochs > 0:
-            logger.info(f"{self.name}: Retraining for {self.args.retrain_epochs} epochs")
-            self.compressor.train(self.args.retrain_epochs)
+        if self.retrain_epochs > 0:
+            logger.info(f"{self.name}: Retraining for {self.retrain_epochs} epochs")
+            self.compressor.train(self.retrain_epochs)
 
         # calculate accuracy and hw-related metrics
         val_metrics = self.run_inference()
@@ -163,9 +163,9 @@ class PruningQuantizationEnvironment(gym.Env):
         hw_metrics = self.compute_resources()
         self.latest_hw_metrics = HW_Metrics(*hw_metrics)
 
-        self.latest_reward = self.args.reward_fn(self.latest_val_metrics, self.latest_hw_metrics,
-                                                 self.original_val_metrics, self.original_hw_metrics,
-                                                 self.args.accuracy_constraints, self.args.hw_constraints)
+        self.latest_reward = self.reward_fn(self.latest_val_metrics, self.latest_hw_metrics,
+                                            self.original_val_metrics, self.original_hw_metrics,
+                                            self.accuracy_constraints, self.hw_constraints)
 
         logger.debug("{}: Episode {}.{} (timestep {}): reward={}, top1={}, top5={}, loss={}".format(
                      self.name, self.episode, self.current_state_idx, self.current_timesteps,

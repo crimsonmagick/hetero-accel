@@ -69,14 +69,13 @@ def env_cfg():
 def cfg_from_yaml(args, cfg_yaml_file):
     """Configure environment based on arguments from a yaml file
     """
-    def check_arg(name, value):
-        """Check if a YAML argument should be the final value.
-           Unless it is an Enum argument, YAML arguments have priority
-        """
-        replace = True
-        if isinstance(getattr(args, name, None), Enum):
-            replace = False
-        return replace
+    def replace_arg(name, value):
+        # special handling for Enum type of arguments
+        if isinstance(getattr(args, name, None), Enum) and isinstance(value, str):
+            value = next(entry.value for entry in getattr(args, name).__class__
+                         if entry.name.lower() == value)
+            value = getattr(args, name).__class__(value) 
+        setattr(args, name, value)
 
     # read configuration file
     with open(cfg_yaml_file, 'r') as stream:
@@ -88,12 +87,10 @@ def cfg_from_yaml(args, cfg_yaml_file):
         if isinstance(value, dict):
             # usually this branch gets executed
             for _name, _value in value.items():
-                if check_arg(_name, _value):
-                    setattr(args, _name, _value)
+                replace_arg(_name, _value)
         else:
             # this is rarely executed
-            if check_arg(name, value):
-                setattr(args, name, value)
+            replace_arg(_name, _value)
 
 
 def logging_cfg(args):
