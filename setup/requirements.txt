@@ -1,7 +1,3 @@
-accelergy @ file:///workspace/hetero-accel/accelergy-timeloop-infrastructure/src/accelergy
-accelergy-aladdin-plug-in @ file:///workspace/hetero-accel/accelergy-timeloop-infrastructure/src/accelergy-aladdin-plug-in
-accelergy-cacti-plug-in @ file:///workspace/hetero-accel/accelergy-timeloop-infrastructure/src/accelergy-cacti-plug-in
-accelergy-table-based-plug-ins @ file:///workspace/hetero-accel/accelergy-timeloop-infrastructure/src/accelergy-table-based-plug-ins
 anyio==3.7.1
 appdirs==1.4.4
 argon2-cffi==21.3.0
@@ -33,7 +29,6 @@ exceptiongroup==1.1.3
 executing==1.2.0
 Farama-Notifications==0.0.4
 fastjsonschema==2.18.0
-fibertree @ git+https://github.com/Fibertree-Project/fibertree@d72a4b3f41850793a4bc80262222009cab9c0bf0
 file-read-backwards==3.0.0
 filelock==3.12.2
 fonttools==4.42.0

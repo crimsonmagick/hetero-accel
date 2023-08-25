@@ -5,14 +5,15 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.callbacks import StopTrainingOnMaxEpisodes, StopTrainingOnNoModelImprovement
 from sb3_contrib import QRDQN
 
+
 logger = logging.getLogger(__name__)
 
-__all__ = ['_Agent', 'A2C_Agent']
+__all__ = ['_Agent', 'A2C_Agent', 'QRDQN_Agent']
 
 
 class _Agent():
     """Wrapper base class for stable-baselines-3 agent"""
-    def __init__(self, environment, evaluation_environment, agent_args):
+    def __init__(self, agent_args, environment, evaluation_environment):
         self.args = agent_args
         self.prefix = getattr(agent_args, 'prefix', '')
         if self.prefix:
@@ -28,7 +29,6 @@ class _Agent():
 
         self.eval_env = evaluation_environment
         self.callbacks = []
-
         if evaluation_environment is not None and agent_args.eval_frequency is not None \
                                               and agent_args.eval_frequency > 0:
             # create callbacks for the agent, starting with interleaving evaluation
@@ -38,8 +38,8 @@ class _Agent():
                                                                    min_evals=agent_args.min_evals,
                                                                    verbose=agent_args.verbose)
             callback = EvalCallback(eval_env=evaluation_environment,
-                                    best_model_save_path=logging.getLogger().logdir,
-                                    log_path=logging.getLogger().logdir,
+                                    best_model_save_path=self.args.logdir,
+                                    log_path=self.args.logdir,
                                     # this translates the eval frequency to episodes
                                     eval_freq=agent_args.eval_frequency,
                                     # epochs to run eval env on
@@ -77,10 +77,13 @@ class _Agent():
         """Evaluate the learned policy on the evaluation environment
         """
         mean_rewards, std_rewards = None, None
-        if self.args.eval_episodes is not None and self.args.eval_episodes > 0:
-            assert eval_env is not None or self.eval_env is not None, "Define an evaluation environment to evauate the " \
-                                                                      "trained policy"
+        if eval_env is None and self.eval_env is None:
+            logger.warn("Policy evaluation emitted. Define an evaluation environment to execute")
 
+        eval_env = getattr(self, 'eval_env', eval_env)
+        if eval_env is not None and \
+            self.args.eval_episodes is not None and \
+            self.args.eval_episodes > 0:
             mean_rewards, std_rewards = sb.common.evaluation.evaluate_policy(self.agent, eval_env,
                                                                              n_eval_episodes=self.args.eval_episodes)
         return mean_rewards, std_rewards
@@ -109,7 +112,7 @@ class _Agent():
 
 class A2C_Agent(_Agent):
     """Wrapper for SB3 A2C Agent"""
-    def __init__(self, env, eval_env, agent_args):
+    def __init__(self, agent_args, env, eval_env):
         # TODO: Hyperparameter tuning? (Optuna for example)
         # main agent model: A2C
         self.agent_class = sb.A2C
@@ -119,10 +122,11 @@ class A2C_Agent(_Agent):
                             device=agent_args.device,
                             use_rms_prop=True,
                             rms_prop_eps=1e-5,
-                            tensorboard_log=agent_args.logdir,
+                            # TODO: no need for tb, weights and biases?
+                            tensorboard_log=None, #agent_args.logdir,
                             verbose=agent_args.verbose,
                             seed=agent_args.seed)
-        super().__init__(env, eval_env, agent_args)
+        super().__init__(agent_args, env, eval_env)
  
 
     def save(self, save_replay_buffer=False):
@@ -134,7 +138,7 @@ class A2C_Agent(_Agent):
 
 class QRDQN_Agent(_Agent):
     """Wrapper for SB3-contrib QR-DQN Agent"""
-    def __init__(self, env, eval_env, agent_args):
+    def __init__(self, agent_args, env, eval_env):
         # main agent model: QR-DQN
         self.agent_class = QRDQN
         self.agent = QRDQN('MlpPolicy',
@@ -142,7 +146,8 @@ class QRDQN_Agent(_Agent):
                            learning_starts=1,
                            policy_kwargs=agent_args.policy_kwargs,
                            device=agent_args.device,
-                           tensorboard_log=agent_args.logdir,
+                           tensorboard_log=None, #agent_args.logdir,
                            verbose=agent_args.verbose,
                            seed=agent_args.seed)
-        super().__init__(env, eval_env, agent_args)
+        super().__init__(agent_args, env, eval_env)
+

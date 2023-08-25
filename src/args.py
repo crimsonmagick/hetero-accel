@@ -95,6 +95,10 @@ def rl_args(parser):
     rl_args = parser.add_argument_group("RL related arguments")
     rl_args.add_argument('--rl-retrain-epochs', type=int, default=0,
                          help='Retraining epochs for accuracy exploration')
+    rl_args.add_argument('--rl-model-save-frequency', type=int, default=1,
+                         help='Model saving frequency, measured in episodes. Default is every episode')
+    rl_args.add_argument('--rl-use-validation-set', action='store_true',
+                         help='Whether to use validation set during inference. If not specified, test set is used')
     rl_args.add_argument('--rl-reward-type', choices=ALL_REWARDS,
                          help=f'Type of reward for the RL agent. Choices: {ALL_REWARDS}')
     rl_args.add_argument('--rl-pruning-high', type=float, default=0.95,
@@ -119,6 +123,46 @@ def rl_args(parser):
                          help='Memory size constraint (default is 10\%)')
     rl_args.add_argument('--rl-pruning-group-type', type=pruning_group_type_arg, default='columns',
                          help='Pruning group type. Default is column pruning')
+
+    rl_agent_args = parser.add_argument_group("RL related arguments")
+    rl_agent_args.add_argument('--rl-agent-verbose', action='store_true',
+                                  help='Log various messages related to the RL agent')
+    rl_agent_args.add_argument('--rl-agent-timesteps', '--rl-agent-total-timesteps',
+                                  dest='rl_agent_total_timesteps', type=int, default=10000,
+                                  help='Total timesteps for the agent learning (default: 10000)')
+    rl_agent_args.add_argument('--rl-agent-train-episodes', '--rl-agent-episodes',
+                                  type=int, dest='rl_agent_train_episodes',
+                                  help="Number of episodes to train the agent. By default, timesteps are used as "
+                                       "a timeout criterion, with the --rl-agent-timesteps command line argument")
+    rl_agent_args.add_argument('--rl-agent-eval-episodes',
+                                  type=int, default=10,
+                                  help='Number of episodes to evaluate the learned policy. Default is 10 episodes')
+    rl_agent_args.add_argument('--rl-agent-deterministic', '--rl-agent-det',
+                                  action='store_true',
+                                  help='Set for deterministic predictions from the agent')
+    rl_agent_args.add_argument('--rl-agent-batch-size',
+                                  type=int, default=64,
+                                  help='Layer-level agent batch size. Default is 64')
+    rl_agent_args.add_argument('--rl-agent-save-frequency',
+                                  type=int, default=1,
+                                  help='Frequency of saving the agent model (in timesteps). Default is 1')
+    rl_agent_args.add_argument('--rl-agent-eval-frequency',
+                                  type=int,
+                                  help='Frequency of evaluating the agent model (in episodes).')
+    rl_agent_args.add_argument('--rl-agent-no-improvement-evals', '--rl-agent-no-improv-evals',
+                                  type=int, default=5, dest='rl_agent_no_improv_evals',
+                                  help='Number of non-improving evaluations after which the training of the '
+                                       'agent stops. Default is 5 evaluations')
+    rl_agent_args.add_argument('--rl-agent-min-evals',
+                                  type=int, default=10,
+                                  help='Minimum number of evaluations of the agent policy to conduct before '
+                                       'quiting after no improvement. Default is 10 evaluations')
+    rl_agent_args.add_argument('--rl-agent-policy-device', '--rl-agent-device',
+                                  dest='rl_agent_policy_device', choices=['cpu', 'cuda'], default='cpu',
+                                  help='Device for running the agent policy. Default is CPU')
+    rl_agent_args.add_argument('--rl-agent-load-from-path', '--rl-agent-load',
+                                  dest='rl_agent_load_from_path',
+                                  help='Specify path to load agent from')
     return parser
 
 

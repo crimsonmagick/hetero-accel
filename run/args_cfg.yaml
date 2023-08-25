@@ -36,11 +36,13 @@ optimizer_args:
 
 rl_args:
         rl_retrain_epochs: 0
+        rl_model_save_frequency: 1
+        rl_use_validation_set: False
         rl_reward_type: acc_size
         rl_pruning_high: 0.99
         rl_pruning_low: 0.01
         rl_quant_high: 8
-        rl_quant_low: 8
+        rl_quant_low: 5
         rl_top1_constraint: 2
         rl_top5_constraint: null
         rl_loss_constraint: null
@@ -48,4 +50,23 @@ rl_args:
         rl_sparsity_constraint: null
         rl_size_constraint: 50
         rl_pruning_group_type: columns
+
+rl_agent_args:
+        rl_agent_verbose: True
+        # timesteps are identical for our experiment, but do
+        #  not trigger a callback
+        rl_agent_total_timesteps: 400
+        # episodes trigger a termination callback
+        rl_agent_train_episodes: null
+        # this turns on post-training evaluation
+        rl_agent_eval_episodes: null
+        rl_agent_deterministic: False
+        rl_agent_batch_size: 64
+        rl_agent_save_frequency: 5
+        # this turns on evaluation intervals within training
+        rl_agent_eval_frequency: 2
+        rl_agent_no_improv_evals: 10
+        rl_agent_min_evals: 50
+        rl_agent_policy_device: 'cpu'
+        rl_agent_load_from_path: null
 

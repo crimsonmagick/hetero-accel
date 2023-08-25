@@ -1,5 +1,5 @@
 import numpy as np
-import gym
+import gymnasium as gym
 import logging
 import torch
 import random
@@ -30,11 +30,14 @@ class PruningQuantizationEnvironment(gym.Env):
     """Representation of a DNN for pruning and quantization
        into a gym RL Environment
     """
-    def __init__(self, data_loaders, state_args, model_args):
+    def __init__(self, data_loaders, state_args, model_args, render_mode=None):
         super(PruningQuantizationEnvironment, self).__init__()
         self.name = self.__class__.__name__
         for name, value in vars(state_args).items():
             setattr(self, name, value)
+
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
 
         # configure environment logging
         if not os.path.isdir(self.logdir):
@@ -47,7 +50,7 @@ class PruningQuantizationEnvironment(gym.Env):
         self.compressor = PruningQuantizationCompressor(model_args, data_loaders)
 
         # original accuracy statistics
-        original_val_metrics = self.run_inference()
+        original_val_metrics = self.run_inference(self.use_validation_set)
         self.original_val_metrics = Accuracy_Metrics(*original_val_metrics)
         logger.debug(f"{self.name}: Original validation metrics: {self.original_val_metrics}")
 
@@ -58,9 +61,9 @@ class PruningQuantizationEnvironment(gym.Env):
 
         # define action space
         self.action_space = gym.spaces.Box(low=0, high=1, shape=(len(Action._fields),),
-                                           dtype='float', seed=state_args.seed)
+                                           dtype='float', seed=state_args.env_seed)
         # TODO: define observation space
-        self.observation_space = gym.spaces.Box(low=0, high=1, dtype='float', seed=state_args.seed)
+        self.observation_space = gym.spaces.Box(low=0, high=1, dtype='float', seed=state_args.env_seed)
 
         # prepare for the optimization to begin
         self.current_timesteps = 0
@@ -69,14 +72,17 @@ class PruningQuantizationEnvironment(gym.Env):
         #self.compressor.log_model(self.tb_logger.writer)
         self.reset(init_only=True)
 
-    def reset(self, init_only=False, verbose=True):
+    def reset(self, init_only=False, verbose=True, seed=None):
         """Reset the environment at the start of episodes and return an observation
         """
+        # compatibility with gymnasium.Env, could be used for setting a random state
+        super().reset(seed=seed)
         logger.info("{}: Resetting the environment at {}".format(
                     self.name,
                     'initialization' if init_only else f'episode {self.episode}'))
         self.start_episode = time()
         self.current_state_idx = 0
+        info = {}  # compatibility with gymnasium.Env
 
         self.compressor.reset()
         self.get_state_representation()
@@ -91,7 +97,7 @@ class PruningQuantizationEnvironment(gym.Env):
         elif verbose:
             logger.info("+" + "-" * 50 + "+")
             logger.info(f"{self.name}: Episode {self.episode} is starting")
-        return self.get_observation()
+        return self.get_observation(), info
 
     def step(self, action):
         """Update the observation based on the agent's action
@@ -115,7 +121,9 @@ class PruningQuantizationEnvironment(gym.Env):
 
         info['val_metrics'] = self.latest_val_metrics
         info['hw_metrics'] = self.latest_hw_metrics
-        return obs, self.latest_reward, True, info
+        
+        truncated = False  # compatibility with gymnasium.Env
+        return obs, self.latest_reward, True, truncated, info
 
     def prune_and_quantize(self, action):
         """Prune and quantize the DNN based on the action
@@ -158,7 +166,7 @@ class PruningQuantizationEnvironment(gym.Env):
             self.compressor.train(self.retrain_epochs)
 
         # calculate accuracy and hw-related metrics
-        val_metrics = self.run_inference()
+        val_metrics = self.run_inference(self.use_validation_set)
         self.latest_val_metrics = Accuracy_Metrics(*val_metrics)
         hw_metrics = self.compute_resources()
         self.latest_hw_metrics = HW_Metrics(*hw_metrics)
@@ -203,7 +211,11 @@ class PruningQuantizationEnvironment(gym.Env):
             is_best = True
             self.best_reward = reward
             self.best_episode = self.episode
-        self.compressor.save_model(self.episode, is_best)
+
+        if getattr(self, 'model_save_frequency', None) is not None and \
+            self.model_save_frequency > 0 and \
+            self.episode + 1 % self.model_save_frequency == 0:
+            self.compressor.save_model(self.episode, is_best)
  
         # log the evaluation results of the the current episode
         logstr = [f'{metric.capitalize()}: {value:.3e}'

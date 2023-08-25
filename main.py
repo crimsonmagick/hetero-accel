@@ -13,6 +13,9 @@ from src.dataset import load_data
 from src.rl.env import PruningQuantizationEnvironment
 from src.rl.compressor import PruningQuantizationCompressor 
 from src.rl import reward as rewards
+from src.rl.agent import A2C_Agent
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 
 logger = logging.getLogger(__name__)
@@ -121,10 +124,12 @@ def rl():
             dnn_args.pretrained = False
 
 
-
+        # initialize environment
         state_args = SimpleNamespace(logdir=args.logdir,
-                                     seed=args.global_seed,
+                                     env_seed=args.global_seed,
+                                     model_save_frequency=args.rl_model_save_frequency,
                                      retrain_epochs=args.rl_retrain_epochs,
+                                     use_validation_set=args.rl_use_validation_set,
                                      reward_fn=rewards.__dict__[args.rl_reward_type],
                                      accuracy_constraints=SimpleNamespace(top1=args.rl_top1_constraint,
                                                                           top5=args.rl_top5_constraint,
@@ -152,13 +157,47 @@ def rl():
                                            layer_type_whitelist=(torch.nn.Conv2d,),
                                            pruning_group_type=args.rl_pruning_group_type,
                                            )
-        env = PruningQuantizationEnvironment(data_loaders, state_args, compression_args)
-        done = False
-        while not done:
-            action = env.action_space.sample()
-            print(action)
-            obs, reward, done, info = env.step(action)
-            print(obs, reward, done, info)
+        def make_env():
+            env = PruningQuantizationEnvironment(data_loaders, state_args, compression_args)
+            #check_env(env)
+            return env
+        # add a wrapper for single threaded execution
+        #env = DummyVecEnv([lambda: make_env()])
+        env = make_env()
+
+        # initialize agent
+        agent_args = SimpleNamespace(logdir=args.logdir,
+                                     prefix=None,
+                                     deterministic=args.rl_agent_deterministic,
+                                     seed=args.global_seed,
+                                     verbose=args.rl_agent_verbose,
+                                     policy_kwargs=dict(),
+                                     device=env.compressor.device,
+                                     eval_frequency=args.rl_agent_eval_frequency,
+                                     no_improv_evals=args.rl_agent_no_improv_evals,
+                                     min_evals=args.rl_agent_min_evals,
+                                     timesteps=args.rl_agent_total_timesteps,
+                                     train_episodes=args.rl_agent_train_episodes,
+                                     eval_episodes=args.rl_agent_eval_episodes,
+                                     load_from=args.rl_agent_load_from_path)
+        agent = A2C_Agent(agent_args, env, None)
+
+        # train the agent
+        agent.learn()
+
+        # evaluate the agent
+        eval_env = env
+        mean_reward, std_reward = agent.evaluate_policy(eval_env)
+        if mean_reward is not None and std_reward is not None:
+            logger.info("Policy evaluation: mean rewards: {mean_reward:.3e}, std rewards: {std_reward:.3e}")
+
+        # explicit episode execution to gather final actions and metrics
+        obs_t0 = eval_env.env.reset()
+        action, _ = agent.predict(obs)
+        obs_t1, reward, done, info = env.step(action)
+
+        agent.finalize()
+
 
         exit()
 
