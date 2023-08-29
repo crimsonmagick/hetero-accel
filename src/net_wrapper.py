@@ -66,6 +66,7 @@ class TorchNetworkWrapper:
     def init_model(self):
         self.model = create_model(self.arch,
                                   self.dataset,
+                                  self.batch_size,
                                   self.pretrained,
                                   parallel=not self.load_serialized,
                                   device_ids=self.gpus,)

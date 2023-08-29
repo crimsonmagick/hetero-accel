@@ -140,6 +140,7 @@ def rl():
                                      )
         compression_args = SimpleNamespace(arch=dnn_args.arch,
                                            dataset=dnn_args.dataset,
+                                           batch_size=dnn_args.batch_size,
                                            gpus=args.gpus,
                                            cpu=args.cpu,
                                            load_serialized=args.load_serialized,

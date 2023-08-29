@@ -10,7 +10,7 @@ op_mode_args:
         test_timeloop_accelergy_mode: False
 
 model_args:
-        arch: [mobilenet_cifar10, resnet18_cifar100]
+        arch: [resnet18_imagenet]
         workers: 15
         batch_size: 64
         load_serialized: False

@@ -1,5 +1,6 @@
 import torch
 import logging
+import pytorch2timeloop as p2t
 import torchvision.models as torch_models
 from . import lenet_mnist as lenet_mnist_model
 from . import alexnet_cifar as alexnet_cifar_model
@@ -12,19 +13,20 @@ from . import efficientnet_cifar_playground as efficientnet_cifar_model
 logger = logging.getLogger(__name__)
 
 
-def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None, verbose=True):
+def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True,
+                 device_ids=None, verbose=True, to_timeloop=False):
     """Create a PyTorch model based on the given architecture and dataset
     """
     def get_model_input_shape():
         """Determine input shape based on classification dataset"""
         if 'inception_v3' in arch:
-            return (1, 3, 299, 299)
+            return (batch_size, 3, 299, 299)
         if dataset == 'imagenet':
-            return (1, 3, 224, 224)
+            return (batch_size, 3, 224, 224)
         elif 'cifar' in dataset:
-            return (1, 3, 32, 32)
+            return (batch_size, 3, 32, 32)
         elif dataset == 'mnist':
-            return (1, 1, 28, 28)
+            return (batch_size, 1, 28, 28)
 
     def assign_layer_names():
         """Assign human-readable names to the modules (layers)"""
@@ -46,6 +48,19 @@ def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None,
             "=> created a {}{} model with the {} dataset".format('pretrained ' if pretrained else '', arch, dataset)
         )
 
+    if to_timeloop:
+        # convert the model to Timeloop-compatible workload files
+        # TODO: Check why this is not possible after DataParallel
+        input_size = get_model_input_shape()
+        p2t.convert_model(model=model,
+                          input_size=tuple(list(input_size)[1:]),
+                          batch_size=batch_size,
+                          model_name=arch,
+                          save_dir=logging.getLogger().logdir,
+                          convert_fc=True,
+                          ignored_func=None,
+                          exception_module_names=['*conv*'])
+
     # configure device and parallel model
     if torch.cuda.is_available() and device_ids != -1:
         device = 'cuda'
@@ -54,10 +69,10 @@ def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None,
                 model.features = torch.nn.DataParallel(model.features, device_ids=device_ids)
             else:
                 model = torch.nn.DataParallel(model, device_ids=device_ids)
-        model.is_parallel = parallel
+        #model.is_parallel = parallel
     else:
         device = 'cpu'
-        model.is_parallel = False
+        #model.is_parallel = False
 
     assign_layer_names()
     model.input_shape = get_model_input_shape()

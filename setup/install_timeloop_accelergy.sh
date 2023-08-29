@@ -8,6 +8,11 @@ mkdir -p timeloop-accelergy
 cd timeloop-accelergy
 git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
 cd accelergy-timeloop-infrastructure
+# TODO: This does not work as is!
+#	Workaround:
+#		first run ``git submodule sync && git submodule update --init'' within the "accelergy-timeloop-infrastructure" directory
+#		then remove ``git submodule update --remote --merge && \'' from the Makefile (line 39, under "pull")
+#		then ``make pull'' works as expected
 make pull
 cd src/cacti
 make
