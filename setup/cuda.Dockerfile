@@ -41,33 +41,37 @@ SHELL ["conda", "run", "-n", "haccel", "/bin/bash", "--login", "-c"]
 RUN pip install --upgrade pip && \
 	pip install -r setup/requirements.txt
 
+# clone the pytorch-to-timeloop converter tool
+RUN git clone https://github.com/Accelergy-Project/pytorch2timeloop-converter.git
+
 # install timeloop-accelergy
+# TODO: This does not work! Commenting and including a script to install everything in the setup folder
 #RUN git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
-WORKDIR accelergy-timeloop-infrastructure
-RUN make pull
-WORKDIR src/cacti
-RUN make
-WORKDIR ../accelergy
-RUN pip install --upgrade pip && \
-	pip install .
-WORKDIR ../accelergy-aladdin-plug-in/
-RUN pip install .
-WORKDIR ../accelergy-cacti-plug-in/
-RUN pip install .
-RUN cp -r ../cacti /opt/conda/envs/haccel/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
-WORKDIR ../accelergy-table-based-plug-ins/
-RUN pip install .
-WORKDIR ../timeloop/src/
-RUN ln -s ../pat-public/src/pat .
-WORKDIR ..
-RUN scons -j4 --accelergy --static
-RUN cp build/timeloop-* /opt/conda/envs/haccel/bin
-WORKDIR ../../..
-RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
-	accelergy && \
-	accelergyTables
-RUN pip install git+https://github.com/Fibertree-Project/fibertree jupyter
-ENV PATH $PATH:/opt/conda/evns/haccel/bin
+#WORKDIR accelergy-timeloop-infrastructure
+#RUN make pull
+#WORKDIR src/cacti
+#RUN make
+#WORKDIR ../accelergy
+#RUN pip install --upgrade pip && \
+#	pip install .
+#WORKDIR ../accelergy-aladdin-plug-in/
+#RUN pip install .
+#WORKDIR ../accelergy-cacti-plug-in/
+#RUN pip install .
+#RUN cp -r ../cacti /opt/conda/envs/haccel/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
+#WORKDIR ../accelergy-table-based-plug-ins/
+#RUN pip install .
+#WORKDIR ../timeloop/src/
+#RUN ln -s ../pat-public/src/pat .
+#WORKDIR ..
+#RUN scons -j4 --accelergy --static
+#RUN cp build/timeloop-* /opt/conda/envs/haccel/bin
+#WORKDIR ../../..
+#RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+#	accelergy && \
+#	accelergyTables
+#RUN pip install git+https://github.com/Fibertree-Project/fibertree jupyter
+#ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
 SHELL ["/bin/bash", "--login", "-c"]

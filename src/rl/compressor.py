@@ -11,6 +11,8 @@ from glob import glob
 from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
+from src.models import create_model
+from src.utils import weight_init, load_checkpoint
 from src.rl.pruning import Pruner
 from src.rl.quantization import Quantizer
 from src.timeloop import TimeloopProblem
@@ -43,6 +45,28 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             raise NotImplementedError
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           lr=0.01, weight_decay=1e-4)
+
+    def init_model(self):
+        """Overriding original method to include timeloop workload files
+        """
+        self.model = create_model(self.arch,
+                                  self.dataset,
+                                  self.batch_size,
+                                  self.pretrained,
+                                  parallel=not self.load_serialized,
+                                  device_ids=self.gpus,
+                                  verbose=True,
+                                  to_timeloop=True)
+        self.model.apply(weight_init)
+
+        if self.resumed_checkpoint_path is not None:
+            self.model, _ = load_checkpoint(
+                self.model,
+                self.resumed_checkpoint_path,
+                model_device=self.device,
+                to_cpu=self.device == 'cpu',
+                #verbose=self.verbose
+            )
 
     def reset(self):
         self.model = deepcopy(self.original_model)
