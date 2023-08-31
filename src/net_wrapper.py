@@ -30,6 +30,7 @@ class TorchNetworkWrapper:
     def from_args(cls, args):
         args = SimpleNamespace(arch=args.arch,
                                dataset=args.dataset,
+                               batch_size=args.batch_size,
                                gpus=args.gpus,
                                cpu=args.cpu,
                                load_serialized=args.load_serialized,
@@ -66,6 +67,7 @@ class TorchNetworkWrapper:
     def init_model(self):
         self.model = create_model(self.arch,
                                   self.dataset,
+                                  self.batch_size,
                                   self.pretrained,
                                   parallel=not self.load_serialized,
                                   device_ids=self.gpus,)

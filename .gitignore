@@ -6,4 +6,5 @@ logs/
 latest_log_dir
 latest_log_file
 wandb
-
+timeloop-mapper*
+timeloop-model*

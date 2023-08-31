@@ -166,6 +166,17 @@ def rl_args(parser):
     return parser
 
 
+def accel_args(parser):
+    """Arguments related to the hardware DNN accelerator
+    """
+    accel_args = parser.add_argument_group("Accelerator-related arguments")
+    accel_args.add_argument('--accelerator-type', dest='accelerator_arch_type',
+                            type=accelerator_type_arg, default='eyeriss',
+                            help='Type of accelerator architecture. Default is Eyeriss-like')
+
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """
@@ -192,11 +203,25 @@ def optimizer_type_arg(argstr):
         raise argparse.ArgumentTypeError(f"--optimizer-type argument must be one of the following: "
                                          f"{str_to_optimizer_type_map.keys()}. Invalid argument {argstr}")
 
+
 def pruning_group_type_arg(argstr):
     try:
         pruning_group_type_dict = {str(entry.name).lower(): entry for entry in PruningGroupType}
         return pruning_group_type_dict[argstr.lower()]
     except KeyError:
         raise argparse.ArgumentTypeError(f"Invalid argument {argstr} for --pruning-group-type argument")
+
+
+class AcceleratorType(Enum):
+    Eyeriss = 1
+
+str_to_accelerator_type_map = {'eyeriss': AcceleratorType.Eyeriss,}
+
+def accelerator_type_arg(argstr):
+    try:
+        return str_to_accelerator_type_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--accelerator-type argument must be one of the following: "
+                                         f"{str_to_accelerator_type_map.keys()}. Invalid argument {argstr}")
 
 

@@ -4,7 +4,6 @@ import math
 import torch
 import torch.nn.functional as F
 import torchnet.meter as tnt
-from einops import rearrange
 from collections import OrderedDict
 from src.utils import log_training_progress 
 

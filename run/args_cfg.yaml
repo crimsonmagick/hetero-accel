@@ -10,7 +10,7 @@ op_mode_args:
         test_timeloop_accelergy_mode: False
 
 model_args:
-        arch: [mobilenet_cifar10, resnet18_cifar100]
+        arch: [resnet18_cifar100, vgg11_cifar10]
         workers: 15
         batch_size: 64
         load_serialized: False
@@ -69,4 +69,7 @@ rl_agent_args:
         rl_agent_min_evals: 50
         rl_agent_policy_device: 'cpu'
         rl_agent_load_from_path: null
+
+accel_args:
+        accelerator_arch_type: eyeriss
 

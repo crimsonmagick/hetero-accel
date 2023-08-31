@@ -4,10 +4,9 @@ import os
 
 project_dir = os.path.dirname(os.path.dirname(__file__))
 
-_tl_accel_dir = os.path.join(project_dir, 'accelergy-timeloop-infrastructure', 'src')
-accelergy_dir = os.path.join(_tl_accel_dir, 'accelergy')
-timeloop_dir = os.path.join(os.path.dirname(_tl_accel_dir), 'timeloop-accelergy-exercises', 'workspace',
-                            'exercises', '2020.ispass', 'timeloop', '06-mapper-convlayer-eyeriss')
+_tl_accel_dir = os.path.join(project_dir, 'accelergy-timeloop-infrastructure')
+timeloop_dir = os.path.join(project_dir, 'accelergy-timeloop-infrastructure', 'timeloop-accelergy-exercises',
+                            'workspace', 'exercises', '2020.ispass', 'timeloop')
 
 dataset_dirs = {
         'mnist': os.path.join(os.path.dirname(project_dir), 'data', 'mnist'),

@@ -12,19 +12,19 @@ from . import efficientnet_cifar_playground as efficientnet_cifar_model
 logger = logging.getLogger(__name__)
 
 
-def create_model(arch, dataset, pretrained=True, parallel=True, device_ids=None, verbose=True):
+def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, device_ids=None, verbose=True):
     """Create a PyTorch model based on the given architecture and dataset
     """
     def get_model_input_shape():
         """Determine input shape based on classification dataset"""
         if 'inception_v3' in arch:
-            return (1, 3, 299, 299)
+            return (batch_size, 3, 299, 299)
         if dataset == 'imagenet':
-            return (1, 3, 224, 224)
+            return (batch_size, 3, 224, 224)
         elif 'cifar' in dataset:
-            return (1, 3, 32, 32)
+            return (batch_size, 3, 32, 32)
         elif dataset == 'mnist':
-            return (1, 1, 28, 28)
+            return (batch_size, 1, 28, 28)
 
     def assign_layer_names():
         """Assign human-readable names to the modules (layers)"""

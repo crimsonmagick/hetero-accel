@@ -55,7 +55,7 @@ class PruningQuantizationEnvironment(gym.Env):
         logger.debug(f"{self.name}: Original validation metrics: {self.original_val_metrics}")
 
         # original compression metrics
-        original_hw_metrics = self.compute_resources()
+        original_hw_metrics = self.compute_resources(init=True)
         self.original_hw_metrics = HW_Metrics(*original_hw_metrics)
         logger.debug(f"{self.name}: Original hardware metrics: {self.original_hw_metrics}")
 
@@ -150,11 +150,11 @@ class PruningQuantizationEnvironment(gym.Env):
             return self.compressor.validate()
         return self.compressor.test()
 
-    def compute_resources(self):
+    def compute_resources(self, init=False):
         """Compute the compression metrics related to pruning and quantization
         """
         sparsity, size = self.compressor.compute_model_statistics()
-        area, latency, power, energy = self.compressor.compute_accelerator_statistics()
+        area, latency, power, energy = self.compressor.compute_accelerator_statistics(init)
         return area, latency, power, energy, sparsity, size 
 
     def compute_reward(self):

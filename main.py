@@ -14,6 +14,7 @@ from src.rl.env import PruningQuantizationEnvironment
 from src.rl.compressor import PruningQuantizationCompressor 
 from src.rl import reward as rewards
 from src.rl.agent import A2C_Agent
+from src.timeloop import TimeloopConfig
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -140,6 +141,7 @@ def rl():
                                      )
         compression_args = SimpleNamespace(arch=dnn_args.arch,
                                            dataset=dnn_args.dataset,
+                                           batch_size=dnn_args.batch_size,
                                            gpus=args.gpus,
                                            cpu=args.cpu,
                                            load_serialized=args.load_serialized,
@@ -156,6 +158,7 @@ def rl():
                                            quant_low=args.rl_quant_low,
                                            layer_type_whitelist=(torch.nn.Conv2d,),
                                            pruning_group_type=args.rl_pruning_group_type,
+                                           timeloop_files=TimeloopConfig(args.accelerator_arch_type)
                                            )
         def make_env():
             env = PruningQuantizationEnvironment(data_loaders, state_args, compression_args)
@@ -164,6 +167,9 @@ def rl():
         # add a wrapper for single threaded execution
         #env = DummyVecEnv([lambda: make_env()])
         env = make_env()
+        do_exit = handle_model_subapps(env.compressor, data_loaders, args)
+        if do_exit:
+            return
 
         # initialize agent
         agent_args = SimpleNamespace(logdir=args.logdir,

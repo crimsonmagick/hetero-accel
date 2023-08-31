@@ -21,8 +21,8 @@ from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
 from time import time
-from src import project_dir
-from src.args import app_args, model_args, rl_args, check_args
+from src import project_dir, timeloop_dir
+from src.args import app_args, model_args, rl_args, accel_args, check_args
 
 
 __all__ = [
@@ -42,6 +42,7 @@ def env_cfg():
     parser = app_args(parser)
     parser = model_args(parser)
     parser = rl_args(parser)
+    parser = accel_args(parser)
     # parse command arguments 
     args = parser.parse_args()
 
@@ -417,13 +418,13 @@ def get_dummy_input(device=None, input_shape=None):
 
 
 def model_summary(model):
-    """Record statistics for input/output dimentions of each layer of a given model
+    """Record statistics for input/output dimensions of each layer of a given model
     """
     def register_hook(module):
         def stats_hook(module, input, output):
             # access info via attribute
             info = SimpleNamespace()
-            dimentions = OrderedDict()
+            dimensions = OrderedDict()
 
             # input and output tensor sizes
             try:
@@ -431,43 +432,50 @@ def model_summary(model):
             except AttributeError:
                 ifm = input[0][0].size()
             ofm = output.size()
-            
+ 
             if isinstance(module, torch.nn.Conv2d):
                 # input shape of (batch_size, nfm, fm_h, fm_w)
                 # naming conventions taken from DiGamma: https://arxiv.org/abs/2201.11220
-                dimentions['K'] = ofm[-3]
-                dimentions['Yo'] = ofm[-2]
-                dimentions['Xo'] = ofm[-1]
-                dimentions['C'] = ifm[-3]
-                dimentions['Yi'] = ifm[-2]
-                dimentions['Xi'] = ifm[-1]
-                dimentions['R'] = module.kernel_size[0]
-                dimentions['S'] = module.kernel_size[1]
-                info.stride = module.stride[0]
-                info.is_conv = True
+                dimensions['K'] = ofm[-3]
+                dimensions['Yo'] = ofm[-2]
+                dimensions['Xo'] = ofm[-1]
+                dimensions['C'] = ifm[-3]
+                dimensions['Yi'] = ifm[-2]
+                dimensions['Xi'] = ifm[-1]
+                dimensions['N'] = ifm[0]
+                dimensions['R'] = module.kernel_size[0]
+                dimensions['S'] = module.kernel_size[1]
+                dimensions['Hpad'] = module.padding[0]
+                dimensions['Wpad'] = module.padding[1]
+                dimensions['Hstr'] = module.stride[0]
+                dimensions['Wstr'] = module.stride[1]
+                dimensions['groups'] = module.groups
                 info.type_int = 0
                 info.weights_volume = np.prod(module.weight.shape)
-                info.macs = dimentions['K'] * dimentions['Yo'] * dimentions['Xo'] * \
-                            dimentions['C'] / module.groups * dimentions['R'] * dimentions['S']
+                info.macs = dimensions['K'] * dimensions['Yo'] * dimensions['Xo'] * \
+                            dimensions['C'] / module.groups * dimensions['R'] * dimensions['S']
                 info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
 
             elif isinstance(module, torch.nn.Linear):
                 # input shape of (batch_size, n_neurons)
-                dimentions['K'] = module.out_features
-                dimentions['C'] = module.in_features
-                dimentions['Yo'] = dimentions['Xo'] = ofm[-1]
-                dimentions['Yi'] = dimentions['Xi'] = ifm[-1]
-                dimentions['R'] = dimentions['S'] = 1
-                # NOTE: We set the stride of FC layers to 1 (instead of 0), to avoid ZeroDivisionErrors
-                info.stride = 1
-                info.is_conv = False
+                dimensions['K'] = module.out_features
+                dimensions['C'] = module.in_features
+                dimensions['Yo'] = dimensions['Xo'] = 1
+                dimensions['Yi'] = dimensions['Xi'] = 1
+                dimensions['R'] = dimensions['S'] = 1
+                dimensions['N'] = ifm[0]
+                dimensions['Hpad'] = dimensions['Wpad'] = 0
+                dimensions['Hstr'] = dimensions['Wstr'] = 1
+                dimensions['groups'] = 1
                 info.type_int = 1
                 info.weights_volume = info.macs = np.prod(module.weight.shape)
                 info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
 
+            #TODO: Include descriptions of pooling layers
+
             # store all data, accessible by layer name
             info.layer_type = module.__class__.__name__
-            info.dimentions = dimentions
+            info.dimensions = dimensions
             summary[module.full_name] = info
 
         handle = module.register_forward_hook(stats_hook)
@@ -517,9 +525,17 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         do_exit = True
 
     elif args.test_timeloop_accelergy_mode:
-        from src import accelergy_dir
-        inputs_dir = os.path.join(accelergy_dir, 'examples', 'hierarchy', 'input')
+        # test accelergy
+        accelergy_dir = os.path.join(os.path.dirname(timeloop_dir), 'accelergy')
+        inputs_dir = os.path.join(accelergy_dir, '04_eyeriss_like', 'input')
         positional_args = f'{inputs_dir}/*.yaml {inputs_dir}/components/*.yaml'
+        # correct accelergy version on files in the exercise
+        for arch_file in glob(f'{inputs_dir}/*.yaml') + glob(f'{inputs_dir}/components/*.yaml'):
+            command = rf"sed -i 's_\(version:\).*_\1 0.3_' {arch_file}"
+            logger.debug(f'Executing sed command:\n{command}')
+            p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
+            logger.debug(f'Command status: {p.returncode}')
+
         command = f'accelergy {positional_args} '\
                   f'--outdir {net_wrapper.logdir} ' \
                   f'--output_files energy_estimation ERT_summary ART_summary flattened_arch '\
@@ -530,17 +546,33 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
         logger.debug(f'Stdout: {p.stdout}')
         logger.debug(f'Stderr: {p.stderr}')
-        logger.debug(f'Executed accelergy command in {time() - start:.3e}s')
+        logger.info(f'Executed accelergy command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
-        from src import timeloop_dir
-        arch = os.path.join(timeloop_dir, 'arch', )
-        command = f'timeloop-model {arch} {problem} {mapping}'
+        # test timeloop model
+        inputs_dir = os.path.join(timeloop_dir, '04-model-conv1d+oc-3levelspatial')
+        command = f'timeloop-model '\
+                  f'{inputs_dir}/arch/*.yaml '\
+                  f'{inputs_dir}/map/conv1d+oc+ic-3levelspatial-cp-ws.map.yaml '\
+                  f'{inputs_dir}/prob/*.yaml'
         start = time()
         p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
         logger.debug(f'Stdout: {p.stdout}')
         logger.debug(f'Stderr: {p.stderr}')
-        logger.debug(f'Executed timeloop-model command in {time() - start:.3e}s')
+        logger.info(f'Executed timeloop-model command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
+        # test timeloop mapper
+        inputs_dir = os.path.join(os.path.dirname(timeloop_dir), 'timeloop+accelergy')
+        command = f'timeloop-mapper '\
+                  f'{inputs_dir}/arch/eyeriss_like-int16.yaml '\
+                  f'{inputs_dir}/arch/components/*.yaml '\
+                  f'{inputs_dir}/prob/prob.yaml '\
+                  f'{inputs_dir}/mapper/mapper.yaml '\
+                  f'{inputs_dir}/constraints/*.yaml '
+        start = time()
+        p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
+        logger.debug(f'Stdout: {p.stdout}')
+        logger.debug(f'Stderr: {p.stderr}')
+        logger.info(f'Executed timeloop-mapper command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
     return do_exit
 

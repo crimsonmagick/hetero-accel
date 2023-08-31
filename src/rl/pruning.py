@@ -35,7 +35,7 @@ class Pruner:
             self.prune = self.prune_eridanus_blocks
 
     def prune_rows_columns(self, model, pruning_ratio):
-        """Prune on a given dimention (columns or rows) of the weight matrix, globally,
+        """Prune on a given dimension (columns or rows) of the weight matrix, globally,
            based on the pruning ratio.
            NOTE: Pruning columns with the method below is the same as pruning filters
         """
