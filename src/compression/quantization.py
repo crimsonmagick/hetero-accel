@@ -11,7 +11,7 @@ QuantMetadata = namedtuple('QuantMetadata', ['scale', 'zero_point', 'min_q_val',
 
 
 class Quantizer:
-    def __init__(self, args, layers_to_compress, signed_quant=True, symmetric_quant=True):
+    def __init__(self, layers_to_compress, signed_quant=True, symmetric_quant=True):
         self.layers_to_compress = layers_to_compress
         self.signed = signed_quant
         self.symmetric = symmetric_quant

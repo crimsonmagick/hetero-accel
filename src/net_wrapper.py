@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 class TorchNetworkWrapper:
     """DNN wrapper with training/testing functionality
     """
-    def __init__(self, args):
+    def __init__(self, args, model=None):
         for name, value in vars(args).items():
             setattr(self, name, value)
 
         self.config_compute_device()
-        self.init_model()
+        self.model = model
+        if model is None:
+            self.init_model()
         self.summary = model_summary(self.model)
         self.num_layers = len(self.summary)
 
@@ -37,8 +39,8 @@ class TorchNetworkWrapper:
                                pretrained=args.pretrained,
                                resumed_checkpoint_path=args.resumed_checkpoint_path,
                                profile_model=args.use_profiler,
-                               print_frequency=args.print_frequency,
-                               verbose=args.verbose,
+                               print_frequency=args.batch_print_frequency,
+                               verbose=args.model_verbose,
                                logdir=args.logdir,
                                )
         return cls(args)
@@ -138,10 +140,10 @@ class TorchNetworkWrapper:
         return top1, top5, loss
 
 
-    def save_model(self, episode, is_best, verbose=True):
+    def save_model(self, name=None, episode=None, is_best=False, verbose=True):
         """Save the current version of the model
         """
         save_checkpoint(arch=self.model.arch, model=self.model,
-                        epoch=episode, is_best=is_best, savedir=self.logdir, verbose=verbose)
-        logger.debug(f"Saved model:\n{self.model}")
+                        epoch=episode, is_best=is_best, verbose=verbose,
+                        name=name, savedir=self.logdir)
 

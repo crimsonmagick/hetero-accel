@@ -2,7 +2,7 @@ import os
 from enum import Enum
 from src import project_dir
 from src.rl import reward as rewards
-from src.rl.pruning import PruningGroupType
+from src.compression.pruning import PruningGroupType
 
 
 def app_args(parser):
@@ -16,6 +16,9 @@ def app_args(parser):
                         help='Global seed for deterministic execution')
     parser.add_argument('--yaml-cfg-file', 
                         help='YAML file containing the experiment description')
+    parser.add_argument('--dnn-accuracy-lut-file', metavar='PATH',
+                        help='Path where the DNN-accuracy LUT is saved. Should contain '
+                             'statistics for each DNN, per pruning-quantization profile')
 
     op_mode = parser.add_argument_group("Execution mode arguments")
     op_mode_exc = op_mode.add_mutually_exclusive_group()
@@ -85,6 +88,36 @@ def model_args(parser):
     return parser
 
 
+def compression_args(parser):
+    """Arguments for pruning/quantization exploration
+    """
+    compression_args = parser.add_argument_group("Compression related arguments")
+    compression_args.add_argument('--pruning-group-type', type=pruning_group_type_arg, default='columns',
+                                  help='Pruning group type. Default is column pruning')
+    compression_args.add_argument('--use-validation-set', action='store_true',
+                                  help='Whether to use validation set during inference. If not specified, test set is used')
+    compression_args.add_argument('--pruning-high', type=float, default=0.95,
+                                  help='Highest bound for pruning')
+    compression_args.add_argument('--pruning-low', type=float, default=0.0,
+                                  help='Lowest bound for pruning')
+    compression_args.add_argument('--pruning-increment', '--pruning-incr', dest='pruning_incr', type=float, default=0.05,
+                                  help='Increment step for pruning exploration')
+    compression_args.add_argument('--quant-high', type=int, default=8,
+                                  help='Highest bound for weight quantization')
+    compression_args.add_argument('--quant-low', type=int, default=2,
+                                  help='Lowest bound for weight quantization')
+    compression_args.add_argument('--quantization-increment', '--quant-incr', dest='quant_incr', type=int, default=2,
+                                  help='Increment step for quantization exploration')
+    compression_args.add_argument('--top1-constraint', type=float, default=1,
+                                  help='Top1 accuracy loss constraint (default is 1\%)')
+    compression_args.add_argument('--top5-constraint', type=float,
+                                  help='Top5 accuracy loss constraint')
+    compression_args.add_argument('--loss-constraint', type=float,
+                                  help='Objective loss constraint')
+
+    return parser
+
+
 def rl_args(parser):
     """Arguments for reinforcement learning
     """
@@ -97,32 +130,14 @@ def rl_args(parser):
                          help='Retraining epochs for accuracy exploration')
     rl_args.add_argument('--rl-model-save-frequency', type=int, default=1,
                          help='Model saving frequency, measured in episodes. Default is every episode')
-    rl_args.add_argument('--rl-use-validation-set', action='store_true',
-                         help='Whether to use validation set during inference. If not specified, test set is used')
     rl_args.add_argument('--rl-reward-type', choices=ALL_REWARDS,
                          help=f'Type of reward for the RL agent. Choices: {ALL_REWARDS}')
-    rl_args.add_argument('--rl-pruning-high', type=float, default=0.95,
-                         help='Highest bound for sparsity as an RL action')
-    rl_args.add_argument('--rl-pruning-low', type=float, default=0.0,
-                         help='Lowest bound for sparsity as an RL action')
-    rl_args.add_argument('--rl-quant-high', type=int, default=8,
-                         help='Highest bound for weight quantization as an RL action')
-    rl_args.add_argument('--rl-quant-low', type=int, default=2,
-                         help='Lowest bound for weight quantization as an RL action')
-    rl_args.add_argument('--rl-top1-constraint', type=float, default=1,
-                         help='Top1 accuracy loss constraint (default is 1\%)')
-    rl_args.add_argument('--rl-top5-constraint', type=float,
-                         help='Top5 accuracy loss constraint')
-    rl_args.add_argument('--rl-loss-constraint', type=float,
-                         help='Objective loss constraint')
     rl_args.add_argument('--rl-energy-constraint', type=float, default=10,
                          help='Energy constraint (default is 10\%)')
     rl_args.add_argument('--rl-sparsity-constraint', type=float, default=10,
                          help='Sparsity constraint (default is 10\%)')
     rl_args.add_argument('--rl-size-constraint', type=float, default=10,
                          help='Memory size constraint (default is 10\%)')
-    rl_args.add_argument('--rl-pruning-group-type', type=pruning_group_type_arg, default='columns',
-                         help='Pruning group type. Default is column pruning')
 
     rl_agent_args = parser.add_argument_group("RL related arguments")
     rl_agent_args.add_argument('--rl-agent-verbose', action='store_true',
@@ -182,8 +197,8 @@ def check_args(args):
     """
     if args.resumed_checkpoint_path:
         assert len(args.arch) == args.resumed_checkpoint_path
-    assert 0 <= args.rl_pruning_low <= args.rl_pruning_high <= 1
-    assert 2 <= args.rl_quant_low <= args.rl_quant_high <= 8
+    assert 0 <= args.pruning_low <= args.pruning_high <= 1
+    assert 2 <= args.quant_low <= args.quant_high <= 8
 
 
 

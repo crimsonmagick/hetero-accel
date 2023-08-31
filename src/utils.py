@@ -22,7 +22,7 @@ from glob import glob
 from tabulate import tabulate
 from time import time
 from src import project_dir, timeloop_dir
-from src.args import app_args, model_args, rl_args, accel_args, check_args
+from src.args import app_args, model_args, compression_args, rl_args, accel_args, check_args
 
 
 __all__ = [
@@ -41,6 +41,7 @@ def env_cfg():
     parser = argparse.ArgumentParser("Hetero-Accel")
     parser = app_args(parser)
     parser = model_args(parser)
+    parser = compression_args(parser)
     parser = rl_args(parser)
     parser = accel_args(parser)
     # parse command arguments 
@@ -294,9 +295,11 @@ def save_checkpoint(arch, model, epoch=0, optimizer=None, extras=None, is_best=F
     if extras is not None and not isinstance(extras, dict):
         raise TypeError('extras must be either a dict or None')
 
+    # if not specified, set a name based on the epoch
     if name is None:
-        epoch_str = str(epoch).zfill(4)
+        epoch_str = str(epoch).zfill(4) if epoch is not None else str(0).zfill(4)
         name = f'best' if is_best else 'checkpoint_' + str(epoch).zfill(4)
+
     filename = name + '.pth.tar'
     fullpath = os.path.join(savedir, filename)
     model_filename = 'fullmodel_' + name
@@ -316,12 +319,6 @@ def save_checkpoint(arch, model, epoch=0, optimizer=None, extras=None, is_best=F
     if optimizer is not None:
         checkpoint['optimizer_state_dict'] = optimizer.state_dict()
         checkpoint['optimizer_type'] = type(optimizer)
-
-    # save the approximate multipliers f
-    checkpoint['ax_mults'] = OrderedDict()
-    for name, module in model.named_modules():
-        if hasattr(module, 'axx_mult'):
-            checkpoint['ax_mults'][name] = module.axx_mult
 
     torch.save(checkpoint, fullpath)
     try:

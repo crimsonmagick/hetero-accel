@@ -13,8 +13,8 @@ from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
 from src.models import create_model
 from src.utils import weight_init, load_checkpoint
-from src.rl.pruning import Pruner
-from src.rl.quantization import Quantizer
+from src.compression.pruning import Pruner
+from src.compression.quantization import Quantizer
 from src.timeloop import TimeloopProblem
 
 
@@ -24,20 +24,16 @@ logger = logging.getLogger(__name__)
 class PruningQuantizationCompressor(TorchNetworkWrapper):
     """Class to handle all the compression-related actions
     """
-    def __init__(self, args, data_loaders):
-        super().__init__(args)
+    def __init__(self, args, data_loaders, model=None):
+        super().__init__(args, model)
 
         self.original_model = deepcopy(self.model)
         self.train_loader, self.valid_loader, self.test_loader = data_loaders
         self.layers_to_compress = [name for name, module in self.model.named_modules()
                                    if isinstance(module, args.layer_type_whitelist)]
-        self.pruning_high = args.pruning_high
-        self.pruning_low = args.pruning_low
-        self.quant_high = args.quant_high
-        self.quant_low = args.quant_low
 
-        self.pruner = Pruner(args, self.layers_to_compress)
-        self.quantizer = Quantizer(args, self.layers_to_compress)
+        self.pruner = Pruner(args.pruning_group_type, self.layers_to_compress)
+        self.quantizer = Quantizer(self.layers_to_compress)
 
         if self.model.is_image_classifier:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
@@ -45,28 +41,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             raise NotImplementedError
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           lr=0.01, weight_decay=1e-4)
-
-    def init_model(self):
-        """Overriding original method to include timeloop workload files
-        """
-        self.model = create_model(self.arch,
-                                  self.dataset,
-                                  self.batch_size,
-                                  self.pretrained,
-                                  parallel=not self.load_serialized,
-                                  device_ids=self.gpus,
-                                  verbose=True,
-                                  to_timeloop=True)
-        self.model.apply(weight_init)
-
-        if self.resumed_checkpoint_path is not None:
-            self.model, _ = load_checkpoint(
-                self.model,
-                self.resumed_checkpoint_path,
-                model_device=self.device,
-                to_cpu=self.device == 'cpu',
-                #verbose=self.verbose
-            )
 
     def reset(self):
         self.model = deepcopy(self.original_model)

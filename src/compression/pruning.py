@@ -19,19 +19,19 @@ class PruningGroupType(Enum):
 class Pruner:
     """Class to handle pruning of a DNN model. Multiple types of pruning are supported
     """
-    def __init__(self, args, layers_to_compress):
+    def __init__(self, pruning_group_type, layers_to_compress):
         self.layers_to_compress = layers_to_compress
         # configure pruning function based on the given group type
-        if args.pruning_group_type in (PruningGroupType.Rows, PruningGroupType.Columns):
+        if pruning_group_type in (PruningGroupType.Rows, PruningGroupType.Columns):
             self.prune = self.prune_rows_columns
-            self.dim_to_prune = 2 if args.pruning_group_type == PruningGroupType.Rows else 1
-        elif args.pruning_group_type == PruningGroupType.Filters:
+            self.dim_to_prune = 2 if pruning_group_type == PruningGroupType.Rows else 1
+        elif pruning_group_type == PruningGroupType.Filters:
             self.prune = self.prune_filters
-        elif args.pruning_group_type == PruningGroupType.Channels:
+        elif pruning_group_type == PruningGroupType.Channels:
             self.prune = self.prune_channels
-        elif args.pruning_group_type == PruningGroupType.Weights:
+        elif pruning_group_type == PruningGroupType.Weights:
             self.prune = self.prune_weights
-        elif args.pruning_group_type == PruningGroupType.EridanusBlocks:
+        elif pruning_group_type == PruningGroupType.EridanusBlocks:
             self.prune = self.prune_eridanus_blocks
 
     def prune_rows_columns(self, model, pruning_ratio):

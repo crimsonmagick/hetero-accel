@@ -12,7 +12,7 @@ from src import project_dir
 from src.rl import HW_Metrics, Accuracy_Metrics
 from src.rl.loggers import EnvCSVLogger
 from src.rl.reward import DEFAULT_REWARD
-from src.rl.compressor import PruningQuantizationCompressor
+from src.compression.compressor import PruningQuantizationCompressor
 
 
 logger = logging.getLogger(__name__)
