@@ -1,3 +1,4 @@
+import argparse
 import os
 from enum import Enum
 from src import project_dir
@@ -28,6 +29,8 @@ def app_args(parser):
                              help='Train DNN model on train set')
     op_mode_exc.add_argument('--test-timeloop-accelergy', dest='test_timeloop_accelergy_mode', action='store_true',
                              help='Execute an example to test if timeloop+accelergy works well')
+    op_mode_exc.add_argument('--model-summary', dest='model_summary_mode', type=model_summary_type_arg, default='',
+                             help='Specify the type of summary of the given DNNs')
     return parser
 
 
@@ -80,7 +83,7 @@ def model_args(parser):
 
     optimizer_args = parser.add_argument_group('Optimizer arguments')
     optimizer_args.add_argument('--optimizer-type', '--ot', type=optimizer_type_arg, default='sgd',
-                                help='Choose optimizer type. Choices: ' + ' | '.join(str_to_optimizer_type_map.keys()))
+                                help='Choose optimizer type')
     optimizer_args.add_argument('--learning-rate', '--lr', default=0.1, type=float, help='Initial learning rate (default: 0.1)')
     optimizer_args.add_argument('--momentum', default=0.9, type=float, help='Momentum (default: 0.9)')
     optimizer_args.add_argument('--weight-decay', '--wd', default=1e-4, type=float, help='Weight decay (default: 1e-4)')
@@ -196,7 +199,7 @@ def check_args(args):
     """Check for logical errors in argument parsing
     """
     if args.resumed_checkpoint_path:
-        assert len(args.arch) == args.resumed_checkpoint_path
+        assert len(args.arch) == len(args.resumed_checkpoint_path)
     assert 0 <= args.pruning_low <= args.pruning_high <= 1
     assert 2 <= args.quant_low <= args.quant_high <= 8
 
@@ -208,10 +211,9 @@ class OptimizerType(Enum):
     SGD = 1
     Adam = 2
 
-str_to_optimizer_type_map = {'sgd': OptimizerType.SGD,
-                             'adam': OptimizerType.Adam}
-
 def optimizer_type_arg(argstr):
+    str_to_optimizer_type_map = {'sgd': OptimizerType.SGD,
+                                 'adam': OptimizerType.Adam}
     try:
         return str_to_optimizer_type_map[argstr.lower()]
     except KeyError:
@@ -230,13 +232,28 @@ def pruning_group_type_arg(argstr):
 class AcceleratorType(Enum):
     Eyeriss = 1
 
-str_to_accelerator_type_map = {'eyeriss': AcceleratorType.Eyeriss,}
-
 def accelerator_type_arg(argstr):
+    str_to_accelerator_type_map = {'eyeriss': AcceleratorType.Eyeriss,}
     try:
         return str_to_accelerator_type_map[argstr.lower()]
     except KeyError:
         raise argparse.ArgumentTypeError(f"--accelerator-type argument must be one of the following: "
                                          f"{str_to_accelerator_type_map.keys()}. Invalid argument {argstr}")
+
+
+class ModelSummaryType(Enum):
+    Compute = 1
+    Sparsity = 2
+    Dummy = 3
+
+def model_summary_type_arg(argstr):
+    str_to_summary_type_map = {'compute': ModelSummaryType.Compute,
+                               'sparsity': ModelSummaryType.Sparsity,
+                               '': ModelSummaryType.Dummy}
+    try:
+        return str_to_summary_type_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--model-summary argument must be one of the following: "
+                                         f"{str_to_summary_type_map.keys()}. Invalid argument {argstr}")
 
 

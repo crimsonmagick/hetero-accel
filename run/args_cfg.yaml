@@ -9,9 +9,10 @@ op_mode_args:
         evaluate_model_mode: False
         train_model_mode: False
         test_timeloop_accelergy_mode: False
+        model_summary_mode: sparsity
 
 model_args:
-        arch: [resnet18_cifar100, vgg11_cifar10]
+        arch: [resnet18_cifar10, mobilenet_cifar10]
         workers: 15
         batch_size: 64
         load_serialized: False
@@ -26,7 +27,9 @@ model_args:
         model_save_frequency: 1
         use_profiler: False
         train_epochs: 1
-        #resumed_checkpoint_path: /workspace/chkpts/cifar10/mobilenet_cifar10.pth
+        resumed_checkpoint_path: [
+                /workspace/hetero-accel/logs/2023.09.01-10.41.42.033/resnet18_cifar10_best_sparsity.pth.tar,
+                /workspace/hetero-accel/logs/2023.09.01-10.41.42.033/mobilenet_cifar10_best_sparsity.pth.tar]
         pretrained: True
 
 optimizer_args:
@@ -36,9 +39,9 @@ optimizer_args:
         weight_decay: 1.e-4
 
 compression_args:
-        pruning_group_type: columns
-        pruning_high: 0.99
-        pruning_low: 0.01
+        pruning_group_type: weights
+        pruning_high: 1.0
+        pruning_low: 0.0
         pruning_incr: 0.05
         quant_high: 8
         quant_low: 5

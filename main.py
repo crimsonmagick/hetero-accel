@@ -3,11 +3,12 @@ import traceback
 import os.path
 import wandb
 import torch
+import pickle
 import numpy as np
 from copy import deepcopy
 from types import SimpleNamespace
 from src import dataset_dirs, pretrained_checkpoint_paths
-from src.utils import env_cfg, handle_model_subapps
+from src.utils import env_cfg, handle_model_subapps, lut2csv
 from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
@@ -39,6 +40,9 @@ def main():
     else:
         with open(args.dnn_accuracy_lut_file, 'rb') as f:
             args.dnn_accuracy_lut = pickle.load(f)
+
+    # write the LUT to a csv file
+    lut2csv(args.dnn_accuracy_lut, args.logdir)
 
     # move to accelerator exploration phase
     accelerator_exploration(args)
@@ -89,8 +93,9 @@ def setup_networks_datasets(args):
         models.append(net_wrapper.model)
 
         do_exit = handle_model_subapps(net_wrapper, data_loaders, args)
-        if do_exit:
-            return
+
+    if do_exit:
+        exit(0)
 
     return models, datasets
 
@@ -125,7 +130,8 @@ def pruning_quant_exploration(args, models, datasets):
         sparsity, size = compressor.compute_model_statistics()
         og_stats = {'top1': top1, 'top5': top5, 'loss': loss, 'sparsity': sparsity, 'size': size}
         dnn_accuracy_lut[model.arch]['original_statistics'] = og_stats
-        og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}'
+        og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
+                                     f'{metric.capitalize()}={value:.2e}'
                                      for metric, value in og_stats.items()])
         logger.info(f'{model.arch}: Original statistics: {og_stats_logstr}')
 
@@ -133,7 +139,7 @@ def pruning_quant_exploration(args, models, datasets):
         compression_stats = {}
         best_sparsity = sparsity
         best_size = size
-        for pruning_ratio in np.arange(args.pruning_low, args.pruning_high, args.pruning_incr):
+        for pruning_ratio in np.arange(args.pruning_low, min(1, args.pruning_high + args.pruning_incr), args.pruning_incr):
             for quant_bits in np.arange(args.quant_low, args.quant_high + 1, args.quant_incr):
                 pruning_ratio = np.round(pruning_ratio, 2)
                 logger.info(f'{model.arch}: Testing pruning of {100 * pruning_ratio}% and '
@@ -148,7 +154,8 @@ def pruning_quant_exploration(args, models, datasets):
                 sparsity, size = compressor.compute_model_statistics()
                 stats = {'top1': top1, 'top5': top5, 'loss': loss, 'sparsity': sparsity, 'size': size}
                 compression_stats[(pruning_ratio, quant_bits)] = stats
-                stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}'
+                stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
+                                          f'{metric.capitalize()}={value:.2e}'
                                           for metric, value in stats.items()])
                 logger.info(f'{model.arch}: Compressed statistics: {stats_logstr}')
 
@@ -160,7 +167,7 @@ def pruning_quant_exploration(args, models, datasets):
                     # save/overwrite the model with highest sparsity or lowest memory size
                     if sparsity >= best_sparsity:
                         compressor.save_model(name=model.arch + '_best_sparsity')
-                    elif size <= best_size:
+                    if size <= best_size:
                         compressor.save_model(name=model.arch + '_best_size')
 
         dnn_accuracy_lut[model.arch]['compression_statistics'] = compression_stats

@@ -7,10 +7,12 @@ import os
 import sys
 import re
 import numpy as np
+import pandas as pd
 import torch
 import random
 import wandb
 import subprocess as sp
+import csv
 from enum import Enum
 from datetime import datetime
 from errno import ENOENT
@@ -23,12 +25,13 @@ from tabulate import tabulate
 from time import time
 from src import project_dir, timeloop_dir
 from src.args import app_args, model_args, compression_args, rl_args, accel_args, check_args
+from src.args import ModelSummaryType
 
 
 __all__ = [
     'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
     'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
-    'log_training_progress',
+    'log_training_progress', 'lut2csv', 'get_sparsity',
     'get_dummy_input', 'model_summary',
     'handle_model_subapps',
 ]
@@ -240,6 +243,8 @@ def load_checkpoint(model, chkpt_path=None, model_device='cuda', to_cpu=False, s
             new_name = new_name.replace('.wrapped_module', '')
 
         new_state_dict[new_name] = param
+
+    # save the newly formed state_dict
     checkpoint['state_dict'] = new_state_dict
 
     # check for inconsistencies in the new parameters
@@ -268,6 +273,17 @@ def load_checkpoint(model, chkpt_path=None, model_device='cuda', to_cpu=False, s
         if missing_keys:
             raise ValueError(f"The loaded checkpoint ({chkpt_file}) is missing {len(missing_keys)} state keys")
 
+    # load pruning/quantization metadata
+    if 'quant_metadata' in checkpoint:
+        for module_name, module in model.named_modules():
+            if module_name in checkpoint['quant_metadata']:
+                setattr(module, 'quant_metadata', checkpoint['quant_metadata'][module_name])
+    if 'pruning_metadata' in checkpoint:
+        for module_name, module in model.named_modules():
+            if module_name in checkpoint['pruning_metadata']:
+                setattr(module, 'pruning_metadata', checkpoint['pruning_metadata'][module_name])
+
+    # set all modules to device
     if model_device is not None:
         model.to(model_device)
 
@@ -302,15 +318,23 @@ def save_checkpoint(arch, model, epoch=0, optimizer=None, extras=None, is_best=F
 
     filename = name + '.pth.tar'
     fullpath = os.path.join(savedir, filename)
-    model_filename = 'fullmodel_' + name
+    model_filename = 'fullmodel__' + name + '.pth'
     model_fullpath = os.path.join(savedir, model_filename)
 
+    # checkpoint is a dictionary containing different parameters, mostly the state dict
     checkpoint = {'epoch': epoch, 'state_dict': model.state_dict(), 'arch': arch}
+
+    # save pruning/quantization metadata
+    checkpoint['quant_metadata'] = {module_name: module.quant_metadata 
+                                    for module_name, module in model.named_modules()
+                                    if hasattr(module, 'quant_metadata')}
+    checkpoint['pruning_metadata'] = {module_name: module.pruning_metadata 
+                                      for module_name, module in model.named_modules()
+                                      if hasattr(module, 'pruning_metadata')}
+
     try:
         checkpoint['is_parallel'] = model.is_parallel
         checkpoint['dataset'] = model.dataset
-        if not arch:
-            checkpoint['arch'] = model.arch
     except AttributeError:
         pass
 
@@ -393,6 +417,65 @@ def log_training_progress(stats_dict, epoch, completed, total):
     logger.info(log)
 
 
+def lut2csv(lut, savedir=None, filename=None):
+    """Write the contents of the DNN accuracy LUT to a csv file
+    """
+    savedir = logging.getLogger().logdir if savedir is None else savedir
+    filename = 'lut.csv' if filename is None else filename
+    filepath = os.path.join(savedir, filename)
+
+    with open(filepath, 'w') as f:
+        writer = csv.writer(f)
+        headers = ['Network', 'PruningRatio', 'QuantBits', 'Top1', 'Top5', 'Loss', 'Sparsity', 'Size']
+        writer.writerow(headers)
+
+        for network in lut:
+            og_stats = lut[network]['original_statistics']
+            row = [network, 0.0, 32, og_stats['top1'], og_stats['top5'], og_stats['loss'],
+                                     og_stats['sparsity'], og_stats['size']]
+            writer.writerow(row)
+
+            for pruning_ratio, quant_bits in lut[network]['compression_statistics']:
+                stats = lut[network]['compression_statistics'][(pruning_ratio, quant_bits)]
+                row = [network, pruning_ratio, quant_bits,
+                       stats['top1'], stats['top5'], stats['loss'],
+                       stats['sparsity'], stats['size']]
+                writer.writerow(row)
+
+    logger.info(f'Saved LUT to .csv file: {filepath}')
+
+
+def get_sparsity(param, to_dict=False):
+    """Calculate the sparsity across diverse dimentions
+    """
+    sparsity_weights = param.eq(0).sum().item() / param.numel()
+    # columns
+    param_2d = param.view(-1, np.prod(param.shape[1:]))
+    zero_columns = torch.norm(param_2d, p=1, dim=1).eq(0).sum().item()
+    sparsity_columns = zero_columns / param_2d.shape[0]
+    # rows
+    zero_rows = torch.norm(param_2d, p=1, dim=0).eq(0).sum().item()
+    sparsity_rows = zero_rows / param_2d.shape[1]
+    # channels
+    if param.dim() != 4:
+        sparsity_channels = 0.0
+    else:
+        channel_view = param.transpose(0, 1).contiguous()
+        channels_norm = torch.norm(channel_view.view(-1, np.prod(channel_view.shape[1:])), p=1, dim=1)
+        sparsity_channels = channels_norm.eq(0).sum().item() / param.shape[1]
+    # filters
+    if param.dim() != 4:
+        sparsity_filters = 0.0
+    else:
+        filters_norm = torch.norm(param.view(-1, np.prod(param.shape[1:])), p=1, dim=1)
+        sparsity_filters = filters_norm.eq(0).sum().item() / param.shape[0]
+
+    if to_dict:
+        return {'columns': sparsity_columns, 'rows': sparsity_rows,
+                'channels': sparsity_channels, 'filters': sparsity_filters, 'weights': sparsity_weights}
+    return sparsity_columns, sparsity_rows, sparsity_channels, sparsity_filters, sparsity_weights
+
+
 def get_dummy_input(device=None, input_shape=None):
     """Generate a representative dummy (random) input.
     Args:
@@ -451,7 +534,8 @@ def model_summary(model):
                 info.weights_volume = np.prod(module.weight.shape)
                 info.macs = dimensions['K'] * dimensions['Yo'] * dimensions['Xo'] * \
                             dimensions['C'] / module.groups * dimensions['R'] * dimensions['S']
-                info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
+                info.bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
+                info.size = info.bits * info.weights_volume
 
             elif isinstance(module, torch.nn.Linear):
                 # input shape of (batch_size, n_neurons)
@@ -466,7 +550,8 @@ def model_summary(model):
                 dimensions['groups'] = 1
                 info.type_int = 1
                 info.weights_volume = info.macs = np.prod(module.weight.shape)
-                info.size = getattr(module, 'weight_bits', 32) * info.weights_volume
+                info.bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
+                info.size = info.bits * info.weights_volume
 
             #TODO: Include descriptions of pooling layers
 
@@ -520,6 +605,48 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
                           torch.nn.CrossEnropyLoss().to(net_wrapper.model.device),
                           optimizer)
         do_exit = True
+
+    elif args.model_summary_mode is not None:
+        do_exit = args.model_summary_mode != ModelSummaryType.Dummy
+
+        if args.model_summary_mode == ModelSummaryType.Compute:
+            df = pd.DataFrame(columns=['Name', 'Shape', 'IFM', 'OFM', 'MACs', 'Bits', 'Size'])
+            # gather tensor statistics from the DNN
+            summary = model_summary(net_wrapper.model)
+            size = macs = 0
+            for name, param in net_wrapper.model.named_parameters():
+                if param.dim() in (2, 4) and 'weight' in name:
+                    mname = name.replace('.weight', '')
+                    size += summary[mname].size
+                    macs += summary[mname].macs
+                    df.loc[len(df.index)] = ([name,
+                        '(' + ', '.join([str(size) for size in param.size()]) + ')',
+                        (summary[mname].dimensions['C'], summary[mname].dimensions['Yi'], summary[mname].dimensions['Xi']),
+                        (summary[mname].dimensions['K'], summary[mname].dimensions['Yo'], summary[mname].dimensions['Xo']),
+                        int(summary[mname].macs), summary[mname].bits, summary[mname].size
+                        ])
+            df.loc[len(df.index)] = (['Total:', '-', '-', '-', f'{int(macs):,}', '-', f'{size:,}'])
+
+        elif args.model_summary_mode == ModelSummaryType.Sparsity:
+            df = pd.DataFrame(columns=['Name', 'Volume',
+                                       'Cols', 'Rows', 'Channels', 'Filters', 'Weights',
+                                       'Min', 'Max', 'AbsMean'])
+            params = pruned_params = 0
+            for name, param in net_wrapper.model.named_parameters():
+                if param.dim() in (2, 4) and 'weight' in name:
+                    params += param.numel()
+                    pruned_params += param.eq(0).sum().item()
+                    sparsity = get_sparsity(param, to_dict=True)
+                    df.loc[len(df.index)] = ([name, np.prod(param.size()),
+                                              100 * sparsity['columns'], 100 * sparsity['rows'],
+                                              100 * sparsity['channels'], 100 * sparsity['channels'],
+                                              100 * sparsity['weights'],
+                                              param.min().item(), param.max().item(),
+                                              param.abs().mean().item()])
+            df.loc[len(df.index)] = (['Total sparsity:'] + 5*['-'] + [f'{pruned_params/params:,}'] + 3*['-'])
+ 
+        t = tabulate(df, headers='keys', tablefmt='psql', floatfmt="2.3f")
+        logger.info(f"\n{t}")
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy

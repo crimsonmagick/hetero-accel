@@ -7,7 +7,7 @@ from src.utils import transform_model
 
 logger = logging.getLogger(__name__)
 
-QuantMetadata = namedtuple('QuantMetadata', ['scale', 'zero_point', 'min_q_val', 'max_q_val'])
+QuantMetadata = namedtuple('QuantMetadata', ['bits', 'scale', 'zero_point', 'min_q_val', 'max_q_val'])
 
 
 class Quantizer:
@@ -54,7 +54,7 @@ class Quantizer:
 
         # quantize weights and get ready for the forward pass
         scale, zero_point, min_q_val, max_q_val = get_quant_params(module.weight, quant_bits)
-        setattr(module, 'quant_metadata', QuantMetadata(scale, zero_point, min_q_val, max_q_val))
+        setattr(module, 'quant_metadata', QuantMetadata(quant_bits, scale, zero_point, min_q_val, max_q_val))
         linear_quantize(module.weight, scale, zero_point, min_q_val, max_q_val, inplace=True)
 
     def dequantize_outputs(self, module, quant_bits):
@@ -72,7 +72,7 @@ def input_quant_hook(module, input, quant_bits):
     input = input[0]
     scale, zero_point, min_q_val, max_q_val = get_quant_params(input, quant_bits)
     q_input = linear_quantize(input, scale, zero_point, min_q_val, max_q_val, inplace=False)
-    setattr(q_input, 'quant_metadata', QuantMetadata(scale, zero_point, min_q_val, max_q_val))
+    setattr(q_input, 'quant_metadata', QuantMetadata(quant_bits, scale, zero_point, min_q_val, max_q_val))
     return q_input
 
 
@@ -99,7 +99,7 @@ def quant_dequant_output_hook(module, q_input, accum, quant_bits):
     requant_scale = out_scale / q_input.accum_scale
     q_output = linear_quantize(accum, requant_scale, out_zero_point, min_q_val, max_q_val, inplace=True)
     fp_output = linear_dequantize(q_output, out_scale, out_zero_point, inplace=True)
-    setattr(fp_output, 'quant_metadata', QuantMetadata(out_scale, out_zero_point, min_q_val, max_q_val))
+    setattr(fp_output, 'quant_metadata', QuantMetadata(quant_bits, out_scale, out_zero_point, min_q_val, max_q_val))
     return fp_output
 
 

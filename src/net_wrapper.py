@@ -126,7 +126,7 @@ class TorchNetworkWrapper:
     def validate(self, valid_loader, criterion):
         """Run inference on the validation set
         """
-        logger.debug(f"Running inference on validation set. Model outline:\n{self.model}")
+        logger.debug(f"Running inference on validation set")
         top1, top5, loss = validate(valid_loader, self.model, criterion, 0,
                                     self.verbose, self.print_frequency)
         return top1, top5, loss
@@ -134,7 +134,7 @@ class TorchNetworkWrapper:
     def test(self, test_loader, criterion):
         """Run inference on the test set
         """
-        logger.debug(f"Running inference on test set. Model outline:\n{self.model}")
+        logger.debug(f"Running inference on test set")
         top1, top5, loss = validate(test_loader, self.model, criterion, 0,
                                     self.verbose, self.print_frequency)
         return top1, top5, loss

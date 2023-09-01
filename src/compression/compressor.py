@@ -62,12 +62,16 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         return int(np.round(quant_action, 0))
 
     def compute_model_statistics(self):
+        #TODO: Sparsity seems to be computed wrong
         total_params = total_pruned = total_memory_size = 0
         for module_name, module in self.model.named_modules():
             if module_name not in self.layers_to_compress:
                 continue
 
-            bits = getattr(module, 'weight_bits', 32)
+            bits = 32
+            if hasattr(module, 'quant_metadata'):
+                bits = module.quant_metadata.bits
+
             for param_name, param in module.named_parameters():
                 if 'weight' not in param_name:
                     continue
