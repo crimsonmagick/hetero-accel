@@ -2,6 +2,8 @@ version="${1?Specify a docker image version: 'cpu' or 'cuda'}"
 
 image_name="haccel-balkon00"
 
+prefix="${2}"
+
 dataset_dir="/tempdata/balaskas/NN_project/data"
 cifar10_chkpt_dir="/tempdata/balaskas/NN_project/cifar10_100_playground/cifar10/models"
 cifar100_chkpt_dir="/tempdata/balaskas/NN_project/cifar10_100_playground/cifar100/models"
@@ -18,7 +20,7 @@ port_io_container="8888"
 
 #docker run --runtime nvidia -it --rm pytorch/pytorch:latest python3
 docker run \
-	--name haccel-$version \
+	--name ${prefix}haccel-$version \
 	-it $use_gpus \
 	-v ${dataset_dir}:/workspace/data \
 	-v ${cifar10_chkpt_dir}:/workspace/chkpts/cifar10 \

@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 #FROM continuumio/miniconda3
 
 # set bash as current shell
@@ -7,15 +7,20 @@ SHELL ["/bin/bash", "-c"]
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# get code repo
 RUN apt-get update && \
-	apt-get install -y git openssh-client wget vim htop tmux scons libboost-all-dev build-essential gcc-9 g++-9
-# use this instead of cloning the repo (private right now)
+	apt-get install -y git openssh-client wget vim htop tmux libboost-all-dev build-essential
+
 RUN mkdir -p /workspace /workspace/chkpts
-COPY . /workspace/hetero-accel
+RUN mkdir -p /root/.ssh/ && \
+	touch /root/.ssh/known_hosts && \
+	ssh-keyscan github.com >> /root/.ssh/known_hosts
+# TODO: maybe use this to copy private key into image
+#RUN if [ -z "$DEVELOP_MODE" ]; then
+#COPY sth 
+WORKDIR /workspace
+RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
+	 git clone git@github.com:kompalas/hetero-accel.git
 WORKDIR /workspace/hetero-accel
-RUN mkdir -p /root/.ssh/
-RUN mv github_balaskas /root/.ssh/
 
 # install anaconda
 ENV CONDA_DIR /opt/conda
@@ -28,14 +33,48 @@ RUN wget --quiet https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-x86_6
 # set path to conda
 ENV PATH $CONDA_DIR/bin:$PATH
 
-# install and activate conda environment
 # the dependencies of all comprising tools are included in this environment
-RUN conda init bash
-RUN conda update -y -n base -c defaults conda && \
-	conda env create -f setup/environment.yml
-# update the bashrc file to fix conda loading issue
-COPY setup/bashrc /etc/bashrc
-RUN cat /etc/bashrc >> /root/.bashrc
+RUN conda init
+RUN echo "conda activate haccel" >> /root/.bashrc
+RUN conda update -y -n base -c defaults conda
+RUN conda create -n haccel python=3.9
+SHELL ["conda", "run", "-n", "haccel", "/bin/bash", "--login", "-c"]
+RUN python3 -m pip install --upgrade pip && \
+	python3 -m pip install -r setup/requirements.txt
+
+# install timeloop-accelergy
+RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
+	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
+WORKDIR accelergy-timeloop-infrastructure
+RUN git submodule sync && \
+	git submodule update --init && \
+	sed -i '/git submodule/ c\' Makefile && \
+	make pull
+RUN cd src/cacti && \
+	make
+RUN cd src/accelergy && \
+	pip install . 
+RUN cd src/accelergy-aladdin-plug-in/ && \
+	 pip install .
+RUN cd src/accelergy-cacti-plug-in/ && \
+	pip install . && \
+	cp -r ../cacti /opt/conda/envs/haccel/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
+RUN cd src/accelergy-table-based-plug-ins/ && \
+	pip install .
+RUN cd src/timeloop/src/ && \
+	ln -s ../pat-public/src/pat .
+RUN cd src/timeloop && \
+	scons -j4 --accelergy --static && \
+	 cp build/timeloop-* /opt/conda/envs/haccel/bin
+RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+	accelergy && \
+	accelergyTables && \
+	pip install git+https://github.com/Fibertree-Project/fibertree jupyter
+ENV PATH $PATH:/opt/conda/evns/haccel/bin
+
+WORKDIR /workspace/hetero-accel
+SHELL ["/bin/bash", "--login", "-c"]
+
 
 # ENTRYPOINT ["/bin/bash", "-i"]
 
