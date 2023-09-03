@@ -24,8 +24,7 @@ WORKDIR /workspace/hetero-accel
 
 # install anaconda
 ENV CONDA_DIR /opt/conda
-RUN apt-get update && \
-	apt-get install --yes libgl1-mesa-glx libegl1-mesa libxrandr2 libxrandr2 libxss1 libxcursor1 libxcomposite1 libasound2 libxi6 libxtst6 && \
+RUN apt-get install --yes libgl1-mesa-glx libegl1-mesa libxrandr2 libxrandr2 libxss1 libxcursor1 libxcomposite1 libasound2 libxi6 libxtst6 && \
 	apt-get clean all
 RUN wget --quiet https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-x86_64.sh -O ~/anaconda.sh && \
 	/bin/bash ~/anaconda.sh -b -p $CONDA_DIR && \
@@ -43,6 +42,7 @@ RUN python3 -m pip install --upgrade pip && \
 	python3 -m pip install -r setup/requirements.txt
 
 # install timeloop-accelergy
+RUN apt install -y scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev 
 RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
 	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
 WORKDIR accelergy-timeloop-infrastructure
@@ -65,7 +65,7 @@ RUN cd src/timeloop/src/ && \
 	ln -s ../pat-public/src/pat .
 RUN cd src/timeloop && \
 	scons -j4 --accelergy --static && \
-	 cp build/timeloop-* /opt/conda/envs/haccel/bin
+	cp build/timeloop-* /opt/conda/envs/haccel/bin
 RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
 	accelergy && \
 	accelergyTables && \
