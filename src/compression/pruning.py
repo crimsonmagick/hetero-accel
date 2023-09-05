@@ -143,6 +143,7 @@ class Pruner:
     def prune_weights(self, model, pruning_ratio):
         """Prune weights globally based on the given pruning ratio
         """
+        #TODO: Find a way to exploit weight pruning at runtime
         all_weights = torch.tensor([], device=model.device)
         for name, module in model.named_modules():
             if name not in self.layers_to_compress:

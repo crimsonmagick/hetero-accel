@@ -6,16 +6,17 @@ import torch
 import logging
 import subprocess
 import numpy as np
+from types import SimpleNamespace
 from time import time
 from glob import glob
 from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
 from src.models import create_model
-from src.utils import weight_init, load_checkpoint
+from src.utils import weight_init, load_checkpoint, get_sparsity
 from src.compression.pruning import Pruner
 from src.compression.quantization import Quantizer
-from src.timeloop import TimeloopProblem
+from src.timeloop import TimeloopProblem, TimeloopConfig
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.train_loader, self.valid_loader, self.test_loader = data_loaders
         self.layers_to_compress = [name for name, module in self.model.named_modules()
                                    if isinstance(module, args.layer_type_whitelist)]
+        # TODO: Temporary for experiments
+        self.layers_to_compress = [self.layers_to_compress[3]]
 
         self.pruner = Pruner(args.pruning_group_type, self.layers_to_compress)
         self.quantizer = Quantizer(self.layers_to_compress)
@@ -41,6 +44,24 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             raise NotImplementedError
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           lr=0.01, weight_decay=1e-4)
+
+    @classmethod
+    def from_args(cls, args, data_loaders, model=None):
+        compression_args = SimpleNamespace(logdir=args.logdir,
+                                           pruning_high=args.pruning_high,
+                                           pruning_low=args.pruning_low,
+                                           quant_high=args.quant_high,
+                                           quant_low=args.quant_low,
+                                           layer_type_whitelist=(torch.nn.Conv2d,),
+                                           pruning_group_type=args.pruning_group_type,
+                                           timeloop_files=TimeloopConfig(args.accelerator_arch_type),
+                                           # DNN args for inheritance from TorchNetworkWrapper
+                                           profile_model=False,
+                                           gpus=args.gpus,
+                                           cpu=args.cpu,
+                                           print_frequency=args.batch_print_frequency,
+                                           verbose=args.model_verbose)
+        return cls(compression_args, data_loaders, model)
 
     def reset(self):
         self.model = deepcopy(self.original_model)
@@ -62,7 +83,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         return int(np.round(quant_action, 0))
 
     def compute_model_statistics(self):
-        #TODO: Sparsity seems to be computed wrong
         total_params = total_pruned = total_memory_size = 0
         for module_name, module in self.model.named_modules():
             if module_name not in self.layers_to_compress:
@@ -120,13 +140,33 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                 continue
 
             # if specified, create the Timeloop workload files for each layer
-            this_outdir = os.path.join(outdir, f'layer{layer_idx}_{name}')
             problem_filepath = os.path.join(workload_dir, f'layer{layer_idx}_{name}.yaml')
+            this_outdir = os.path.join(outdir, f'layer{layer_idx}_{name}')
             if init:
-                os.makedirs(this_outdir)
                 dims = self.summary[name].dimensions
                 layer_type = self.summary[name].layer_type
+                os.makedirs(this_outdir)
                 TimeloopProblem(name, dims, layer_type).to_yaml(problem_filepath)
+
+
+            # NOTE: modifying the problem file to adjust for pruning, is this a temporary?
+            sparsity_dict = get_sparsity(module.weight, True)
+            with open(problem_filepath, 'r') as f:
+                problem_cfg = yaml.load(f, Loader=yaml.SafeLoader)
+
+            logger.info(f'{sparsity_dict}')
+            problem_cfg['problem']['instance']['M'] = int(problem_cfg['problem']['instance']['M'] * \
+                                                      (1 - sparsity_dict['filters']))
+            problem_cfg['problem']['instance']['C'] = int(problem_cfg['problem']['instance']['C'] * \
+                                                      (1 - sparsity_dict['channels']))
+
+            with open(problem_filepath, 'w') as f:
+                f.write(yaml.dump(problem_cfg))
+
+            # TODO: Account for quantization; add custom MAC units to timeloop
+            bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
+            if bits < 32:
+                pass
 
             # execute the Timeloop/Accelergy infrastructure
             command = f'timeloop-mapper ' \
@@ -159,7 +199,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             area = re.search('Area: ([\d.]+)', stats).group(1)
             area = float(area)
             logger.debug(f'Timeloop results for layer {layer_idx} ({name}): '
-                         f'GFLOPS={gflops}, Utilization={utilization}, Cycles={cycles},'
+                         f'GFLOPS={gflops}, Utilization={utilization}, Cycles={cycles}, '
                          f'Energy={energy}, EDP={edp}, Area={area}')
 
             total_area += area

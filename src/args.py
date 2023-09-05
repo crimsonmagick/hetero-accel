@@ -31,6 +31,8 @@ def app_args(parser):
                              help='Execute an example to test if timeloop+accelergy works well')
     op_mode_exc.add_argument('--model-summary', dest='model_summary_mode', type=model_summary_type_arg, default='',
                              help='Specify the type of summary of the given DNNs')
+    op_mode_exc.add_argument('--test-pruning', dest='test_pruning_mode', action='store_true',
+                             help='Execute a test of the effect of pruning on energy consumption')
     return parser
 
 

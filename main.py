@@ -25,6 +25,9 @@ def main():
     """
     args = env_cfg()
     args.logdir = logging.getLogger().logdir
+    # save arguments as pkl, for reproducibility
+    with open(os.path.join(args.logdir, 'args.pkl'), 'wb') as f:
+        pickle.dump(vars(args), f)
 
     # initialize DNNs and datasets
     models, datasets = setup_networks_datasets(args)
@@ -92,10 +95,8 @@ def setup_networks_datasets(args):
         net_wrapper = TorchNetworkWrapper.from_args(dnn_args)
         models.append(net_wrapper.model)
 
-        do_exit = handle_model_subapps(net_wrapper, data_loaders, args)
-
-    if do_exit:
-        exit(0)
+        if handle_model_subapps(net_wrapper, data_loaders, args):
+            exit(0)
 
     return models, datasets
 

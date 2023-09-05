@@ -448,27 +448,29 @@ def lut2csv(lut, savedir=None, filename=None):
 def get_sparsity(param, to_dict=False):
     """Calculate the sparsity across diverse dimentions
     """
-    sparsity_weights = param.eq(0).sum().item() / param.numel()
-    # columns
-    param_2d = param.view(-1, np.prod(param.shape[1:]))
-    zero_columns = torch.norm(param_2d, p=1, dim=1).eq(0).sum().item()
-    sparsity_columns = zero_columns / param_2d.shape[0]
-    # rows
-    zero_rows = torch.norm(param_2d, p=1, dim=0).eq(0).sum().item()
-    sparsity_rows = zero_rows / param_2d.shape[1]
-    # channels
-    if param.dim() != 4:
-        sparsity_channels = 0.0
-    else:
-        channel_view = param.transpose(0, 1).contiguous()
-        channels_norm = torch.norm(channel_view.view(-1, np.prod(channel_view.shape[1:])), p=1, dim=1)
-        sparsity_channels = channels_norm.eq(0).sum().item() / param.shape[1]
-    # filters
-    if param.dim() != 4:
-        sparsity_filters = 0.0
-    else:
-        filters_norm = torch.norm(param.view(-1, np.prod(param.shape[1:])), p=1, dim=1)
-        sparsity_filters = filters_norm.eq(0).sum().item() / param.shape[0]
+    with torch.no_grad():
+        sparsity_weights = param.eq(0).sum().item() / param.numel()
+        # columns
+        param_2d = param.view(-1, np.prod(param.shape[1:]))
+        zero_columns = torch.norm(param_2d, p=1, dim=1).eq(0).sum().item()
+        sparsity_columns = zero_columns / param_2d.shape[0]
+        logger.info(f"\tzero columns {zero_columns}, non-zero {param_2d.shape[0]}")
+        # rows
+        zero_rows = torch.norm(param_2d, p=1, dim=0).eq(0).sum().item()
+        sparsity_rows = zero_rows / param_2d.shape[1]
+        # channels
+        if param.dim() != 4:
+            sparsity_channels = 0.0
+        else:
+            channel_view = param.transpose(0, 1).contiguous()
+            channels_norm = torch.norm(channel_view.view(-1, np.prod(channel_view.shape[1:])), p=1, dim=1)
+            sparsity_channels = channels_norm.eq(0).sum().item() / param.shape[1]
+        # filters
+        if param.dim() != 4:
+            sparsity_filters = 0.0
+        else:
+            filters_norm = torch.norm(param.view(-1, np.prod(param.shape[1:])), p=1, dim=1)
+            sparsity_filters = filters_norm.eq(0).sum().item() / param.shape[0]
 
     if to_dict:
         return {'columns': sparsity_columns, 'rows': sparsity_rows,
@@ -606,7 +608,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
                           optimizer)
         do_exit = True
 
-    elif args.model_summary_mode is not None:
+    elif args.model_summary_mode:
         do_exit = args.model_summary_mode != ModelSummaryType.Dummy
 
         if args.model_summary_mode == ModelSummaryType.Compute:
@@ -647,6 +649,31 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
  
         t = tabulate(df, headers='keys', tablefmt='psql', floatfmt="2.3f")
         logger.info(f"\n{t}")
+
+    elif args.test_pruning_mode:
+        do_exit = True
+
+        # to avoid circular import
+        from src.compression.compressor import PruningQuantizationCompressor
+        compressor = PruningQuantizationCompressor.from_args(args, data_loaders, net_wrapper.model)
+        logger.info('Initialized compressor for testing the energy efficiency of pruning')
+
+        # measure the initial energy with a random pruning ratio
+        first_pruning_ratio = 0.5
+        second_pruning_ratio = 0.7
+
+        logger.info(f"Pruning with ratio {first_pruning_ratio}")
+        compressor.pruner.prune(compressor.model, first_pruning_ratio)
+        sparsity1, size1 = compressor.compute_model_statistics()
+        area1, latency1, power1, energy1 = compressor.compute_accelerator_statistics(init=True)
+        logger.info(f"\tSparsity: {sparsity1:.3f} - Energy: {energy1:.3e}")
+        compressor.reset()
+        logger.info(f"Pruning with ratio {second_pruning_ratio}")
+        compressor.pruner.prune(compressor.model, second_pruning_ratio)
+        sparsity2, size2 = compressor.compute_model_statistics()
+        area2, latency2, power2, energy2 = compressor.compute_accelerator_statistics(init=False)
+        logger.info(f"\tSparsity: {sparsity2:.3f} - Energy: {energy2:.3e}")
+
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy
