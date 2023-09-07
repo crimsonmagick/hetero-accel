@@ -454,7 +454,6 @@ def get_sparsity(param, to_dict=False):
         param_2d = param.view(-1, np.prod(param.shape[1:]))
         zero_columns = torch.norm(param_2d, p=1, dim=1).eq(0).sum().item()
         sparsity_columns = zero_columns / param_2d.shape[0]
-        logger.info(f"\tzero columns {zero_columns}, non-zero {param_2d.shape[0]}")
         # rows
         zero_rows = torch.norm(param_2d, p=1, dim=0).eq(0).sum().item()
         sparsity_rows = zero_rows / param_2d.shape[1]
@@ -662,6 +661,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         first_pruning_ratio = 0.5
         second_pruning_ratio = 0.7
 
+        compressor.model.eval()
         logger.info(f"Pruning with ratio {first_pruning_ratio}")
         compressor.pruner.prune(compressor.model, first_pruning_ratio)
         sparsity1, size1 = compressor.compute_model_statistics()
@@ -673,7 +673,6 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         sparsity2, size2 = compressor.compute_model_statistics()
         area2, latency2, power2, energy2 = compressor.compute_accelerator_statistics(init=False)
         logger.info(f"\tSparsity: {sparsity2:.3f} - Energy: {energy2:.3e}")
-
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy

@@ -40,7 +40,7 @@ optimizer_args:
         weight_decay: 1.e-4
 
 compression_args:
-        pruning_group_type: columns
+        pruning_group_type: eridanusblocks
         pruning_high: 1.0
         pruning_low: 0.0
         pruning_incr: 0.05

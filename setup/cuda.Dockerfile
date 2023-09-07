@@ -62,8 +62,19 @@ RUN cd src/accelergy-cacti-plug-in/ && \
 	cp -r ../cacti /opt/conda/envs/haccel/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/
 RUN cd src/accelergy-table-based-plug-ins/ && \
 	pip install .
+RUN cd src/timeloop/src/ && \
+	ln -s ../pat-public/src/pat .
+RUN cd src/timeloop && \
+	scons -j4 --accelergy --static && \
+	cp build/timeloop-* /opt/conda/envs/haccel/bin
+RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+	accelergy && \
+	accelergyTables && \
+	pip install git+https://github.com/Fibertree-Project/fibertree jupyter
+ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
+RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
 SHELL ["/bin/bash", "--login", "-c"]
 
 # ENTRYPOINT ["/bin/bash", "-i"]

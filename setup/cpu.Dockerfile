@@ -73,6 +73,7 @@ RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
+RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
 SHELL ["/bin/bash", "--login", "-c"]
 
 

@@ -2,6 +2,7 @@ import argparse
 import os
 from enum import Enum
 from src import project_dir
+from src.accelerator_cfg import AcceleratorType
 from src.rl import reward as rewards
 from src.compression.pruning import PruningGroupType
 
@@ -231,11 +232,8 @@ def pruning_group_type_arg(argstr):
         raise argparse.ArgumentTypeError(f"Invalid argument {argstr} for --pruning-group-type argument")
 
 
-class AcceleratorType(Enum):
-    Eyeriss = 1
-
 def accelerator_type_arg(argstr):
-    str_to_accelerator_type_map = {'eyeriss': AcceleratorType.Eyeriss,}
+    str_to_accelerator_type_map = {str(entry.name).lower(): entry for entry in AcceleratorType}
     try:
         return str_to_accelerator_type_map[argstr.lower()]
     except KeyError:

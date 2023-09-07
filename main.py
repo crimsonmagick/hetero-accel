@@ -12,7 +12,7 @@ from src.utils import env_cfg, handle_model_subapps, lut2csv
 from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
-from src.timeloop import TimeloopConfig
+from src.accelerator_cfg import AcceleratorProfile
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -115,9 +115,9 @@ def pruning_quant_exploration(args, models, datasets):
                                            pruning_low=args.pruning_low,
                                            quant_high=args.quant_high,
                                            quant_low=args.quant_low,
-                                           layer_type_whitelist=(torch.nn.Conv2d,),
+                                           layer_type_whitelist=(torch.nn.Conv2d, torch.nn.Linear),
                                            pruning_group_type=args.pruning_group_type,
-                                           timeloop_files=TimeloopConfig(args.accelerator_arch_type),
+                                           accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
                                            # DNN args for inheritance from TorchNetworkWrapper
                                            profile_model=False,
                                            gpus=args.gpus,
@@ -179,6 +179,7 @@ def pruning_quant_exploration(args, models, datasets):
 def accelerator_exploration(args):
     """Exploration to design/discover the sub-accelerator architectures
     """
+    # TODO: Find how to change PE array dimensions in timeloop
     pass
 
 

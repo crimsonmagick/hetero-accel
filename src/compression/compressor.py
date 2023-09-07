@@ -1,22 +1,18 @@
-import re
 import os
-import shutil
-import yaml
 import torch
 import logging
-import subprocess
 import numpy as np
 from types import SimpleNamespace
-from time import time
 from glob import glob
 from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
 from src.models import create_model
 from src.utils import weight_init, load_checkpoint, get_sparsity
+from src.accelerator_cfg import AcceleratorProfile
 from src.compression.pruning import Pruner
 from src.compression.quantization import Quantizer
-from src.timeloop import TimeloopProblem, TimeloopConfig
+from src.timeloop import TimeloopWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -32,11 +28,16 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.train_loader, self.valid_loader, self.test_loader = data_loaders
         self.layers_to_compress = [name for name, module in self.model.named_modules()
                                    if isinstance(module, args.layer_type_whitelist)]
-        # TODO: Temporary for experiments
-        self.layers_to_compress = [self.layers_to_compress[3]]
+        logger.debug(f"Layers to compress: {self.layers_to_compress}")
 
-        self.pruner = Pruner(args.pruning_group_type, self.layers_to_compress)
+        # pruner and quantizer for compression
+        self.pruner = Pruner(args.pruning_group_type, self.layers_to_compress,
+                             eridanus_window_w=self.accelerator_profile.width,
+                             eridanus_window_h=self.accelerator_profile.height)
         self.quantizer = Quantizer(self.layers_to_compress)
+
+        # timeloop wrapper to execute mapping searches and energy/area estimation
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type)
 
         if self.model.is_image_classifier:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
@@ -54,7 +55,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                            quant_low=args.quant_low,
                                            layer_type_whitelist=(torch.nn.Conv2d,),
                                            pruning_group_type=args.pruning_group_type,
-                                           timeloop_files=TimeloopConfig(args.accelerator_arch_type),
+                                           accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
                                            # DNN args for inheritance from TorchNetworkWrapper
                                            profile_model=False,
                                            gpus=args.gpus,
@@ -110,24 +111,9 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         """
         total_area = total_latency = total_power = total_energy = 0
 
-        # directories and files for timeloop
         timeloop_dir = os.path.join(self.logdir, f'{self.model.arch}_timeloop')
-        workload_dir = os.path.join(timeloop_dir, 'problem')
-        mapper_file = os.path.join(timeloop_dir, 'mapper.yaml')
-        arch_dir = os.path.join(timeloop_dir, 'arch')
-        constraint_dir = os.path.join(timeloop_dir, 'constraints')
-        outdir = os.path.join(timeloop_dir, 'output')
-        if init and not os.path.isdir(timeloop_dir):
-            os.makedirs(timeloop_dir)
-            os.makedirs(workload_dir)
-            os.makedirs(arch_dir)
-            os.makedirs(constraint_dir)
-            os.makedirs(outdir)
-            shutil.copyfile(self.timeloop_files.mapper, mapper_file)
-            for arch_file in self.timeloop_files.arch:
-                shutil.copy2(arch_file, arch_dir)
-            for constraint_file in self.timeloop_files.constraint:
-                shutil.copy2(constraint_file, constraint_dir)
+        if init:
+            self.timeloop_wrapper.init_files(timeloop_dir)
 
         # cleanup the timeloop files
         for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
@@ -140,71 +126,35 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                 continue
 
             # if specified, create the Timeloop workload files for each layer
-            problem_filepath = os.path.join(workload_dir, f'layer{layer_idx}_{name}.yaml')
-            this_outdir = os.path.join(outdir, f'layer{layer_idx}_{name}')
+            problem_filepath = os.path.join(self.timeloop_wrapper.workload_dir, f'layer{layer_idx}_{name}.yaml')
             if init:
-                dims = self.summary[name].dimensions
-                layer_type = self.summary[name].layer_type
-                os.makedirs(this_outdir)
-                TimeloopProblem(name, dims, layer_type).to_yaml(problem_filepath)
+                self.timeloop_wrapper.init_problem(name, self.summary[name].layer_type,
+                                                   self.summary[name].dimensions, problem_filepath)
 
-
-            # NOTE: modifying the problem file to adjust for pruning, is this a temporary?
+            # modifying the problem file to adjust for pruning
             sparsity_dict = get_sparsity(module.weight, True)
-            with open(problem_filepath, 'r') as f:
-                problem_cfg = yaml.load(f, Loader=yaml.SafeLoader)
+            self.timeloop_wrapper.adjust_problem_dimension(name, 'M',
+                                                           adjust_by=(1 - sparsity_dict['filters']))
+            self.timeloop_wrapper.adjust_problem_dimension(name, 'C',
+                                                           adjust_by=(1 - sparsity_dict['channels']))
 
-            logger.info(f'{sparsity_dict}')
-            problem_cfg['problem']['instance']['M'] = int(problem_cfg['problem']['instance']['M'] * \
-                                                      (1 - sparsity_dict['filters']))
-            problem_cfg['problem']['instance']['C'] = int(problem_cfg['problem']['instance']['C'] * \
-                                                      (1 - sparsity_dict['channels']))
-
-            with open(problem_filepath, 'w') as f:
-                f.write(yaml.dump(problem_cfg))
-
-            # TODO: Account for quantization; add custom MAC units to timeloop
+            # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
             if bits < 32:
-                pass
+                self.timeloop_wrapper.adjust_precision(name, bits)
+        
+            # execute timeloop
+            self.timeloop_wrapper.run(name)
 
-            # execute the Timeloop/Accelergy infrastructure
-            command = f'timeloop-mapper ' \
-                      f'{arch_dir}/*.yaml ' \
-                      f'{problem_filepath} ' \
-                      f'{mapper_file} ' \
-                      f'{constraint_dir}/*.yaml ' \
-                      #f'--outdir {this_outdir} '
-            logger.debug(f'timeloop-mapper command: {command}')
-            start = time()
-            p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-            logger.debug(f"Executed timeloop-mapper command in {time() - start:.3e} "
-                         f"with exitcode: {p.returncode}")
-
-            # accumulate produced metrics
-            stats_file = os.path.join(project_dir, 'timeloop-mapper.stats.txt')
-            with open(stats_file, 'r') as f:
-                stats = f.read()
-
-            gflops = re.search('GFLOPs .*?: ([\d.]+)', stats).group(1)
-            gflops = float(gflops)
-            utilization = re.search('Utilization: ([\d.]+)', stats).group(1)
-            utilization = float(utilization)
-            cycles = re.search('Cycles: ([\d.]+)', stats).group(1)
-            cycles = float(cycles)
-            energy = re.search('Energy: ([\d.]+)', stats).group(1)
-            energy = float(energy)
-            edp = re.search('EDP.*?: (.*)', stats).group(1)
-            edp = float(edp)
-            area = re.search('Area: ([\d.]+)', stats).group(1)
-            area = float(area)
+            # gather results from simulation
+            results = self.timeloop_wrapper.get_results(project_dir)
             logger.debug(f'Timeloop results for layer {layer_idx} ({name}): '
-                         f'GFLOPS={gflops}, Utilization={utilization}, Cycles={cycles}, '
-                         f'Energy={energy}, EDP={edp}, Area={area}')
+                         f'GFLOPS={results.gflops}, Utilization={results.utilization}, Cycles={results.cycles}, '
+                         f'Energy={results.energy}, EDP={results.edp}, Area={results.area}')
 
-            total_area += area
-            total_latency += cycles
-            total_energy += energy
+            total_area += results.area
+            total_latency += results.cycles
+            total_energy += results.energy
 
             layer_idx += 1
 
