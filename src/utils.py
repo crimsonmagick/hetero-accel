@@ -649,30 +649,28 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         t = tabulate(df, headers='keys', tablefmt='psql', floatfmt="2.3f")
         logger.info(f"\n{t}")
 
-    elif args.test_pruning_mode:
+    elif args.test_pruning_quant_mode:
         do_exit = True
 
         # to avoid circular import
         from src.compression.compressor import PruningQuantizationCompressor
         compressor = PruningQuantizationCompressor.from_args(args, data_loaders, net_wrapper.model)
-        logger.info('Initialized compressor for testing the energy efficiency of pruning')
+        logger.info('Initialized compressor for testing the energy efficiency of pruning and quantization')
 
-        # measure the initial energy with a random pruning ratio
-        first_pruning_ratio = 0.5
-        second_pruning_ratio = 0.7
-
+        pruning_ratios = [0.4, 0.7]
+        quant_bits = [8, 4]
         compressor.model.eval()
-        logger.info(f"Pruning with ratio {first_pruning_ratio}")
-        compressor.pruner.prune(compressor.model, first_pruning_ratio)
-        sparsity1, size1 = compressor.compute_model_statistics()
-        area1, latency1, power1, energy1 = compressor.compute_accelerator_statistics(init=True)
-        logger.info(f"\tSparsity: {sparsity1:.3f} - Energy: {energy1:.3e}")
-        compressor.reset()
-        logger.info(f"Pruning with ratio {second_pruning_ratio}")
-        compressor.pruner.prune(compressor.model, second_pruning_ratio)
-        sparsity2, size2 = compressor.compute_model_statistics()
-        area2, latency2, power2, energy2 = compressor.compute_accelerator_statistics(init=False)
-        logger.info(f"\tSparsity: {sparsity2:.3f} - Energy: {energy2:.3e}")
+
+        for i, pruning_ratio in enumerate(pruning_ratios):
+            for j, quant_bits in enumerate(quant_bits):
+                compressor.reset()
+
+                compressor.prune_and_quantize(pruning_ratio, quant_bits) 
+                logger.info(f"Testing with {pruning_ratio*100:.2f}% pruning ratio and {quant_bits} quantization bits")
+                sparsity, size = compressor.compute_model_statistics()
+                area, latency, power, energy = compressor.compute_accelerator_statistics(init=i+j==0)
+                logger.info(f"\tSparsity={sparsity:.3f} - Size={size:.3e} - Area={area:.3e} - "
+                            f"Latency={latency:.3e} - Power={power:.3e} - Energy={energy:.3e}")
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy

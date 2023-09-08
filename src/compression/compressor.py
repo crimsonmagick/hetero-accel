@@ -37,7 +37,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.quantizer = Quantizer(self.layers_to_compress)
 
         # timeloop wrapper to execute mapping searches and energy/area estimation
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type)
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type,
+                                                os.path.join(self.logdir, f'{self.model.arch}_timeloop'))
 
         if self.model.is_image_classifier:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
@@ -111,11 +112,12 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         """
         total_area = total_latency = total_power = total_energy = 0
 
-        timeloop_dir = os.path.join(self.logdir, f'{self.model.arch}_timeloop')
         if init:
-            self.timeloop_wrapper.init_files(timeloop_dir)
+            self.timeloop_wrapper.init_files()
+            self.timeloop_wrapper.init_arch()
 
         # cleanup the timeloop files
+        timeloop_dir = os.path.join(self.logdir, f'{self.model.arch}_timeloop')
         for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
             os.remove(timeloop_file)
 
@@ -140,8 +142,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
 
             # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
-            if bits < 32:
-                self.timeloop_wrapper.adjust_precision(name, bits)
+            self.timeloop_wrapper.adjust_precision(name, bits)
         
             # execute timeloop
             self.timeloop_wrapper.run(name)
