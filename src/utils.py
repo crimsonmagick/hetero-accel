@@ -662,11 +662,11 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         compressor.model.eval()
 
         for i, pruning_ratio in enumerate(pruning_ratios):
-            for j, quant_bits in enumerate(quant_bits):
+            for j, quant_bit in enumerate(quant_bits):
                 compressor.reset()
 
-                compressor.prune_and_quantize(pruning_ratio, quant_bits) 
-                logger.info(f"Testing with {pruning_ratio*100:.2f}% pruning ratio and {quant_bits} quantization bits")
+                compressor.prune_and_quantize(pruning_ratio, quant_bit) 
+                logger.info(f"Testing with {pruning_ratio*100:.2f}% pruning ratio and {quant_bit} quantization bits")
                 sparsity, size = compressor.compute_model_statistics()
                 area, latency, power, energy = compressor.compute_accelerator_statistics(init=i+j==0)
                 logger.info(f"\tSparsity={sparsity:.3f} - Size={size:.3e} - Area={area:.3e} - "

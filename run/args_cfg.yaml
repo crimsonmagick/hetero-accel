@@ -9,7 +9,7 @@ op_mode_args:
         evaluate_model_mode: False
         train_model_mode: False
         test_timeloop_accelergy_mode: False
-        test_pruning_mode: False
+        test_pruning_quant_mode: True
         model_summary_mode: null
 
 model_args:
@@ -40,12 +40,12 @@ optimizer_args:
         weight_decay: 1.e-4
 
 compression_args:
-        pruning_group_type: eridanusblocks
+        pruning_group_type: channels
         pruning_high: 1.0
         pruning_low: 0.0
         pruning_incr: 0.05
         quant_high: 8
-        quant_low: 5
+        quant_low: 4
         quant_incr: 1
         top1_constraint: 2
         top5_constraint: null
