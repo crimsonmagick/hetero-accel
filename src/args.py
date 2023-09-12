@@ -1,5 +1,6 @@
 import argparse
 import os
+import numpy as np
 from enum import Enum
 from src import project_dir
 from src.accelerator_cfg import AcceleratorType

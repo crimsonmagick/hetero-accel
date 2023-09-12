@@ -8,7 +8,7 @@ from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
 from src.models import create_model
-from src.utils import weight_init, load_checkpoint, get_sparsity
+from src.utils import weight_init, load_checkpoint, compute_model_statistics
 from src.accelerator_cfg import AcceleratorProfile
 from src.compression.pruning import Pruner
 from src.compression.quantization import Quantizer
@@ -31,7 +31,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         logger.debug(f"Layers to compress: {self.layers_to_compress}")
 
         # pruner and quantizer for compression
-        self.pruner = Pruner(args.pruning_group_type, self.layers_to_compress,
+        self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,
                              eridanus_window_w=self.accelerator_profile.width,
                              eridanus_window_h=self.accelerator_profile.height)
         self.quantizer = Quantizer(self.layers_to_compress)
@@ -84,27 +84,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         quant_action = quant_action * (self.quant_high - self.quant_low) + self.quant_low
         return int(np.round(quant_action, 0))
 
-    def compute_model_statistics(self):
-        total_params = total_pruned = total_memory_size = 0
-        for module_name, module in self.model.named_modules():
-            if module_name not in self.layers_to_compress:
-                continue
-
-            bits = 32
-            if hasattr(module, 'quant_metadata'):
-                bits = module.quant_metadata.bits
-
-            for param_name, param in module.named_parameters():
-                if 'weight' not in param_name:
-                    continue
-
-                total_params += param.numel()
-                total_pruned += param.abs().eq(0).sum()
-                # memory size in bytes
-                total_memory_size += (bits/8) * param.abs().gt(0).sum()
-
-        sparsity = total_pruned / total_params
-        return sparsity.item(), total_memory_size.item()
+    def compute_model_statistics(self, embed=True):
+        return compute_model_statistics(self.model, self.layers_to_compress)
 
     def compute_accelerator_statistics(self, init=False):
         """Calculate the hardware-related efficiency metrics of the accelerator
@@ -121,6 +102,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
             os.remove(timeloop_file)
 
+        _, layer_stats = self.compute_model_statistics()
         # itearate over all layers
         layer_idx = 0
         for name, module in self.model.named_modules():
@@ -134,11 +116,10 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                                    self.summary[name].dimensions, problem_filepath)
 
             # modifying the problem file to adjust for pruning
-            sparsity_dict = get_sparsity(module.weight, True)
             self.timeloop_wrapper.adjust_problem_dimension(name, 'M',
-                                                           adjust_by=(1 - sparsity_dict['filters']))
+                                                           adjust_by=(1 - layer_stats[name]['sparsity_filters']))
             self.timeloop_wrapper.adjust_problem_dimension(name, 'C',
-                                                           adjust_by=(1 - sparsity_dict['channels']))
+                                                           adjust_by=(1 - layer_stats[name]['sparsity_channels']))
 
             # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)

@@ -5,14 +5,16 @@ import wandb
 import torch
 import pickle
 import numpy as np
+import pandas as pd
 from copy import deepcopy
 from types import SimpleNamespace
 from src import dataset_dirs, pretrained_checkpoint_paths
-from src.utils import env_cfg, handle_model_subapps, lut2csv
+from src.utils import env_cfg, handle_model_subapps, perfect_divisors
 from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
 from src.accelerator_cfg import AcceleratorProfile
+from src.rl import Design_Space
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 
@@ -32,24 +34,14 @@ def main():
     # initialize DNNs and datasets
     models, datasets = setup_networks_datasets(args)
 
-    # check if a DNN-accuracy LUT was specified
-    if args.dnn_accuracy_lut_file is None or not os.path.exists(args.dnn_accuracy_lut_file):
-        # otherwise, create it with an exhaustive exploration search
-        args.dnn_accuracy_lut = pruning_quant_exploration(args, models, datasets)
-        # save the lut using pickle
-        with open(os.path.join(args.logdir, 'dnn_accuracy_lut.pkl'), 'wb') as f:
-            pickle.dump(args.dnn_accuracy_lut, f)
-    # if it was specified, load it using pickle
-    else:
-        with open(args.dnn_accuracy_lut_file, 'rb') as f:
-            args.dnn_accuracy_lut = pickle.load(f)
-
-    # write the LUT to a csv file
-    lut2csv(args.dnn_accuracy_lut, args.logdir)
+    # create a LUT of compression profiles via exhaustive search
+    dnn_accuracy_lut, compressors = pruning_quant_exploration(args, models, datasets)
+    del models, datasets
 
     # move to accelerator exploration phase
-    accelerator_exploration(args)
-
+    design_space = define_design_space(dnn_accuracy_lut, compressors)
+    del compressors
+    accelerator_exploration(args, design_space)
 
 
 def setup_networks_datasets(args):
@@ -104,11 +96,18 @@ def setup_networks_datasets(args):
 def pruning_quant_exploration(args, models, datasets):
     """Exploration of possible pruning/quantization profiles
     """
-    dnn_accuracy_lut = {}
-    for model in models:
-        dnn_accuracy_lut[model.arch] = {}
-        logger.info(f'Beginning exhaustive exploration for {model.arch}')
+    skip_exploration = False
+    if args.dnn_accuracy_lut_file is not None and os.path.exists(args.dnn_accuracy_lut_file):
+        skip_exploration = True
+        preloaded_dnn_accuracy_lut = pd.read_csv(args.dnn_accuracy_lut_file)
+        logger.info(f'=> Skipping exhaustive exploration: loaded LUT from {args.dnn_accuracy_lut_file}')
 
+    # structure of the LUT
+    df = pd.DataFrame(columns=['Network', 'PruningGroup', 'PruningRatio', 'QuantBits',
+                               'Top1', 'Top5', 'Loss', 'Sparsity', 'Size', 'Valid'])
+
+    compressors = {}
+    for model in models:
         # initialize compressor
         compression_args = SimpleNamespace(logdir=args.logdir,
                                            pruning_high=args.pruning_high,
@@ -125,62 +124,161 @@ def pruning_quant_exploration(args, models, datasets):
                                            print_frequency=args.batch_print_frequency,
                                            verbose=args.model_verbose)
         compressor = PruningQuantizationCompressor(compression_args, datasets[model.dataset], model)
+        compressors[model.arch] = compressor
+        if skip_exploration:
+            continue
+
+        logger.info(f'=> Beginning exhaustive exploration for {model.arch}')
 
         # compute original statistics
         top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
-        sparsity, size = compressor.compute_model_statistics()
-        og_stats = {'top1': top1, 'top5': top5, 'loss': loss, 'sparsity': sparsity, 'size': size}
-        dnn_accuracy_lut[model.arch]['original_statistics'] = og_stats
+        model_stats, _ = compressor.compute_model_statistics()
+        og_stats = {'top1': top1, 'top5': top5, 'loss': loss,
+                    'sparsity': model_stats['sparsity'], 'size': model_stats['size']}
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                      f'{metric.capitalize()}={value:.2e}'
                                      for metric, value in og_stats.items()])
         logger.info(f'{model.arch}: Original statistics: {og_stats_logstr}')
+        # save the statistics to the LUT
+        df.loc[len(df.index)] = ([model.arch, 'null', 0.0, 32, top1, top5, loss, sparsity, size, 1])
 
-        # iterate over all combinations for pruning and quantization
-        compression_stats = {}
+        # iterate over two modes of pruning: rows and columns, over all combinations of
+        # pruning ratios and quantization bits
         best_sparsity = sparsity
         best_size = size
-        for pruning_ratio in np.arange(args.pruning_low, min(1, args.pruning_high + args.pruning_incr), args.pruning_incr):
-            for quant_bits in np.arange(args.quant_low, args.quant_high + 1, args.quant_incr):
-                pruning_ratio = np.round(pruning_ratio, 2)
-                logger.info(f'{model.arch}: Testing pruning of {100 * pruning_ratio}% and '
-                            f'quantization of {quant_bits} bits')
+        for prune_mode in ['columns', 'rows']:
+            compressor.pruner.set_pruning_mode(prune_mode)
 
-                # reset the previous state of the network
-                compressor.reset()
-                # execute the compression profile
-                compressor.prune_and_quantize(pruning_ratio, quant_bits)
-                # evaluate for accuracy and network statistics
-                top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
-                sparsity, size = compressor.compute_model_statistics()
-                stats = {'top1': top1, 'top5': top5, 'loss': loss, 'sparsity': sparsity, 'size': size}
-                compression_stats[(pruning_ratio, quant_bits)] = stats
-                stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
-                                          f'{metric.capitalize()}={value:.2e}'
-                                          for metric, value in stats.items()])
-                logger.info(f'{model.arch}: Compressed statistics: {stats_logstr}')
+            pruning_ratio = args.pruning_low
+            while pruning_ratio <= args.pruning_high:
+                for quant_bits in np.arange(args.quant_low, args.quant_high + 1, args.quant_incr):
+                    logger.info(f'{model.arch}: Testing pruning {prune_mode} of {100 * pruning_ratio}% and '
+                                f'quantization of {quant_bits} bits')
 
-                # if the accuracy constraints are satisfied, save the model
-                if (args.top1_constraint is not None and top1 >= og_stats['top1'] - args.top1_constraint) or \
-                   (args.top5_constraint is not None and top5 >= og_stats['top5'] - args.top5_constraint) or \
-                   (args.loss_constraint is not None and loss <= og_stats['loss'] - args.top5_constraint):
+                    # reset the previous state of the network
+                    compressor.reset()
+                    # execute the compression profile
+                    compressor.prune_and_quantize(pruning_ratio, quant_bits)
+                    # evaluate for accuracy and network statistics
+                    top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+                    model_stats, _ = compressor.compute_model_statistics()
+                    stats = {'top1': top1, 'top5': top5, 'loss': loss,
+                             'sparsity': model_stats['sparsity'], 'size': model_stats['size']}
+                    stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
+                                              f'{metric.capitalize()}={value:.2e}'
+                                              for metric, value in stats.items()])
+                    logger.info(f'{model.arch}: Compressed statistics: {stats_logstr}')
 
-                    # save/overwrite the model with highest sparsity or lowest memory size
-                    if sparsity >= best_sparsity:
-                        compressor.save_model(name=model.arch + '_best_sparsity')
-                    if size <= best_size:
-                        compressor.save_model(name=model.arch + '_best_size')
+                    # binary flag whether the accuracy constraints are satisfied
+                    valid = 0
+                    if (args.top1_constraint is not None and top1 >= og_stats['top1'] - args.top1_constraint) or \
+                       (args.top5_constraint is not None and top5 >= og_stats['top5'] - args.top5_constraint) or \
+                       (args.loss_constraint is not None and loss <= og_stats['loss'] - args.top5_constraint):
 
-        dnn_accuracy_lut[model.arch]['compression_statistics'] = compression_stats
+                        valid = 1
+                        # save/overwrite the model with highest sparsity or lowest memory size
+                        if sparsity >= best_sparsity:
+                            compressor.save_model(name=model.arch + '_best_sparsity')
+                        if size <= best_size:
+                            compressor.save_model(name=model.arch + '_best_size')
 
-    return dnn_accuracy_lut
+                    # save the statistics to the LUT
+                    df.loc[len(df.index)] = ([model.arch, prune_mode, pruning_ratio, quant_bits,
+                                              top1, top5, loss, sparsity, size, valid])
+
+                # increment, to fix rounding numpy errors
+                pruning_ratio = np.round(pruning_ratio + args.pruning_incr, 2)
+
+    if skip_exploration:
+       df = preloaded_dnn_accuracy_lut
+
+    # check if any valid solutions were found
+    assert df['Valid'].sum() > 1, "No valid solutions were found, consider changing the compression settings or " \
+                                  "loosen the accuracy constraints"
+
+    # save LUT to .csv file
+    df.to_csv(os.path.join(args.logdir, 'lut.csv'))
+
+    return df, compressors
 
 
-def accelerator_exploration(args):
+def define_design_space(dnn_lut, compressors):
+    """Define the design space constraints from the pruning/quantization results
+    """
+    def criterion(arch):
+        valid = dnn_lut.loc[(dnn_lut['Valid'] == 1) & (dnn_lut['QuantBits'] != 32)]
+        best = valid.loc[valid['Size'] == min(valid['Size'])]
+        return best['PruningGroup'].iloc[0], best['PruningRatio'].iloc[0], best['QuantBits'].iloc[0]
+
+    ds_options = {'rows': [], 'columns': [], 'size': []}
+    for arch, compressor in compressors.items():
+        # find optimal compression profile
+        pruning_mode, pruning_ratio, quant_bits = criterion(arch)
+        # apply pruning and quantization
+        compressor.reset()
+        compressor.pruner.set_pruning_mode(pruning_mode)
+        compressor.prune_and_quantize(pruning_ratio, quant_bits)
+
+        # get the statistics per layer, including block-wise sparsity
+        total_stats, layer_stats = compressor.compute_model_statistics()
+
+        ds_options[pruning_mode] += [_layer_stats['nonzero_' + pruning_mode]
+                                     for _layer_stats in layer_stats.values()]
+        ds_options['size'] += [_layer_stats['size'] for _layer_stats in layer_stats.values()]
+
+    pe_array_x = sorted(set(perfect_divisors(ds_options['columns'])))
+    pe_array_y = sorted(set(perfect_divisors(ds_options['rows'])))
+    if not pe_array_x:
+        pe_array_x = pe_array_y
+    elif not pe_array_y:
+        pe_array_y = pe_array_x
+    size = sorted(set(perfect_divisors(ds_options['size'])))
+
+    # TODO: Consider how to limit the options per buffer, depending on its type and stored tensors
+
+    return Design_Space(pe_array_x=pe_array_x,
+                        pe_array_y=pe_array_y,
+                        sram_size=size,
+                        ifmap_spad_size=size,
+                        weights_spad_size=size,
+                        psum_spad_size=size)
+
+
+def accelerator_exploration(args, design_space):
     """Exploration to design/discover the sub-accelerator architectures
     """
-    # TODO: Find how to change PE array dimensions in timeloop
-    pass
+    # initialize agent
+    agent_args = SimpleNamespace(logdir=args.logdir,
+                                 prefix=None,
+                                 deterministic=args.rl_agent_deterministic,
+                                 seed=args.global_seed,
+                                 verbose=args.rl_agent_verbose,
+                                 policy_kwargs=dict(),
+                                 device=env.compressor.device,
+                                 eval_frequency=args.rl_agent_eval_frequency,
+                                 no_improv_evals=args.rl_agent_no_improv_evals,
+                                 min_evals=args.rl_agent_min_evals,
+                                 timesteps=args.rl_agent_total_timesteps,
+                                 train_episodes=args.rl_agent_train_episodes,
+                                 eval_episodes=args.rl_agent_eval_episodes,
+                                 load_from=args.rl_agent_load_from_path)
+    agent = A2C_Agent(agent_args, env, None)
+
+    # train the agent
+    agent.learn()
+
+    # evaluate the agent
+    eval_env = env
+    mean_reward, std_reward = agent.evaluate_policy(eval_env)
+    if mean_reward is not None and std_reward is not None:
+        logger.info("Policy evaluation: mean rewards: {mean_reward:.3e}, std rewards: {std_reward:.3e}")
+
+    # explicit episode execution to gather final actions and metrics
+    obs_t0 = eval_env.env.reset()
+    action, _ = agent.predict(obs)
+    obs_t1, reward, done, info = env.step(action)
+
+    agent.finalize()
 
 
 if __name__ == '__main__':

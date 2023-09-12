@@ -24,8 +24,15 @@ class Pruner:
     def __init__(self, pruning_group_type, layers_to_compress, **kwargs):
         self.layers_to_compress = layers_to_compress
         self.args = SimpleNamespace(**kwargs)
+        self.set_pruning_mode(pruning_group_type)
 
-        # configure pruning function based on the given group type
+    def set_pruning_mode(self, pruning_group_type):
+        """Configure pruning function based on the given group type
+        """
+        if isinstance(pruning_group_type, str):
+            pruning_group_type = {str(entry.name).lower(): entry 
+                                  for entry in PruningGroupType}.get(pruning_group_type.lower())
+
         if pruning_group_type in (PruningGroupType.Rows, PruningGroupType.Columns):
             self.prune = self.prune_rows_columns
             self.dim_to_prune = 0 if pruning_group_type == PruningGroupType.Rows else 1
@@ -72,7 +79,10 @@ class Pruner:
             layer_norms = torch.norm(weights_2d, p=1, dim=self.dim_to_prune)
 
             mask = layer_norms.gt(threshold).type(module.weight.data.type())
-            mask = mask.expand(np.prod(module.weight.shape[1:]), module.weight.shape[0]).t()
+            if self.dim_to_prune == 0: # rows
+                mask = mask.expand(weights_2d.shape[0], weights_2d.shape[1])
+            else: # columns
+                mask = mask.expand(weights_2d.shape[1], weights_2d.shape[0]).t()
             mask = mask.view(*module.weight.shape)
             # apply the pruning to the layer
             module.weight.data.mul_(mask) 

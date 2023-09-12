@@ -8,3 +8,8 @@ HW_Metrics = namedtuple('HW_Metrics',
 Accuracy_Metrics = namedtuple('Accuracy_Metrics',
                               ['top1', 'top5', 'loss'])
 
+# design space
+Design_Space = namedtuple('Design_Space',
+                          ['pe_array_x', 'pe_array_y',
+                           'sram_size', 'ifmap_spad_size', 'weights_spad_size', 'psum_spad_size'])
+

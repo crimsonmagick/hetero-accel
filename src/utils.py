@@ -13,6 +13,7 @@ import random
 import wandb
 import subprocess as sp
 import csv
+from numbers import Number
 from enum import Enum
 from datetime import datetime
 from errno import ENOENT
@@ -31,13 +32,12 @@ from src.args import ModelSummaryType
 __all__ = [
     'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
     'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
-    'log_training_progress', 'lut2csv', 'get_sparsity',
-    'get_dummy_input', 'model_summary',
+    'log_training_progress', 'lut2csv', 'perfect_divisors',
+    'get_sparsity', 'compute_model_statistics', 'get_dummy_input', 'model_summary',
     'handle_model_subapps',
 ]
 
 logger = logging.getLogger(__name__)
-
 
 def env_cfg():
     """Configure the environment to run the optimization"""
@@ -443,38 +443,107 @@ def lut2csv(lut, savedir=None, filename=None):
                 writer.writerow(row)
 
     logger.info(f'Saved LUT to .csv file: {filepath}')
+    
+    # return the LUT into the format of a pandas DataFrame
+    return pd.read_csv(filepath)
 
 
-def get_sparsity(param, to_dict=False):
+def perfect_divisors(numbers, include_one=False):
+    """Get the perfect divisors of the given number/iterable
+    """
+    def _perfect_divisors(number):
+        for i in range(1 if include_one else 2, int(number / 2) + 1):
+            if number % i == 0:
+                yield i
+        yield number
+
+    divisors = []
+    if isinstance(numbers, Number):
+        numbers = [numbers]
+    for number in numbers:
+        if number == 0:
+            continue
+        number = int(number)
+        divisors.extend(
+            [n for n in _perfect_divisors(number)]
+        )
+    return divisors
+
+
+def get_sparsity(param):
     """Calculate the sparsity across diverse dimentions
     """
     with torch.no_grad():
-        sparsity_weights = param.eq(0).sum().item() / param.numel()
+        all_weights = param.numel()
+        nonzero_weights = param.eq(0).sum().item()
         # columns
         param_2d = param.view(-1, np.prod(param.shape[1:]))
-        zero_columns = torch.norm(param_2d, p=1, dim=1).eq(0).sum().item()
-        sparsity_columns = zero_columns / param_2d.shape[0]
+        all_columns = param_2d.shape[0]
+        nonzero_columns = torch.norm(param_2d, p=1, dim=1).gt(0).sum().item()
         # rows
-        zero_rows = torch.norm(param_2d, p=1, dim=0).eq(0).sum().item()
-        sparsity_rows = zero_rows / param_2d.shape[1]
+        all_rows = param_2d.shape[1]
+        nonzero_rows = torch.norm(param_2d, p=1, dim=0).eq(1).sum().item()
         # channels
         if param.dim() != 4:
-            sparsity_channels = 0.0
+            all_channels = nonzero_channels = sparsity_channels = 0.0
         else:
             channel_view = param.transpose(0, 1).contiguous()
             channels_norm = torch.norm(channel_view.view(-1, np.prod(channel_view.shape[1:])), p=1, dim=1)
-            sparsity_channels = channels_norm.eq(0).sum().item() / param.shape[1]
+            all_channels = param.shape[1]
+            nonzero_channels = channels_norm.gt(0).sum().item()
+            sparsity_channels = 1 - (nonzero_channels / all_channels)
         # filters
         if param.dim() != 4:
-            sparsity_filters = 0.0
+            all_filters = nonzero_filters = sparsity_filters = 0.0
         else:
             filters_norm = torch.norm(param.view(-1, np.prod(param.shape[1:])), p=1, dim=1)
-            sparsity_filters = filters_norm.eq(0).sum().item() / param.shape[0]
+            all_filters = param.shape[0]
+            nonzero_filters = filters_norm.gt(0).sum().item()
+            sparsity_filters = 1 - (nonzero_filters / all_filters)
 
-    if to_dict:
-        return {'columns': sparsity_columns, 'rows': sparsity_rows,
-                'channels': sparsity_channels, 'filters': sparsity_filters, 'weights': sparsity_weights}
-    return sparsity_columns, sparsity_rows, sparsity_channels, sparsity_filters, sparsity_weights
+    return {'all_weights': all_weights, 'nonzero_weights': nonzero_weights, 'weights': 1 - (nonzero_weights / all_weights),
+            'all_columns': all_columns, 'nonzero_columns': nonzero_columns, 'columns': 1 - (nonzero_columns / all_columns),
+            'all_rows': all_rows, 'nonzero_rows': nonzero_rows, 'rows': 1 - (nonzero_rows / all_rows),
+            'all_channels': all_channels, 'nonzero_channels': nonzero_channels, 'channels': sparsity_channels,
+            'all_filters': all_filters, 'nonzero_filters': nonzero_filters, 'filters': sparsity_filters}
+
+
+def compute_model_statistics(model, layers_to_compress=[]):
+    """Calculate statistics for each layer of a given model 
+    """
+    metrics = ['size', 'sparsity',
+               'all_weights', 'nonzero_weights', 'sparsity_weights',
+               'all_columns', 'nonzero_columns', 'sparsity_columns',
+               'all_rows', 'nonzero_rows', 'sparsity_rows',
+               'all_channels', 'nonzero_channels', 'sparsity_channels',
+               'all_filters', 'nonzero_filters', 'sparsity_filters']
+
+    total_stats = {metric: 0.0 for metric in metrics}
+    per_layer_stats = {}
+    for module_name, module in model.named_modules():
+        if module_name not in layers_to_compress:
+            continue
+
+        # match the names of each sparsity-related metric
+        sparsity_stats = get_sparsity(module.weight)
+        per_layer_stats[module_name] = {metric: sparsity_stats[metric]
+                                        if 'all_' in metric or 'nonzero_' in metric
+                                        else sparsity_stats[metric.replace('sparsity_', '')]
+                                        for metric in metrics
+                                        if metric in sparsity_stats or metric.replace('sparsity_', '') in sparsity_stats}
+        per_layer_stats[module_name]['sparsity'] = per_layer_stats[module_name]['sparsity_weights']
+        bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
+        per_layer_stats[module_name]['size'] = (bits/8) * sparsity_stats['nonzero_weights']
+
+        for metric in metrics:
+            total_stats[metric] += per_layer_stats[module_name][metric]
+
+    total_stats['sparsity'] = total_stats['sparsity_weights'] = 1 - (total_stats['nonzero_weights'] / total_stats['all_weights'])
+    total_stats['sparsity_columns'] = 1 - (total_stats['nonzero_columns'] / total_stats['all_columns'])
+    total_stats['sparsity_rows'] = 1 - (total_stats['nonzero_rows'] / total_stats['all_rows'])
+    total_stats['sparsity_channels'] = 1 - (total_stats['nonzero_channels'] / total_stats['all_channels'])
+    total_stats['sparsity_filters'] = 1 - (total_stats['nonzero_filters'] / total_stats['all_filters'])
+    return total_stats, per_layer_stats
 
 
 def get_dummy_input(device=None, input_shape=None):
@@ -637,7 +706,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
                 if param.dim() in (2, 4) and 'weight' in name:
                     params += param.numel()
                     pruned_params += param.eq(0).sum().item()
-                    sparsity = get_sparsity(param, to_dict=True)
+                    sparsity = get_sparsity(param)
                     df.loc[len(df.index)] = ([name, np.prod(param.size()),
                                               100 * sparsity['columns'], 100 * sparsity['rows'],
                                               100 * sparsity['channels'], 100 * sparsity['channels'],
@@ -667,9 +736,9 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
                 compressor.prune_and_quantize(pruning_ratio, quant_bit) 
                 logger.info(f"Testing with {pruning_ratio*100:.2f}% pruning ratio and {quant_bit} quantization bits")
-                sparsity, size = compressor.compute_model_statistics()
+                stats, _ = compressor.compute_model_statistics()
                 area, latency, power, energy = compressor.compute_accelerator_statistics(init=i+j==0)
-                logger.info(f"\tSparsity={sparsity:.3f} - Size={size:.3e} - Area={area:.3e} - "
+                logger.info(f"\tSparsity={stats['sparsity']:.3f} - Size={stats['size']:.3e} - Area={area:.3e} - "
                             f"Latency={latency:.3e} - Power={power:.3e} - Energy={energy:.3e}")
 
     elif args.test_timeloop_accelergy_mode:
