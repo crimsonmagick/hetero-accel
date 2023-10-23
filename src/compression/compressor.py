@@ -7,7 +7,6 @@ from glob import glob
 from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
-from src.models import create_model
 from src.utils import weight_init, load_checkpoint, compute_model_statistics
 from src.accelerator_cfg import AcceleratorProfile
 from src.compression.pruning import Pruner
@@ -58,10 +57,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                            pruning_group_type=args.pruning_group_type,
                                            accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
                                            # DNN args for inheritance from TorchNetworkWrapper
-                                           profile_model=False,
                                            gpus=args.gpus,
                                            cpu=args.cpu,
-                                           print_frequency=args.batch_print_frequency,
                                            verbose=args.model_verbose)
         return cls(compression_args, data_loaders, model)
 
@@ -70,11 +67,19 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.pruner.reset()
         self.quantizer.reset()
 
-    def prune_and_quantize(self, pruning_ratio, quant_bits):
-        assert self.pruning_low <= pruning_ratio <= self.pruning_high
-        self.pruner.prune(self.model, pruning_ratio)
-        assert self.quant_low <= quant_bits <= self.quant_high
-        self.quantizer.quantize(self.model, quant_bits)
+    def quantize(self, quant_bits):
+        self.prune_and_quantize(None, quant_bits)
+
+    def prune(self, pruning_ratio):
+        self.prune_and_quantize(pruning_ratio, None)
+
+    def prune_and_quantize(self, pruning_ratio=None, quant_bits=None):
+        if pruning_ratio is not None:
+            assert self.pruning_low <= pruning_ratio <= self.pruning_high
+            self.pruner.prune(self.model, pruning_ratio)
+        if quant_bits is not None:
+            assert self.quant_low <= quant_bits <= self.quant_high
+            self.quantizer.quantize(self.model, quant_bits)
 
     def translate_pruning_action(self, pruning_action):
         pruning_action = pruning_action * (self.pruning_high - self.pruning_low) + self.pruning_low
@@ -92,10 +97,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
            using Timeloop/Accelergy
         """
         total_area = total_latency = total_power = total_energy = 0
-
-        if init:
-            self.timeloop_wrapper.init_files()
-            self.timeloop_wrapper.init_arch()
 
         # cleanup the timeloop files
         timeloop_dir = os.path.join(self.logdir, f'{self.model.arch}_timeloop')
