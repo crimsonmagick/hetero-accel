@@ -1,0 +1,4 @@
+name: low_precision_mac_tables
+technology: 32nm
+accuracy: 100
+path_to_data_dir: ./

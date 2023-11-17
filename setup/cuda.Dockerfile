@@ -69,7 +69,7 @@ RUN cd src/timeloop && \
 	cp build/timeloop-* /opt/conda/envs/haccel/bin
 RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
 	accelergy && \
-	accelergyTables && \
+	accelergyTables -r /workspace/hetero-accel/data/ && \
 	pip install git+https://github.com/Fibertree-Project/fibertree jupyter
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
