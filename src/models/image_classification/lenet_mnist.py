@@ -22,6 +22,6 @@ class LeNet(nn.Module):
         return out
 
 
-def lenet_mnist(pretrained=False):
+def lenet_mnist():
     model = LeNet()
     return model

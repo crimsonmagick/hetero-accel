@@ -1,0 +1,40 @@
+---
+workloads:
+  A:
+    - arch: resnet18
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenetv2
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+  B:
+    # TODO: Configure the benchmarks (dnn-dataset) below
+    # image segmentation
+    - arch: unet_3d
+      dataset: kits19
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    # language processing
+    - arch: bert
+      dataset: squad_v1.1
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    # object detection
+    - arch: ssd300_vgg16
+      dataset: coco2017
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    # recommendation
+    - arch: dlrm_v2
+      dataset: criteo
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+

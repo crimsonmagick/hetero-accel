@@ -5,6 +5,7 @@ import re
 from types import SimpleNamespace
 from copy import deepcopy
 from collections import OrderedDict
+from src import pretrained_checkpoint_paths
 from src.utils import weight_init, load_checkpoint, model_summary, transform_model, save_checkpoint
 from src.train_test import train, validate
 from src.dataset import load_data
@@ -38,7 +39,6 @@ class TorchNetworkWrapper:
                                load_serialized=args.load_serialized,
                                pretrained=args.pretrained,
                                resumed_checkpoint_path=args.resumed_checkpoint_path,
-                               profile_model=args.use_profiler,
                                print_frequency=args.batch_print_frequency,
                                verbose=args.model_verbose,
                                logdir=args.logdir,
@@ -67,6 +67,13 @@ class TorchNetworkWrapper:
                 torch.cuda.set_device(self.gpus[0])
 
     def init_model(self):
+        """Initialize the DNN architecture with the option of pretrained weights
+        """
+        assert not (self.pretrained and self.resumed_checkpoint_path is not None)
+        if self.pretrained and self.arch + '_' + self.dataset in pretrained_checkpoint_paths:
+            self.pretrained = False
+            self.resumed_checkpoint_path = pretrained_checkpoint_paths[self.arch + '_' + self.dataset]
+
         self.model = create_model(self.arch,
                                   self.dataset,
                                   self.batch_size,
@@ -91,17 +98,6 @@ class TorchNetworkWrapper:
         # save the model graph using Tensorboard
         inputs, labels = next(iter(test_loader))
         tb_logger.add_graph(self.model, inputs)
-
-        # profile the model operations and GPU utilization
-        if self.profile_model:
-            profiler = torch.profiler.profile(
-                        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-                        on_trace_ready=torch.profiler.tensorboard_trace_handler(self.logdir),
-                        record_shapes=True,
-                        with_stach=True)
-            self.train(epochs=1,
-                       steps_per_epoch=(1 + 1 + 3) * 2,
-                       profiler=profiler)
 
         # histograms of model parameters and their gradients
         for name, param in self.model.named_parameters():

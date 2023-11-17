@@ -1,13 +1,12 @@
 import torch
 import logging
 import torchvision.models as torch_models
-from . import lenet_mnist as lenet_mnist_model
-from . import alexnet_cifar as alexnet_cifar_model
-from . import vgg_cifar_playground as vgg_cifar_models
-from . import resnet_cifar_playground as resnet_cifar_models
-from . import mobilenet_cifar_playground as mobilenet_cifar_model
-from . import mobilenetv2_cifar_playground as mobilenetv2_cifar_model
-from . import efficientnet_cifar_playground as efficientnet_cifar_model
+from . import image_classification as ic_models
+from . import image_segmentation as is_models
+from . import object_detection as od_models
+from . import language_processing as lp_models
+from . import recommendation as rm_models
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +18,15 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
         """Determine input shape based on classification dataset"""
         if 'inception_v3' in arch:
             return (batch_size, 3, 299, 299)
-        if dataset == 'imagenet':
-            return (batch_size, 3, 224, 224)
-        elif 'cifar' in dataset:
-            return (batch_size, 3, 32, 32)
-        elif dataset == 'mnist':
-            return (batch_size, 1, 28, 28)
+        try:
+            return {'imagenet': (batch_size, 3, 224, 224),
+                    'cifar10': (batch_size, 3, 32, 32),
+                    'cifar100': (batch_size, 3, 32, 32),
+                    'mnist': (batch_size, 1, 28, 28),
+                   }.get(dataset)
+        except KeyError:
+            logger.warn(f"Input shape for dataset {dataset} could not be determined")
+            return None
 
     def assign_layer_names():
         """Assign human-readable names to the modules (layers)"""
@@ -32,19 +34,20 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
             module.full_name = name
 
     # initialize model from the available architectures per dataset
-    is_image_classifier = True
-    if 'cifar' in dataset:
-        model = _create_cifar_model(arch, pretrained)
-    elif dataset in ['tiny-imagenet', 'imagenet']:
-        arch = arch.replace('tiny', '').replace('_imagenet', '')
-        model = _create_imagenet_model(arch, pretrained, tiny='tiny' in dataset)
-    elif dataset == 'mnist':
-        model = _create_mnist_model(arch, pretrained)
+    is_image_classifier = dataset in ['mnist', 'cifar10', 'cifar100', 'imagenet']
+    create_model_f = {'mnist': create_image_classification_model,
+                      'cifar10': create_image_classification_model,
+                      'cifar100': create_image_classification_model,
+                      'imagenet': create_image_classification_model,
+                      'kits19': create_image_segmentation_model,
+                      'coco_2017': create_object_detection_model,
+                      'squad_v1.1': create_language_processing_model,
+                      'criteo': create_recommendation_model,
+                     }.get(dataset)
+    model = create_model_f(arch, dataset, pretrained)
 
     if verbose:
-        logger.info(
-            "=> created a {}{} model with the {} dataset".format('pretrained ' if pretrained else '', arch, dataset)
-        )
+        logger.info("=> created a {}{} model with the {} dataset".format('pretrained ' if pretrained else '', arch, dataset))
 
     # configure device and parallel model
     if torch.cuda.is_available() and device_ids != -1:
@@ -69,29 +72,67 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
     return model.to(device)
 
 
-def _create_cifar_model(arch, pretrained):
-    mobilenet_cifar_models = {**mobilenet_cifar_model.__dict__, 
-                              **mobilenetv2_cifar_model.__dict__}
-    cifar_models = {**vgg_cifar_models.__dict__,  **resnet_cifar_models.__dict__,
-                    **mobilenet_cifar_models, **efficientnet_cifar_model.__dict__,
-                    **alexnet_cifar_model.__dict__}
+def create_image_classification_model(arch, dataset, pretrained):
+    """Create an image classifier
+    """
+    def _create_cifar_model():
+        mobilenet_cifar_models = {**ic_models.mobilenet_cifar_model.__dict__, 
+                                  **ic_models.mobilenetv2_cifar_model.__dict__}
+        cifar_models = {**ic_models.vgg_cifar_models.__dict__, 
+                        **ic_models.resnet_cifar_models.__dict__,
+                        **mobilenet_cifar_models, 
+                        **ic_models.efficientnet_cifar_model.__dict__,
+                        **ic_models.alexnet_cifar_model.__dict__}
+        try:
+            return cifar_models[arch + '_' + dataset](pretrained=False)
+        except KeyError:
+            raise NotImplementedError(f'Model {arch} is not supported for the CIFAR dataset')
+
+    def _create_imagenet_model():
+        tiny = 'tiny' in dataset
+        num_classes = 200 if tiny else 1000
+        try:
+            weights = None if not pretrained else 'DEFAULT'
+            model = torch_models.__dict__[arch](weights=weights, num_classes=num_classes)
+        except KeyError:
+            raise NotImplementedError('Model {} is not supported for the {}Imagenet dataset'.format(arch, 'Tiny-' if tiny else ''))
+        return model
+
+    def _create_mnist_model():
+        return ic_models.mnist_models.__dict__[arch + '_' + 'mnist']()
+
+    if 'cifar' in dataset:
+        return _create_cifar_model()
+    elif 'imagenet' in dataset:
+        return _create_imagenet_model()
+    else:
+        return _create_mnist_model()
+
+
+def create_image_segmentation_model(arch, dataset, pretrained):
+    return is_models.unet_model.__dict__[arch]()
+
     try:
-        return cifar_models[arch](pretrained=False)
+        weights = 'DEFAULT' if pretrained else None
+        return torch_models.__dict__[arch](weights=weights)
     except KeyError:
-        raise NotImplementedError(f'Model {arch} is not supported for the CIFAR dataset')
+        raise NotImplementedError(f'Model {arch} is not supported for the {dataset} dataset')
 
 
-def _create_imagenet_model(arch, pretrained, tiny=False):
-    num_classes = 200 if tiny else 1000
+def create_object_detection_model(arch, dataset, pretrained):
     try:
-        weights = None if not pretrained else 'DEFAULT'
-        model = torch_models.__dict__[arch](weights=weights, num_classes=num_classes)
+        weights = 'DEFAULT' if pretrained else None
+        return torch_models.__dict__[arch](weights=weights)
     except KeyError:
-        raise NotImplementedError('Model {} is not supported for the {}Imagenet dataset'.format(arch, 'Tiny-' if tiny else ''))
-    return model
+        raise NotImplementedError(f'Model {arch} is not supported for the {dataset} dataset')
 
 
-def _create_mnist_model(arch, pretrained):
-    model = lenet_mnist_model.__dict__[arch](pretrained)
-    return model
+def create_language_processing_model(arch, dataset, pretrained):
+    raise NotImplementedError
+    pass
+
+
+def create_recommendation_model(arch, dataset_pretrained):
+    raise NotImplementedError
+    pass
 

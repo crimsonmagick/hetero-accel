@@ -26,12 +26,13 @@ TimeloopStats = namedtuple('TimeloopStats', ['gflops', 'utilization', 'cycles',
 class TimeloopWrapper:
     """Wrapper for Timeloop+Accelergy tool
     """
-    def __init__(self, accelerator_type, workdir):
+    def __init__(self, accelerator_type, workdir, workloads=None):
         self.template = TimeloopTemplate(accelerator_type)
         self.workdir = workdir
         os.makedirs(self.workdir, exist_ok=True)
-        self.workloads = OrderedDict()
-        self.arch = None
+        self.workloads = workloads if workloads is not None else OrderedDict()
+        self.init_files()
+        self.init_arch()
 
     def init_files(self):
         """Initialize files and directories
@@ -57,6 +58,9 @@ class TimeloopWrapper:
     def init_problem(self, problem_name, problem_type, dimensions, problem_filepath=None):
         """Initialize a workload wrapper
         """
+        if problem_name in self.workloads:
+            return
+
         if problem_filepath is None:
             problem_filepath = os.path.join(self.workload_dir, f'{problem_name}_{problem_type}.yaml')
         problem = TimeloopProblem(problem_name, problem_type, dimensions, problem_filepath)
@@ -163,6 +167,12 @@ class TimeloopArch:
         self.name = self.__class__.__name__
         self._get_default_params()
         self._get_config()
+    
+    def adjust_param(self, param_name, value):
+        """Generic function to override a parameter value
+        """
+        assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
+        setattr(self.params, param_name, value)
 
     def adjust_precision(self, precision):
         """Adjust the data precision of the architecture

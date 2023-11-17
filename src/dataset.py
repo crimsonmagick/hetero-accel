@@ -37,7 +37,11 @@ def __dataset_factory(dataset):
             'cifar100': get_cifar100_dataset,
             'imagenet': get_imagenet_dataset,
             'tiny-imagenet': get_tinyimagenet_dataset,
-            'mnist': get_mnist_dataset
+            'mnist': get_mnist_dataset,
+            'kits19': get_kits_dataset,
+            'squad_v1.1': get_squad_dataset,
+            'coco_2017': get_coco_dataset,
+            'criteo': get_criteo_dataset,
         }.get(dataset.lower(), None)
     except KeyError:
         raise ValueError('Dataset {} not supported'.format(dataset))
@@ -269,4 +273,17 @@ def get_mnist_dataset(data_dir, arch, load_train=True, load_test=True):
                                       download=True, transform=test_transform)
 
     return train_dataset, test_dataset
+
+
+def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
+    raise NotImplementedError
+
+def get_squad_dataset(data_dir, arch, load_train=True, load_test=True):
+    raise NotImplementedError
+
+def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
+    raise NotImplementedError
+
+def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
+    raise NotImplementedError
 

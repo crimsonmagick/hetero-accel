@@ -1,9 +1,10 @@
+---
 app_args:
         output_dir: 'logs'
         name: null
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: null
+        dnn_accuracy_lut_file: lut.csv
 
 op_mode_args:
         evaluate_model_mode: False
@@ -12,8 +13,8 @@ op_mode_args:
         test_pruning_quant_mode: False
         model_summary_mode: null
 
-model_args:
-        arch: [resnet18_cifar10]
+workload_args:
+        workload_idx: A
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -23,21 +24,7 @@ model_args:
         effective_train_size: 0.5
         effective_valid_size: 0.5
         effective_test_size: 1
-        batch_print_frequency: 100
         model_verbose: False
-        model_save_frequency: 1
-        use_profiler: False
-        train_epochs: 1
-        #resumed_checkpoint_path: [
-        #        /workspace/hetero-accel/logs/2023.09.01-10.41.42.033/resnet18_cifar10_best_sparsity.pth.tar,
-        #        /workspace/hetero-accel/logs/2023.09.01-10.41.42.033/mobilenet_cifar10_best_sparsity.pth.tar]
-        pretrained: True
-
-optimizer_args:
-        optimizer_type: sgd
-        learning_rate: 0.1
-        momentum: 0.9
-        weight_decay: 1.e-4
 
 compression_args:
         pruning_group_type: rows
@@ -54,33 +41,6 @@ compression_args:
         size_constraint: 50
         sparsity_constraint: null
  
-rl_env_args:
-        rl_retrain_epochs: 0
-        rl_model_save_frequency: 1
-        rl_reward_type: acc_size
-        rl_energy_constraint: null
-        rl_sparsity_constraint: null
-        rl_size_constraint: 50
-
-rl_agent_args:
-        rl_agent_verbose: True
-        # timesteps are identical for our experiment, but do
-        #  not trigger a callback
-        rl_agent_total_timesteps: 400
-        # episodes trigger a termination callback
-        rl_agent_train_episodes: null
-        # this turns on post-training evaluation
-        rl_agent_eval_episodes: null
-        rl_agent_deterministic: False
-        rl_agent_batch_size: 64
-        rl_agent_save_frequency: 5
-        # this turns on evaluation intervals within training
-        rl_agent_eval_frequency: 2
-        rl_agent_no_improv_evals: 10
-        rl_agent_min_evals: 50
-        rl_agent_policy_device: 'cpu'
-        rl_agent_load_from_path: null
-
 accel_args:
         accelerator_arch_type: eyeriss
 
