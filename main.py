@@ -9,13 +9,14 @@ import pandas as pd
 import yaml
 from copy import deepcopy
 from types import SimpleNamespace
-from src import dataset_dirs, pretrained_checkpoint_paths
+from src import dataset_dirs
 from src.workload import MultiDNNWorkload
-from src.utils import env_cfg, handle_model_subapps, perfect_divisors
+from src.utils import env_cfg, handle_model_subapps
 from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
 from src.accelerator_cfg import AcceleratorProfile
+from src.optimizer import DesignSpace, AcceleratorOptimizer
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def main():
     dnn_accuracy_lut = quant_exploration(args, workload)
 
     # perform a DSE to define the sub-accelerator architectures
-    accel_cfg = accelerator_exploration(args, workload, dnn_accuracy_lut)
+    accel, energy = accelerator_exploration(args, workload, dnn_accuracy_lut)
 
 
 def setup_workload(args):
@@ -178,17 +179,23 @@ def quant_exploration(args, workload):
 def accelerator_exploration(args, workload, accuracy_lut):
     """Exploration to design/discover the sub-accelerator architectures
     """
+    # TODO: Figure out how to set up the design space more intelligently
+    pe_array_x = pe_array_y = [8, 10, 12, 14, 16, 20, 25]
+    spad_size = [8, 12, 16, 24, 32, 40, 48, 64]  # in bytes
+    sram_size = []  # in bytes
 
-    design_space = Design_Space(pe_array_x=pe_array_x,
-                                pe_array_y=pe_array_y,
-                                precision=sorted(set(accuracy_lut['QuantBits'])),
-                                sram_size=size,
-                                ifmap_spad_size=size,
-                                weights_spad_size=size,
-                                psum_spad_size=size)
+    design_space = DesignSpace(pe_array_x=pe_array_x,
+                               pe_array_y=pe_array_y,
+                               precision=sorted(set(accuracy_lut['QuantBits'])),
+                               sram_size=sram_size,
+                               ifmap_spad_size=spad_size,
+                               weights_spad_size=spad_size,
+                               psum_spad_size=spad_size)
 
+    optimizer = AcceleratorOptimizer(design_space)
+    optimizer.run()
 
-    optimizer = SimmulatedAnnealing()
+    return optimizer.best_solution, optimizer.best_solution_fitness
 
 
 if __name__ == '__main__':
