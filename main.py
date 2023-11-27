@@ -179,20 +179,16 @@ def quant_exploration(args, workload):
 def accelerator_exploration(args, workload, accuracy_lut):
     """Exploration to design/discover the sub-accelerator architectures
     """
-    # TODO: Figure out how to set up the design space more intelligently
-    pe_array_x = pe_array_y = [8, 10, 12, 14, 16, 20, 25]
-    spad_size = [8, 12, 16, 24, 32, 40, 48, 64]  # in bytes
-    sram_size = []  # in bytes
-
-    design_space = DesignSpace(pe_array_x=pe_array_x,
-                               pe_array_y=pe_array_y,
+    accel = AcceleratorProfile(args.accelerator_arch_type)
+    design_space = DesignSpace(pe_array_x=accel.width_options,
+                               pe_array_y=accel.height_options,
                                precision=sorted(set(accuracy_lut['QuantBits'])),
-                               sram_size=sram_size,
-                               ifmap_spad_size=spad_size,
-                               weights_spad_size=spad_size,
-                               psum_spad_size=spad_size)
+                               sram_size=accel.sram_size_options,
+                               ifmap_spad_size=accel.ifmap_spad_size_options,
+                               weights_spad_size=accel.weights_spad_size_options,
+                               psum_spad_size=accel.psum_spad_size)
 
-    optimizer = AcceleratorOptimizer(design_space)
+    optimizer = AcceleratorOptimizer(args, accel, design_space, workload, accuracy_lut)
     optimizer.run()
 
     return optimizer.best_solution, optimizer.best_solution_fitness
