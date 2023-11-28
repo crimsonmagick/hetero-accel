@@ -60,6 +60,8 @@ class AcceleratorOptimizer(Annealer):
         self.design_space = design_space
         self.workload = workload
         self.accuracy_lut = accuracy_lut
+        self.logdir = simanneal_args.logdir
+        init_timeloop(args.layer_type_whitelist)
 
         inital_state = self.design_space.extract(self.accelerator.width,
                                                  self.accelerator.height,
@@ -71,7 +73,8 @@ class AcceleratorOptimizer(Annealer):
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         self.copy_strategy = 'deepcopy'
-        if args is None or \
+        if args.simanneal_auto_schedule or \
+            args is None or \
             any(getattr(arg, args, None) is None
                 for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
 
@@ -83,14 +86,37 @@ class AcceleratorOptimizer(Annealer):
             self.steps = args.simanneal_steps
             self.updates = args.simanneal_updates
 
-        # TODO: Include simanneal args
-        # TODO: Include timeloop wrapper object, look at previous exploration (compression)
-        # TODO: Fill move and energy methods
+    def init_timeloop(self, layer_type_whitelist):
+        """Initialize timeloop wrapper object
+        """
+        tl_workdir = os.path.join(self.logdir, 'timeloop_simanneal')
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator.type, tl_workdir)
+
+        # prepare each layer for timeloop simulations
+        layer_idx = 0
+        self.timeloop_problems_per_dnn = {}
+        for arch, net_wrapper in self.workload.dnns.items():
+            self.timeloop_problems_per_dnn[arch] = []
+
+            layers_to_consider = [name for name, module in net_wrapper.model.named_modules()
+                                  if isinstance(module, layer_type_whitelist)]
+            for layer_name, layer_info in self.workload.get_summary().items():
+                if layer_name not in layers_to_consider:
+                    continue
+
+                problem_name = f'{arch}__layer{layer_idx}_{layer_name}'
+                self.timeloop_problems_per_dnn[arch].append(problem_name)
+                problem_filepath = os.path.join(self.timeloop_wrapper.workload_dir, problem_name + '.yaml')
+                self.timeloop_wrapper.init_problem(problem_name,
+                                                   layer_info.layer_type,
+                                                   layer_info.dimensions,
+                                                   problem_filepath)
+                layer_idx += 1
 
     def run(self):
         """Run Simulated Annealing
         """
-        best_state, best_fitness = super().anneal()
+        best_state, best_fitness = self.anneal()
         self.best_solution = best_state
         self.best_solution_fitness = best_fitness
 
@@ -107,6 +133,7 @@ class AcceleratorOptimizer(Annealer):
         """
         raise NotImplementedError
 
+        # TODO: Fill move and energy methods
     def move(self):
         """Alter the current state
         """

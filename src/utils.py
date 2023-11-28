@@ -25,7 +25,7 @@ from glob import glob
 from tabulate import tabulate
 from time import time
 from src import project_dir, timeloop_dir
-from src.args import app_args, workload_args, compression_args, accel_args, check_args
+from src.args import app_args, workload_args, compression_args, accel_args, simanneal_args, check_args
 from src.args import ModelSummaryType
 
 
@@ -39,6 +39,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+
 def env_cfg():
     """Configure the environment to run the optimization"""
     parser = argparse.ArgumentParser("Hetero-Accel")
@@ -46,6 +47,7 @@ def env_cfg():
     parser = workload_args(parser)
     parser = compression_args(parser)
     parser = accel_args(parser)
+    parser = simanneal_args(parser)
     # parse command arguments 
     args = parser.parse_args()
 

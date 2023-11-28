@@ -114,6 +114,25 @@ def accel_args(parser):
     return parser
 
 
+def simanneal_args(parser):
+    """Arguments related to Simulated Annealing
+    """
+    simanneal_args = parser.add_argument_group("Simulated Annealing-related arguments")
+    # setting defaults according to https://github.com/perrygeo/simanneal#readme
+    simanneal_args.add_argument('--simanneal-tmax', dest='simanneal_Tmax', type=float, default=25000.0,
+                                help='Maximum temperature for simulated annealing (default is 25000)')
+    simanneal_args.add_argument('--simanneal-tmin', dest='simanneal_Tmin', type=float, default=2.5,
+                                help='Minimum temperature for simulated annealing (default is 2.5')
+    simanneal_args.add_argument('--simanneal-steps', dest='simanneal_steps', type=int, default=50000,
+                                help='Number of steps (iterations) for simulated annealing (default is 50000')
+    simanneal_args.add_argument('--simanneal-updates', dest='simanneal_updates', type=int, default=100,
+                                help='Number of updates for simulated annealing (default is 100')
+    simanneal_args.add_argument('--simanneal-auto-schedule', dest='simanneal_auto_schedule', action='store_true',
+                                help='Set to produce automatic scheduling of simulated annealing parameters. '
+                                     'Overrides the other simulated annealing-related arguments')
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """

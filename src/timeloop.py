@@ -63,6 +63,7 @@ class TimeloopWrapper:
 
         if problem_filepath is None:
             problem_filepath = os.path.join(self.workload_dir, f'{problem_name}_{problem_type}.yaml')
+
         problem = TimeloopProblem(problem_name, problem_type, dimensions, problem_filepath)
         problem.to_yaml()
         self.workloads[problem_name] = problem

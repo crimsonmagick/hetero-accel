@@ -44,3 +44,10 @@ compression_args:
 accel_args:
         accelerator_arch_type: eyeriss
 
+simanneal_args:
+        simanneal_Tmax: 25000.0
+        simanneal_Ttmin: 2.5
+        simanneal_steps: 50000
+        simanneal_updates: 100
+        simanneal_auto_schedule: True
+

@@ -57,11 +57,11 @@ def setup_workload(args):
     # setup each DNN separately
     for idx, workload_dict in enumerate(multi_dnn_workload):
 
-        # configure DNN wrapper
+        # configure and save DNN wrapper
         for name, value in workload_dict.items():
             setattr(dnn_args, name, value)
         net_wrapper = TorchNetworkWrapper.from_args(dnn_args)
-        dnns[net_wrapper.model.arch] = net_wrapper.model
+        dnns[net_wrapper.model.arch] = net_wrapper
         print_frequency[net_wrapper.model.arch] = dnn_args.batch_print_frequency
 
         if dnn_args.dataset not in datasets:
@@ -100,7 +100,7 @@ def quant_exploration(args, workload):
     df = pd.DataFrame(columns=['Network', 'QuantBits', 'Top1', 'Top5', 'Loss', 'Sparsity', 'Size', 'Valid'])
 
     compressors = {}
-    for model in workload.dnns.values():
+    for arch, net_wrapper in workload.dnns.items():
         # initialize compressor
         compression_args = SimpleNamespace(logdir=args.logdir,
                                            pruning_high=args.pruning_high,
@@ -114,14 +114,16 @@ def quant_exploration(args, workload):
                                            profile_model=False,
                                            gpus=args.gpus,
                                            cpu=args.cpu,
-                                           print_frequency=workload.print_frequency[model.arch],
+                                           print_frequency=workload.print_frequency[arch],
                                            verbose=args.model_verbose)
-        compressor = PruningQuantizationCompressor(compression_args, workload.datasets[model.dataset], model)
-        compressors[model.arch] = compressor
+        compressor = PruningQuantizationCompressor(compression_args,
+                                                   workload.datasets[net_wrapper.model.dataset],
+                                                   net_wrapper.model)
+        compressors[arch] = compressor
         if skip_exploration:
             continue
 
-        logger.info(f'=> Beginning exhaustive exploration for {model.arch}')
+        logger.info(f'=> Beginning exhaustive exploration for {arch}')
 
         # compute original statistics
         top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
@@ -131,13 +133,13 @@ def quant_exploration(args, workload):
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                      f'{metric.capitalize()}={value:.2e}'
                                      for metric, value in og_stats.items()])
-        logger.info(f'{model.arch}: Original statistics: {og_stats_logstr}')
+        logger.info(f'{arch}: Original statistics: {og_stats_logstr}')
         # save the statistics to the LUT
-        df.loc[len(df.index)] = ([model.arch, 32, top1, top5, loss, model_stats['sparsity'], model_stats['size'], 1])
+        df.loc[len(df.index)] = ([arch, 32, top1, top5, loss, model_stats['sparsity'], model_stats['size'], 1])
 
         # iterate over quantization bits
         for quant_bits in np.arange(args.quant_low, args.quant_high + 1, args.quant_incr):
-            logger.info(f'{model.arch}: Testing quantization of {quant_bits} bits')
+            logger.info(f'{arch}: Testing quantization of {quant_bits} bits')
 
             # reset the previous state of the network
             compressor.reset()
@@ -151,7 +153,7 @@ def quant_exploration(args, workload):
             stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                       f'{metric.capitalize()}={value:.2e}'
                                       for metric, value in stats.items()])
-            logger.info(f'{model.arch}: Compressed statistics: {stats_logstr}')
+            logger.info(f'{arch}: Compressed statistics: {stats_logstr}')
 
             # binary flag whether the accuracy constraints are satisfied
             valid = 0
@@ -161,7 +163,7 @@ def quant_exploration(args, workload):
                 valid = 1
 
             # save the statistics to the LUT
-            df.loc[len(df.index)] = ([model.arch, quant_bits, top1, top5, loss, model_stats['sparsity'], model_stats['size'], valid])
+            df.loc[len(df.index)] = ([arch, quant_bits, top1, top5, loss, model_stats['sparsity'], model_stats['size'], valid])
 
     if skip_exploration:
        df = preloaded_dnn_accuracy_lut
@@ -188,6 +190,7 @@ def accelerator_exploration(args, workload, accuracy_lut):
                                weights_spad_size=accel.weights_spad_size_options,
                                psum_spad_size=accel.psum_spad_size)
 
+    # initalize and run optimizer
     optimizer = AcceleratorOptimizer(args, accel, design_space, workload, accuracy_lut)
     optimizer.run()
 

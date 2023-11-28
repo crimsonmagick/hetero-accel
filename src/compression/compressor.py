@@ -36,8 +36,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.quantizer = Quantizer(self.layers_to_compress)
 
         # timeloop wrapper to execute mapping searches and energy/area estimation
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type,
-                                                os.path.join(self.logdir, f'{self.model.arch}_timeloop'))
+        tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type, tl_workdir)
 
         if self.model.is_image_classifier:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
@@ -99,7 +99,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         total_area = total_latency = total_power = total_energy = 0
 
         # cleanup the timeloop files
-        timeloop_dir = os.path.join(self.logdir, f'{self.model.arch}_timeloop')
         for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
             os.remove(timeloop_file)
 
@@ -111,10 +110,12 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                 continue
 
             # if specified, create the Timeloop workload files for each layer
-            problem_filepath = os.path.join(self.timeloop_wrapper.workload_dir, f'layer{layer_idx}_{name}.yaml')
             if init:
-                self.timeloop_wrapper.init_problem(name, self.summary[name].layer_type,
-                                                   self.summary[name].dimensions, problem_filepath)
+                problem_filepath = os.path.join(self.timeloop_wrapper.workload_dir, f'layer{layer_idx}_{name}.yaml')
+                self.timeloop_wrapper.init_problem(name,
+                                                   self.summary[name].layer_type,
+                                                   self.summary[name].dimensions,
+                                                   problem_filepath)
 
             # modifying the problem file to adjust for pruning
             self.timeloop_wrapper.adjust_problem_dimension(name, 'M',
