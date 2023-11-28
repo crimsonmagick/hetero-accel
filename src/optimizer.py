@@ -1,7 +1,11 @@
 import logging
 import random
+import os.path
+from copy import deepcopy
 from collections import namedtuple
 from simanneal import Annealer
+from src.scheduler import MultiDNNScheduler
+from src.timeloop import TimeloopWrapper
 
 
 __all__ = ['AcceleratorState', 'DesignSpace', 'AcceleratorOptimizer']
@@ -9,7 +13,7 @@ __all__ = ['AcceleratorState', 'DesignSpace', 'AcceleratorOptimizer']
 logger = logging.getLogger(__name__)
 
 
-AcceleratorState = namedtuple("AcceleratorState", 
+AcceleratorState = namedtuple("AcceleratorState",
                               ['pe_array_x', 'pe_array_y',
                                'precision', 'sram_size',
                                'ifmap_spad_size', 'weights_spad_size', 'psum_spad_size'])
@@ -45,7 +49,7 @@ class DesignSpace(AcceleratorState):
             values_to_get = [kwargs[field] for field in self._fields]
         else:
             raise ValueError("No inputs were given")
-        
+
         for value, field in zip(values_to_get, self._fields):
             assert value in getattr(self, field), f"Invalid value {value} for {field}"
 
@@ -55,42 +59,73 @@ class DesignSpace(AcceleratorState):
 class AcceleratorOptimizer(Annealer):
     """Wrapper for Simulated Annealing optimizer
     """
-    def __init__(self, simanneal_args, accelerator, design_space, workload, accuracy_lut) -> None:
-        self.accelerator = accelerator
+    WORST_ENERGY = -1.0
+
+    def __init__(self,
+                 simanneal_args,
+                 num_accelerators,
+                 accelerator_cfg,
+                 design_space,
+                 workload,
+                 accuracy_lut,
+                 hw_constraints
+        ):
+        self.num_accelerators = num_accelerators
+        self.accelerator_cfg = accelerator_cfg
         self.design_space = design_space
         self.workload = workload
         self.accuracy_lut = accuracy_lut
+        self.hw_constraints = hw_constraints
+        self.energy_dict = {}
+        self.latency_dict = {}
+        self.area_dict = {}
         self.logdir = simanneal_args.logdir
-        init_timeloop(args.layer_type_whitelist)
 
-        inital_state = self.design_space.extract(self.accelerator.width,
-                                                 self.accelerator.height,
-                                                 self.accelerator.precision_weights,
-                                                 self.accelerator.glb_sram_size,
-                                                 self.accelerator.ifmap_spad_size,
-                                                 self.accelerator.weights_spad_size,
-                                                 self.accelerator.psum_spad_size)
-        super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
+        # initialize timeloop
+        self.init_timeloop(simanneal_args.layer_type_whitelist)
+        # initialize scheduler
+        self.init_scheduler()
 
+        # use the default accelerator as the initial state of the exploration
+        initial_state = self.design_space.extract(self.accelerator_cfg.width,
+                                                  self.accelerator_cfg.height,
+                                                  self.accelerator_cfg.precision_weights,
+                                                  self.accelerator_cfg.glb_sram_size,
+                                                  self.accelerator_cfg.ifmap_spad_size,
+                                                  self.accelerator_cfg.weights_spad_size,
+                                                  self.accelerator_cfg.psum_spad_size)
+        initial_state = [initial_state] * self.num_accelerators
+        super().__init__(initial_state, getattr(simanneal_args, 'simanneal_load_state', None))
+
+        # get baseline measurements
+        assert self.energy() != self.WORST_ENERGY, "Baseline produces negative energy"
+        self.initial_energy = self.latest_energy
+        self.initial_latency = self.latest_latency
+        self.initial_area = self.latest_area
+        logger.debug(f"SA: Initial state={self.state} -> Energy={self.initial_energy}, "
+                     f"Latency={self.initial_latency}, Area={self.initial_area}")
+
+        # setup scheduling parameters during annealing
+        self.update = self._update_logging
         self.copy_strategy = 'deepcopy'
-        if args.simanneal_auto_schedule or \
-            args is None or \
-            any(getattr(arg, args, None) is None
+        if simanneal_args.simanneal_auto_schedule or \
+            simannea_args is None or \
+            any(getattr(arg, simanneal_args, None) is None
                 for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
-
+            # automatic annealing schedule
             self.set_schedule(self.auto(minutes=10))
-
         else:
-            self.Tmax = args.simanneal_Tmax
-            self.Tmin = args.simaneal_Tmin
-            self.steps = args.simanneal_steps
-            self.updates = args.simanneal_updates
+            # user-defined annealing schedule
+            self.Tmax = simanneal_args.simanneal_Tmax
+            self.Tmin = simanneal_args.simaneal_Tmin
+            self.steps = simanneal_args.simanneal_steps
+            self.updates = simanneal_args.simanneal_updates
 
     def init_timeloop(self, layer_type_whitelist):
         """Initialize timeloop wrapper object
         """
         tl_workdir = os.path.join(self.logdir, 'timeloop_simanneal')
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator.type, tl_workdir)
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
         # prepare each layer for timeloop simulations
         layer_idx = 0
@@ -100,7 +135,7 @@ class AcceleratorOptimizer(Annealer):
 
             layers_to_consider = [name for name, module in net_wrapper.model.named_modules()
                                   if isinstance(module, layer_type_whitelist)]
-            for layer_name, layer_info in self.workload.get_summary().items():
+            for layer_name, layer_info in self.workload.get_summary(arch).items():
                 if layer_name not in layers_to_consider:
                     continue
 
@@ -113,36 +148,144 @@ class AcceleratorOptimizer(Annealer):
                                                    problem_filepath)
                 layer_idx += 1
 
+    def init_scheduler(self):
+        """Initialize the design-time model of the scheduler
+        """
+        self.scheduler = MultiDNNScheduler(self.hw_constraints.deadline)
+
     def run(self):
         """Run Simulated Annealing
         """
-        best_state, best_fitness = self.anneal()
-        self.best_solution = best_state
-        self.best_solution_fitness = best_fitness
+        self.anneal()
+        self.save_state(os.path.join(self.logdir, f'simanneal_energy_{self.best_energy}.state'))
 
-    @property
-    def best_solution(self):
-        return self.best_solution
-
-    @property
-    def best_solution_fitness(self):
-        return self.best_solution_fitness
-
-    def update(self):
+    def _update_logging(self, step, T, E, acceptance, improvement):
         """Log the results of the exploration (override from parent)
         """
-        raise NotImplementedError
+        def time_string(seconds):
+            """Returns time in seconds as a string formatted HHHH:MM:SS."""
+            s = int(round(seconds))  # round to nearest second
+            h, s = divmod(s, 3600)   # get hours and remainder
+            m, s = divmod(s, 60)     # split remainder into minutes and seconds
+            return '%4i:%02i:%02i' % (h, m, s)
 
-        # TODO: Fill move and energy methods
-    def move(self):
-        """Alter the current state
+        elapsed = time.time() - self.start
+        if step == 0:
+            logger.info('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining')
+            logger.info('\r{Temp:12.5f}  {Energy:12.2f}                      {Elapsed:s}            '
+                        .format(Temp=T, Energy=E, Elapsed=time_string(elapsed)))
+        else:
+            remain = (self.steps - step) * (elapsed / step)
+            logger.info('\r{Temp:12.5f}  {Energy:12.2f}   {Accept:7.2%}   {Improve:7.2%}  '
+                        '{Elapsed:s}  {Remaining:s}'
+                        .format(Temp=T, Energy=E, Accept=acceptance, Improve=improvement,
+                                Elapsed=time_string(elapsed), Remaining=time_string(remain)))
+
+    def _update_stderr(self, step, T, E, acceptance, improvement):
+        """Direct copy from the update function of Annealer
+           https://github.com/perrygeo/simanneal/blob/master/simanneal/anneal.py#L127
         """
-        raise NotImplementedError
+        def time_string(seconds):
+            """Returns time in seconds as a string formatted HHHH:MM:SS."""
+            s = int(round(seconds))  # round to nearest second
+            h, s = divmod(s, 3600)   # get hours and remainder
+            m, s = divmod(s, 60)     # split remainder into minutes and seconds
+            return '%4i:%02i:%02i' % (h, m, s)
+
+        elapsed = time.time() - self.start
+        if step == 0:
+            print('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining',
+                  file=sys.stderr)
+            print('\r{Temp:12.5f}  {Energy:12.2f}                      {Elapsed:s}            '
+                  .format(Temp=T,
+                          Energy=E,
+                          Elapsed=time_string(elapsed)),
+                  file=sys.stderr, end="")
+            sys.stderr.flush()
+        else:
+            remain = (self.steps - step) * (elapsed / step)
+            print('\r{Temp:12.5f}  {Energy:12.2f}   {Accept:7.2%}   {Improve:7.2%}  {Elapsed:s}  {Remaining:s}'
+                  .format(Temp=T,
+                          Energy=E,
+                          Accept=acceptance,
+                          Improve=improvement,
+                          Elapsed=time_string(elapsed),
+                          Remaining=time_string(remain)),
+                  file=sys.stderr, end="")
+            sys.stderr.flush()
+
+    def move(self):
+        """Alter the current state, by changing at least one accelerator
+        """
+        new_state = [self.design_space.sample() for _ in range(self.num_accelerators)]
+        while new_state == self.state:
+            new_state = [self.design_space.sample() for _ in range(self.num_accelerators)]
+        self.state = new_state
 
     def energy(self):
         """Evaluate the fitness of the current state
         """
-        raise NotImplementedError
+        def area_constraint_satisfied():
+            raise NotImplementedError
+            return area
+
+        def accuracy_constraint_satisfied(arch, precision):
+            return self.accuracy_lut.loc[
+                        (self.accuracy_lut['Network'] == arch) &&
+                        (self.accuracy_lut['QuantBits'] == precision)
+                    ]['Valid'].iloc[0] == 1
+
+        # metrics to be accumulated
+        energy_dict = {}
+        area_dict = {}
+        latency_dict = {}
+
+        # iterate over each accelerator
+        for accelerator in self.state:
+            # iterate over each DNN
+            for arch in self.workload.dnns.keys():
+                # check accuracy constraint
+                if not accuracy_constraint_satisfied(arch, accelerator.precision):
+                    continue
+                # check if this evaluation was executed before
+                if (arch, accelerator) in self.energy_dict:
+                    continue
+
+                # adjust timeloop with the accelerator parameters
+                raise NotImplementedError
+
+                energy_dict[(arch, accelerator)] = 0
+                latency_dict[(arch, accelerator)] = 0
+                area_dict[(arch, accelerator)] = 0
+                # iterate over each timeloop problem (layer) of the DNN
+                for problem_name in self.timeloop_problems_per_dnn[arch]:
+
+                    # run timeloop and get results
+                    self.timeloop_wrapper.run(problem_name)
+                    results = self.timeloop_wrapper.get_results()
+                    energy_dict[(arch, accelerator)] += results.energy
+                    latency_dict[(arch, accelerator)] += results.cycles
+                    area_dict[(arch, accelerator)] += results.area
+
+        # update stored metrics with executed evaluations
+        self.energy_dict.update(energy_dict)
+        self.latency_dict.update(area_dict)
+        self.area_dict.update(area_dict)
+
+        # perform the scheduling and get a concrete DNN-to-accelerator mapping
+        mapping, deadline_satisfied = self.sceduler.run(dnns=list(self.workload.dnns.keys()),
+                                                        accelerators=self.state,
+                                                        energy_dict=self.energy_dict,
+                                                        latency_dict=self.latency_dict)
+
+        # TODO: Figure out how to get results for energy, latency and area based on the mapping
+        self.latest_energy = ''
+        self.latest_latency = ''
+        self.latest_area = ''
+
+        if not deadline_satisfied or not area_constraint_satisfied(area):
+            return self.WORST_ENERGY
+        return self.latest_energy 
 
 
 if __name__ == "__main__":
@@ -153,8 +296,24 @@ if __name__ == "__main__":
                     ifmap_spad_size=list(range(10)),
                     weights_spad_size=list(range(10)),
                     psum_spad_size=list(range(10)))
+    b = DesignSpace(pe_array_x=list(range(10)),
+                    pe_array_y=list(range(10)),
+                    precision=list(range(10)),
+                    sram_size=list(range(10)),
+                    ifmap_spad_size=list(range(10)),
+                    weights_spad_size=list(range(10)),
+                    psum_spad_size=list(range(10)))
 
-    print(a)
-    print(a.sample())
-    print(a.extract([1, 2, 3, 4, 5, 6, 7]))
+
+    #print(a == b)
+    #print(a.sample())
+    #print(a.extract([1, 2, 3, 4, 5, 6, 7]))
+
+    prev_state = a.sample()
+    new_state = a.sample()
+    while new_state == prev_state:
+        new_state = a.sample()
+
+    print(prev_state)
+    print(new_state)
 

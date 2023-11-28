@@ -107,7 +107,7 @@ def quant_exploration(args, workload):
                                            pruning_low=args.pruning_low,
                                            quant_high=args.quant_high,
                                            quant_low=args.quant_low,
-                                           layer_type_whitelist=(torch.nn.Conv2d, torch.nn.Linear),
+                                           layer_type_whitelist=args.layer_type_whitelist,
                                            pruning_group_type=args.pruning_group_type,
                                            accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
                                            # DNN args for inheritance from TorchNetworkWrapper
@@ -138,7 +138,11 @@ def quant_exploration(args, workload):
         df.loc[len(df.index)] = ([arch, 32, top1, top5, loss, model_stats['sparsity'], model_stats['size'], 1])
 
         # iterate over quantization bits
-        for quant_bits in np.arange(args.quant_low, args.quant_high + 1, args.quant_incr):
+        quant_bits_options = np.arange(args.quant_low, args.quant_high + 1, args.quant_incr)
+        if 16 not in quant_bits_options:
+            quant_bits_options = np.append(quant_bits_options, 16)
+
+        for quant_bits in quant_bits_options:
             logger.info(f'{arch}: Testing quantization of {quant_bits} bits')
 
             # reset the previous state of the network
@@ -181,20 +185,37 @@ def quant_exploration(args, workload):
 def accelerator_exploration(args, workload, accuracy_lut):
     """Exploration to design/discover the sub-accelerator architectures
     """
-    accel = AcceleratorProfile(args.accelerator_arch_type)
-    design_space = DesignSpace(pe_array_x=accel.width_options,
-                               pe_array_y=accel.height_options,
-                               precision=sorted(set(accuracy_lut['QuantBits'])),
-                               sram_size=accel.sram_size_options,
-                               ifmap_spad_size=accel.ifmap_spad_size_options,
-                               weights_spad_size=accel.weights_spad_size_options,
-                               psum_spad_size=accel.psum_spad_size)
+    precision_options = sorted(set(
+        accuracy_lut.loc[accuracy_lut['Valid'] == 1]['QuantBits']
+    ))
+    # remove 32 bits from the options
+    precision_options = precision_options[:-1]
+    if 16 not in precision_options:
+        precision_options.append(16)
+    hw_constraints = SimpleNamespace(deadline=args.deadline_constraint,
+                                     area=args.area_constraint)
+
+    accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
+    design_space = DesignSpace(pe_array_x=accel_cfg.width_options,
+                               pe_array_y=accel_cfg.height_options,
+                               precision=precision_options,
+                               sram_size=accel_cfg.sram_size_options,
+                               ifmap_spad_size=accel_cfg.ifmap_spad_size_options,
+                               weights_spad_size=accel_cfg.weights_spad_size_options,
+                               psum_spad_size=accel_cfg.psum_spad_size_options)
+    logger.debug(f"Examining design space: {design_space}")
 
     # initalize and run optimizer
-    optimizer = AcceleratorOptimizer(args, accel, design_space, workload, accuracy_lut)
+    optimizer = AcceleratorOptimizer(simanneal_args=args,
+                                     num_accelerators=len(precision_options),
+                                     accelerator_cfg=accel_cfg,
+                                     design_space=design_space,
+                                     workload=workload,
+                                     accuracy_lut=accuracy_lut,
+                                     hw_constraints=hw_constraints)
     optimizer.run()
 
-    return optimizer.best_solution, optimizer.best_solution_fitness
+    return optimizer.best_state, optimizer.best_energy
 
 
 if __name__ == '__main__':

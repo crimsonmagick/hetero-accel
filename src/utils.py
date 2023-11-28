@@ -50,6 +50,8 @@ def env_cfg():
     parser = simanneal_args(parser)
     # parse command arguments 
     args = parser.parse_args()
+    # NOTE: adding the layer whitelist here, maybe somewhere else would be a better place
+    args.layer_type_whitelist = (torch.nn.Conv2d, torch.nn.Linear)
 
     # overwrite if a yaml configuration file is given
     assert args.yaml_cfg_file is not None, "Specify a yaml file to configure the experiment"
@@ -512,6 +514,7 @@ def get_sparsity(param):
 def compute_model_statistics(model, layers_to_compress=[]):
     """Calculate statistics for each layer of a given model 
     """
+    # TODO: Something is wrong here w.r.t. size and sparsity (maybe we are getting the inverse)
     metrics = ['size', 'sparsity',
                'all_weights', 'nonzero_weights', 'sparsity_weights',
                'all_columns', 'nonzero_columns', 'sparsity_columns',

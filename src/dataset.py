@@ -281,9 +281,9 @@ def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
 def get_squad_dataset(data_dir, arch, load_train=True, load_test=True):
     raise NotImplementedError
 
-def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
+def get_coco_dataset(data_dir, arch, load_train=True, load_test=True):
     raise NotImplementedError
 
-def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
+def get_criteo_dataset(data_dir, arch, load_train=True, load_test=True):
     raise NotImplementedError
 

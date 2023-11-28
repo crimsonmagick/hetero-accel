@@ -89,7 +89,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         quant_action = quant_action * (self.quant_high - self.quant_low) + self.quant_low
         return int(np.round(quant_action, 0))
 
-    def compute_model_statistics(self, embed=True):
+    def compute_model_statistics(self):
         return compute_model_statistics(self.model, self.layers_to_compress)
 
     def compute_accelerator_statistics(self, init=False):

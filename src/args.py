@@ -111,6 +111,12 @@ def accel_args(parser):
     accel_args.add_argument('--accelerator-type', dest='accelerator_arch_type',
                             type=accelerator_type_arg, default='eyeriss',
                             help='Type of accelerator architecture. Default is Eyeriss-like')
+    accel_args.add_argument('--deadline-constraint', type=float,
+                            help='Deadline constraint for scheduling')
+    accel_args.add_argument('--area-constraint', type=float, default=0.1,
+                            help='Area constraint for heterogeneous accelerator. Specify '
+                                 'as a percentage compared to the baseline. Default is 0.1, '
+                                 'which means at most 90% of the baseline\'s area')
     return parser
 
 
