@@ -12,7 +12,7 @@ from src import timeloop_dir
 from src.accelerator_cfg import AcceleratorType
 
 
-__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopArch', 'TimeloopProblem']
+__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch']
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class TimeloopWrapper:
         os.makedirs(self.workdir, exist_ok=True)
         self.workloads = workloads if workloads is not None else OrderedDict()
         self.init_files()
-        self.init_arch()
+        self.init_arch(accelerator_type)
 
     def init_files(self):
         """Initialize files and directories
@@ -68,7 +68,7 @@ class TimeloopWrapper:
         problem.to_yaml()
         self.workloads[problem_name] = problem
 
-    def init_arch(self):
+    def init_arch(self, accelerator_type):
         """Initialize the accelerator architecture description
         """
         arch_dir = os.path.join(self.workdir, 'arch')
@@ -79,7 +79,7 @@ class TimeloopWrapper:
         arch_file = os.path.join(arch_dir, os.path.basename(self.template.arch[0]))
         component_files = [os.path.join(arch_dir, os.path.basename(compfile))
                            for compfile in self.template.arch[1:]]
-        self.arch = TimeloopArch(arch_dir, arch_file, component_files)
+        self.arch = TimeloopArch(accelerator_type, arch_dir, arch_file, component_files)
  
     def run(self, problem_name):
         """Execute the Timeloop+Accelergy infrastructure via command-line
@@ -141,6 +141,19 @@ class TimeloopWrapper:
         self.workloads[problem_name].adjust_dimension(dimension, value, adjust_by)
         self.workloads[problem_name].to_yaml()
 
+    def adjust_pe_array(self, pe_array_x, pe_array_y):
+        """Adjust the dimensions of the PE array
+        """
+        self.arch.adjust_pe_array(pe_array_x, pe_array_y)
+        self.arch.to_yaml()
+
+    def adjust_memories(self, accelerator_instance):
+        """Adjust the accelerator-specific memories. Note, the accelerator
+           instance is given, instead of explict parameters
+        """
+        self.arch.adjust_memories(accelerator_instance)
+        self.arch.to_yaml()
+
 
 class TimeloopTemplate:
     """Configuration environment for Timeloop files
@@ -152,62 +165,221 @@ class TimeloopTemplate:
             self.arch = [os.path.join(files_dir, 'arch', 'eyeriss_like.yaml')]
             self.arch += glob(os.path.join(files_dir, 'arch', 'components', '*.yaml'))
             self.constraint = glob(os.path.join(files_dir, 'constraints', '*.yaml'))
+
         else:
-            raise NotImplementedError("Accelerator types other than "
-                                      "Eyeriss-like are not supported")
+            raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
+
+
+class TimeloopProblem:
+    """Utility class to handle and create a Timeloop-related workload
+    """
+    def __init__(self, name, problem_type, dimensions, problem_filepath):
+        self.name = name
+        self.dims = dimensions
+        self.problem_filepath = problem_filepath
+        self.config = None
+
+        assert problem_type in ['Linear', 'Conv2d', 'AvgPool2d', 'MaxPool2d'], \
+               f"Layer of type {problem_type} is not supported"
+        self.problem_type = problem_type
+        self.get_config()
+
+    def get_config(self):
+        """Gather the configuration of the problem/workload in dict format
+        """
+        if self.problem_type in ['Conv2d', 'Linear']:
+            self.config_conv_layer()
+        elif 'pool' in self.problem_type.lower():
+            self.config_pool_layer()
+
+    def adjust_dimension(self, dimension, value=None, adjust_by=None):
+        """Change/Adjust the value of a given workload dimension
+        """
+        if value is not None:
+            self.config['instance'][dimension] = int(max(1, value))
+        elif adjust_by is not None:
+            self.config['instance'][dimension] = int(max(1, self.config['instance'][dimension] * adjust_by))
+        else:
+            raise ValueError("To change a workload dimension, specify either the absolute value or relative change")
+
+    def to_yaml(self, filepath=None):
+        """Create a yaml description of the workload
+        """
+        if self.config is None:
+            self.get_config()
+
+        if filepath is None:
+            assert self.problem_filepath is not None
+            filepath = self.problem_filepath
+        with open(filepath, 'w') as f:
+            f.write(yaml.dump({'problem': self.config}))
+
+    def config_conv_layer(self):
+        """Create the configuration for a Convolutional-type layer
+        """
+        self.dims['Q'] = int((self.dims['Xi'] - self.dims['S'] + 2 * self.dims['Wpad']) / self.dims['Wstr']) + 1
+        self.dims['P'] = int((self.dims['Yi'] - self.dims['R'] + 2 * self.dims['Hpad']) / self.dims['Hstr']) + 1
+        dimensions = ['C', 'M', 'R', 'S', 'N', 'P', 'Q']
+        coefficients = ['Wstride', 'Hstride', 'Wdilation', 'Hdilation']
+
+        config = {}
+        config['shape'] = {}
+        config['shape']['name'] = self.name
+        config['shape']['dimensions'] = dimensions
+        config['shape']['coefficients'] = [
+            {
+                'name': 'Hdilation',
+                'default': 1
+            },
+            {
+                'name': 'Wdilation',
+                'default': 1
+            },
+            {
+                'name': 'Hstride',
+                'default': self.dims['Hstr']
+            },
+            {
+                'name': 'Wstride',
+                'default': self.dims['Wstr']
+            }
+        ]
+        config['shape']['data-spaces'] = [
+            {
+                'name': 'Weights',
+                'projection': [
+                    [['M']],
+                    [['C']],
+                    [['R']],
+                    [['S']]
+                ]
+            },
+            {
+                'name': 'Inputs',
+                'projection': [
+                    [['N']],
+                    [['C']],
+                    [['R', 'Wdilation'], ['P', 'Wstride']],
+                    [['S', 'Hdilation'], ['Q', 'Hstride']],
+                ]
+            },
+            {
+                'name': 'Outputs',
+                'projection': [
+                    [['N']],
+                    [['M']],
+                    [['Q']],
+                    [['P']]
+                ],
+                'read-write': True
+            }
+        ]
+        config['instance'] = {
+            'C': self.dims['C'],
+            'M': self.dims['K'],
+            'R': self.dims['R'],
+            'S': self.dims['S'],
+            'N': self.dims['N'],
+            'P': self.dims['P'],
+            'Q': self.dims['Q']
+        }
+
+        self.config = config
+
+    def config_pool_layer(self):
+        """Create the configuration for a Pooling layer
+        """
+        raise NotImplementedError
 
 
 class TimeloopArch:
     """Utility class to handle the architectural parameters of the accelerator
        when using timeloop
     """
-    def __init__(self, workdir, arch_file, component_files):
+    def __init__(self, accelerator_type, workdir, arch_file, component_files):
         self.workdir = workdir
         self.arch_filepath = arch_file
         self.component_files = component_files 
         self.name = self.__class__.__name__
-        self._get_default_params()
-        self._get_config()
-    
-    def adjust_param(self, param_name, value):
-        """Generic function to override a parameter value
-        """
-        assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
-        setattr(self.params, param_name, value)
+        
+        # functions for specific accelerator types
+        if accelerator_type == AcceleratorType.Eyeriss:
+            self.adjust_precision = self._adjust_precision_eyeriss
+            self.adjust_memories = self._adjust_memories
+            self.get_default_params = self._get_default_params_eyeriss
+            self.get_config = self._get_config_eyeriss
 
-    def adjust_precision(self, precision):
-        """Adjust the data precision of the architecture
-        """
-        # TODO: Memory width must be perfectly dividable by block_size * word_bits,
-        #       which does not work for sub-8 bit quantization currently
-        self.params.dram_word_bits = precision
-        self.params.sram_word_bits = precision
-        self.params.regfile_width = self.params.regfile_word_bits = precision
-        self.params.ifmap_spad_width = self.params.ifmap_spad_word_bits = precision
-        self.params.weights_spad_width = self.params.weights_spad_word_bits = precision
-        self.params.psum_spad_width = self.params.psum_spad_word_bits = precision
-        self.params.mac_datawidth = precision
-        if precision == 32:
-            self.params.mac_class = 'fpmac'
         else:
-            self.params.mac_class = 'intmac'
-        # update the configuration with new parameters
-        self._get_config()
+            raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
+
+        # initialize dict with parameters
+        self.get_default_params()
+        self.get_config()
 
     def to_yaml(self, filepath=None):
         """Write the configuration of the architecture to a yaml file
         """
         if self.config is None:
-            self._get_config()
+            self.get_config()
 
         if filepath is None:
             assert self.arch_filepath is not None
             filepath = self.arch_filepath
         with open(filepath, 'w') as f:
             f.write(yaml.dump({'architecture': self.config}))
+    
+    def adjust_params(self, params):
+        """Generic function to override parameter values
+        """
+        for param_name, value in params.items():
+            assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
+            setattr(self.params, param_name, value)
+        # update the configuration with new parameters
+        self.get_config()
 
-    def _get_default_params(self):
-        """Get the default parameters for all levels of the architecture
+    def adjust_pe_array(self, pe_x, pe_y):
+        """Adjust the dimensions of the PE array
+        """
+        params = {'pe_array_x': pe_x,
+                  'pe_array_y': pe_y}
+        self.adjust_params(params)
+
+    ### Accelerator-specific functions ###
+
+    def _adjust_precision_eyeriss(self, precision):
+        """Adjust the data precision of the architecture
+        """
+        # TODO: Memory width must be perfectly dividable by block_size * word_bits,
+        #       which does not work for sub-8 bit quantization currently
+        params = {
+            'dram_word_bits': precision,
+            'sram_word_bits': precision,
+            'regfile_width': precision,
+            'regfile_word_bits': precision,
+            'ifmap_spad_width': precision,
+            'ifmap_spad_word_bits': precision,
+            'weights_spad_width': precision,
+            'weights_spad_word_bits': precision,
+            'psum_spad_width': precision,
+            'psum_spad_word_bits': precision,
+            'mac_datawidth': precision,
+            'mac_class': 'fpmac' if precision == 32 else 'intmac'
+        }
+        self.adjust_params(params)
+
+    def _adjust_memories_eyeriss(self, accelerator_instance):
+        """Adjust each specific memory unit of the accelerator
+        """
+        # TODO: Figure out how to change the memories here
+        raise NotImplementedError
+        accelerator_instance.sram_size
+        accelerator_instance.ifmap_spad_size
+        accelerator_instance.weights_spad_size
+        accelerator_instance.psum_spad_size
+
+    def _get_default_params_eyeriss(self):
+        """Get the default parameters for all levels of an
+           Eyeriss-like architecture
         """
         self.params = SimpleNamespace()
         self.params.pe_array_x = 14
@@ -254,8 +426,9 @@ class TimeloopArch:
         self.params.mac_class = 'intmac'
         self.params.mac_datawidth = 16
 
-    def _get_config(self):
-        """Write the architectural description in a dict format
+    def _get_config_eyeriss(self):
+        """Write the architectural description of an Eyeriss-like
+           architecture in a dict format
         """
         config = {}
         config['version'] = TIMELOOP_VERSION
@@ -363,126 +536,3 @@ class TimeloopArch:
         config['subtree'] = [level1]
 
         self.config = config
-
-
-class TimeloopProblem:
-    """Utility class to handle and create a Timeloop-related workload
-    """
-    def __init__(self, name, problem_type, dimensions, problem_filepath):
-        self.name = name
-        self.dims = dimensions
-        self.problem_filepath = problem_filepath
-        self.config = None
-
-        assert problem_type in ['Linear', 'Conv2d', 'AvgPool2d', 'MaxPool2d'], \
-               f"Layer of type {problem_type} is not supported"
-        self.problem_type = problem_type
-        self._get_config()
-
-    def _get_config(self):
-        """Gather the configuration of the problem/workload in dict format
-        """
-        if self.problem_type in ['Conv2d', 'Linear']:
-            self.config_conv_layer()
-        elif 'pool' in self.problem_type.lower():
-            self.config_pool_layer()
-
-    def adjust_dimension(self, dimension, value=None, adjust_by=None):
-        """Change/Adjust the value of a given workload dimension
-        """
-        if value is not None:
-            self.config['instance'][dimension] = int(max(1, value))
-        elif adjust_by is not None:
-            self.config['instance'][dimension] = int(max(1, self.config['instance'][dimension] * adjust_by))
-        else:
-            raise ValueError("To change a workload dimension, specify either the absolute value or relative change")
-
-    def to_yaml(self, filepath=None):
-        """Create a yaml description of the workload
-        """
-        if self.config is None:
-            self._get_config()
-
-        if filepath is None:
-            assert self.problem_filepath is not None
-            filepath = self.problem_filepath
-        with open(filepath, 'w') as f:
-            f.write(yaml.dump({'problem': self.config}))
-
-    def config_conv_layer(self):
-        """Create the configuration for a Convolutional-type layer
-        """
-        self.dims['Q'] = int((self.dims['Xi'] - self.dims['S'] + 2 * self.dims['Wpad']) / self.dims['Wstr']) + 1
-        self.dims['P'] = int((self.dims['Yi'] - self.dims['R'] + 2 * self.dims['Hpad']) / self.dims['Hstr']) + 1
-        dimensions = ['C', 'M', 'R', 'S', 'N', 'P', 'Q']
-        coefficients = ['Wstride', 'Hstride', 'Wdilation', 'Hdilation']
-
-        config = {}
-        config['shape'] = {}
-        config['shape']['name'] = self.name
-        config['shape']['dimensions'] = dimensions
-        config['shape']['coefficients'] = [
-            {
-                'name': 'Hdilation',
-                'default': 1
-            },
-            {
-                'name': 'Wdilation',
-                'default': 1
-            },
-            {
-                'name': 'Hstride',
-                'default': self.dims['Hstr']
-            },
-            {
-                'name': 'Wstride',
-                'default': self.dims['Wstr']
-            }
-        ]
-        config['shape']['data-spaces'] = [
-            {
-                'name': 'Weights',
-                'projection': [
-                    [['M']],
-                    [['C']],
-                    [['R']],
-                    [['S']]
-                ]
-            },
-            {
-                'name': 'Inputs',
-                'projection': [
-                    [['N']],
-                    [['C']],
-                    [['R', 'Wdilation'], ['P', 'Wstride']],
-                    [['S', 'Hdilation'], ['Q', 'Hstride']],
-                ]
-            },
-            {
-                'name': 'Outputs',
-                'projection': [
-                    [['N']],
-                    [['M']],
-                    [['Q']],
-                    [['P']]
-                ],
-                'read-write': True
-            }
-        ]
-        config['instance'] = {
-            'C': self.dims['C'],
-            'M': self.dims['K'],
-            'R': self.dims['R'],
-            'S': self.dims['S'],
-            'N': self.dims['N'],
-            'P': self.dims['P'],
-            'Q': self.dims['Q']
-        }
-
-        self.config = config
-
-    def config_pool_layer(self):
-        """Create the configuration for a Pooling layer
-        """
-        raise NotImplementedError
-

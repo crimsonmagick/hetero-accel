@@ -192,27 +192,21 @@ def accelerator_exploration(args, workload, accuracy_lut):
     precision_options = precision_options[:-1]
     if 16 not in precision_options:
         precision_options.append(16)
-    hw_constraints = SimpleNamespace(deadline=args.deadline_constraint,
-                                     area=args.area_constraint)
 
     accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
-    design_space = DesignSpace(pe_array_x=accel_cfg.width_options,
-                               pe_array_y=accel_cfg.height_options,
-                               precision=precision_options,
-                               sram_size=accel_cfg.sram_size_options,
-                               ifmap_spad_size=accel_cfg.ifmap_spad_size_options,
-                               weights_spad_size=accel_cfg.weights_spad_size_options,
-                               psum_spad_size=accel_cfg.psum_spad_size_options)
-    logger.debug(f"Examining design space: {design_space}")
+    accel_cfg.design_space.precision_options = precision_options
+
+    logger.debug(f"Examining design space: {accel_cfg.design_space}")
 
     # initalize and run optimizer
-    optimizer = AcceleratorOptimizer(simanneal_args=args,
+    optimizer = AcceleratorOptimizer(args=args,
                                      num_accelerators=len(precision_options),
                                      accelerator_cfg=accel_cfg,
-                                     design_space=design_space,
                                      workload=workload,
                                      accuracy_lut=accuracy_lut,
-                                     hw_constraints=hw_constraints)
+                                     hw_constraints=SimpleNamespace(deadline=args.deadline_constraint,
+                                                                    area=args.area_constraint)
+                                     )
     optimizer.run()
 
     return optimizer.best_state, optimizer.best_energy

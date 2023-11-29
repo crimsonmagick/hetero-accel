@@ -5,6 +5,7 @@ from enum import Enum
 from src import project_dir
 from src.accelerator_cfg import AcceleratorType
 from src.compression.pruning import PruningGroupType
+from src.scheduler import SchedulerType
 
 
 def app_args(parser):
@@ -23,6 +24,8 @@ def app_args(parser):
     parser.add_argument('--dnn-accuracy-lut-file', metavar='PATH',
                         help='Path where the DNN-accuracy LUT is saved. Should contain '
                              'statistics for each DNN, per quantization profile')
+    parser.add_argument('--scheduler-type', type=scheduler_type_arg, default='ours',
+                        help=f'Select default scheduler. Default is our scheduler.')
 
     op_mode = parser.add_argument_group("Execution mode arguments")
     op_mode_exc = op_mode.add_mutually_exclusive_group()
@@ -196,3 +199,12 @@ def model_summary_type_arg(argstr):
                                          f"{str_to_summary_type_map.keys()}. Invalid argument {argstr}")
 
 
+def scheduler_type_arg(argstr):
+    str_to_scheduler_type_map = {'ours': SchedulerType.Ours,
+                                 'baseline': SchedulerType.Baseline,
+                                 'sota': SchedulerType.SoTA}
+    try:
+        return str_to_scheduler_type_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--scheduler-type argument must be one of the following: "
+                                         f"{str_to_scheduler_type_map.keys()}. Invalid argument {argstr}")

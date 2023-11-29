@@ -1,8 +1,16 @@
 from enum import Enum
+from collections import namedtuple
+from src.optimizer import DesignSpace
 
 
 class AcceleratorType(Enum):
     Eyeriss = 1
+
+
+EyerissAcceleratorState = namedtuple("EyerissAcceleratorState",
+                                     ['pe_array_x', 'pe_array_y',
+                                      'precision', 'sram_size',
+                                      'ifmap_spad_size', 'weights_spad_size', 'psum_spad_size'])
 
 
 class AcceleratorProfile:
@@ -30,15 +38,20 @@ class AcceleratorProfile:
     
             # design space parameters 
             # TODO: Figure out how to set up the design space more intelligently
-            self.width_options = self.height_options = [8, 10, 12, 14, 16, 20, 25]
-            self.ifmap_spad_size_options = [8, 12, 16, 24, 32, 40, 48, 64]
-            self.weights_spad_size_options = [256, 320, 384, 448, 512, 576, 640]
-            self.psum_spad_size_options = [16, 24, 32, 40, 48, 64, 80, 96]
-            self.sram_size_options = [45000, 60000, 800000, 108000, 120000, 140000, 180000]
+            width_options = height_options = [8, 10, 12, 14, 16, 20, 25]
+            ifmap_spad_size_options = [8, 12, 16, 24, 32, 40, 48, 64]
+            weights_spad_size_options = [256, 320, 384, 448, 512, 576, 640]
+            psum_spad_size_options = [16, 24, 32, 40, 48, 64, 80, 96]
+            sram_size_options = [45000, 60000, 800000, 108000, 120000, 140000, 180000]
+            precision_options = [8, 16, 32]
 
-
+            self.design_space = DesignSpace(EyerissAcceleratorState,
+                                            pe_array_x=width_options,
+                                            pe_array_y=height_options,
+                                            precision=precision_options,
+                                            sram_size=sram_size_options,
+                                            ifmap_spad_size=ifmap_spad_size_options,
+                                            weights_spad_size=weights_spad_size_options,
+                                            psum_spad_size=psum_spad_size_options)
         else:
-            raise NotImplementedError
-
-
-
+            raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")

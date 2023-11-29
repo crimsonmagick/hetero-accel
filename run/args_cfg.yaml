@@ -5,6 +5,7 @@ app_args:
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: lut.csv
+        scheduler_type: ours
 
 op_mode_args:
         evaluate_model_mode: False
@@ -43,6 +44,8 @@ compression_args:
  
 accel_args:
         accelerator_arch_type: eyeriss
+        deadline_constraint: null
+        area_constraint: 0.1
 
 simanneal_args:
         simanneal_Tmax: 25000.0

@@ -1,35 +1,31 @@
 import logging
 import random
 import os.path
-from copy import deepcopy
+import sys
+from time import time
 from collections import namedtuple
 from simanneal import Annealer
-from src.scheduler import MultiDNNScheduler
+from src.scheduler import SchedulerType, StaticScheduler
 from src.timeloop import TimeloopWrapper
 
 
-__all__ = ['AcceleratorState', 'DesignSpace', 'AcceleratorOptimizer']
+__all__ = ['DesignSpace', 'AcceleratorOptimizer']
 
 logger = logging.getLogger(__name__)
 
 
-AcceleratorState = namedtuple("AcceleratorState",
-                              ['pe_array_x', 'pe_array_y',
-                               'precision', 'sram_size',
-                               'ifmap_spad_size', 'weights_spad_size', 'psum_spad_size'])
-
-
-class DesignSpace(AcceleratorState):
+class DesignSpace(namedtuple):
     """Wrapper for the design space of possible accelerator architectures
     """
-    def __new__(cls, **kwargs):
+    def __new__(cls, accelerator_state_class, **kwargs):
+        self.accelerator_state_class = accelerator_state_class
         for key, value in kwargs.items():
             assert key in super()._fields
             assert isinstance(value, (list, tuple)) and len(value) > 0
         self = super(DesignSpace, cls).__new__(cls, **kwargs)
         return self
 
-    def sample(self) -> AcceleratorState:
+    def sample(self):
         """Get a random sample from the design space
         """
         values = {
@@ -37,9 +33,9 @@ class DesignSpace(AcceleratorState):
             for field in self._fields
         }
         #return super().__class__(**values)
-        return AcceleratorState(**values)
+        return self.accelerator_state_class(**values)
 
-    def extract(self, *args, **kwargs) -> AcceleratorState:
+    def extract(self, *args, **kwargs):
         """Extract a specific solution from the design space
         """
         assert len(args) == 0 or len(kwargs) == 0, "Only one type of input is supported"
@@ -53,7 +49,7 @@ class DesignSpace(AcceleratorState):
         for value, field in zip(values_to_get, self._fields):
             assert value in getattr(self, field), f"Invalid value {value} for {field}"
 
-        return AcceleratorState(*values_to_get)
+        return self.accelerator_state_class(*values_to_get)
 
 
 class AcceleratorOptimizer(Annealer):
@@ -62,29 +58,28 @@ class AcceleratorOptimizer(Annealer):
     WORST_ENERGY = -1.0
 
     def __init__(self,
-                 simanneal_args,
+                 args,
                  num_accelerators,
                  accelerator_cfg,
-                 design_space,
                  workload,
                  accuracy_lut,
                  hw_constraints
         ):
         self.num_accelerators = num_accelerators
         self.accelerator_cfg = accelerator_cfg
-        self.design_space = design_space
+        self.design_space = accelerator_cfg.design_space
         self.workload = workload
         self.accuracy_lut = accuracy_lut
         self.hw_constraints = hw_constraints
         self.energy_dict = {}
         self.latency_dict = {}
         self.area_dict = {}
-        self.logdir = simanneal_args.logdir
+        self.logdir = args.logdir
 
         # initialize timeloop
-        self.init_timeloop(simanneal_args.layer_type_whitelist)
+        self.init_timeloop(args.layer_type_whitelist)
         # initialize scheduler
-        self.init_scheduler()
+        self.init_scheduler(args.scheduler_type)
 
         # use the default accelerator as the initial state of the exploration
         initial_state = self.design_space.extract(self.accelerator_cfg.width,
@@ -95,7 +90,7 @@ class AcceleratorOptimizer(Annealer):
                                                   self.accelerator_cfg.weights_spad_size,
                                                   self.accelerator_cfg.psum_spad_size)
         initial_state = [initial_state] * self.num_accelerators
-        super().__init__(initial_state, getattr(simanneal_args, 'simanneal_load_state', None))
+        super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
         assert self.energy() != self.WORST_ENERGY, "Baseline produces negative energy"
@@ -108,18 +103,18 @@ class AcceleratorOptimizer(Annealer):
         # setup scheduling parameters during annealing
         self.update = self._update_logging
         self.copy_strategy = 'deepcopy'
-        if simanneal_args.simanneal_auto_schedule or \
-            simannea_args is None or \
-            any(getattr(arg, simanneal_args, None) is None
+        if args.simanneal_auto_schedule or \
+            args is None or \
+            any(getattr(arg, args, None) is None
                 for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
             # automatic annealing schedule
             self.set_schedule(self.auto(minutes=10))
         else:
             # user-defined annealing schedule
-            self.Tmax = simanneal_args.simanneal_Tmax
-            self.Tmin = simanneal_args.simaneal_Tmin
-            self.steps = simanneal_args.simanneal_steps
-            self.updates = simanneal_args.simanneal_updates
+            self.Tmax = args.simanneal_Tmax
+            self.Tmin = args.simaneal_Tmin
+            self.steps = args.simanneal_steps
+            self.updates = args.simanneal_updates
 
     def init_timeloop(self, layer_type_whitelist):
         """Initialize timeloop wrapper object
@@ -148,10 +143,13 @@ class AcceleratorOptimizer(Annealer):
                                                    problem_filepath)
                 layer_idx += 1
 
-    def init_scheduler(self):
+    def init_scheduler(self, scheduler_type):
         """Initialize the design-time model of the scheduler
         """
-        self.scheduler = MultiDNNScheduler(self.hw_constraints.deadline)
+        if scheduler_type == SchedulerType.Ours:
+            self.scheduler = StaticScheduler(heterogeneous_bins=True)
+        else:
+            raise NotImplemented(f'Scheduler of type {scheduler_type} is not implemented yet')
 
     def run(self):
         """Run Simulated Annealing
@@ -225,15 +223,17 @@ class AcceleratorOptimizer(Annealer):
     def energy(self):
         """Evaluate the fitness of the current state
         """
-        def area_constraint_satisfied():
-            raise NotImplementedError
-            return area
+        def violated_area_constraint(area):
+            return area > self.initial_area * (1 - self.hw_constraints.area) 
 
-        def accuracy_constraint_satisfied(arch, precision):
-            return self.accuracy_lut.loc[
-                        (self.accuracy_lut['Network'] == arch) &&
-                        (self.accuracy_lut['QuantBits'] == precision)
-                    ]['Valid'].iloc[0] == 1
+        def violated_accuracy_constraint(arch, precision):
+            try:
+                return self.accuracy_lut.loc[
+                            (self.accuracy_lut['Network'] == arch) &
+                            (self.accuracy_lut['QuantBits'] == precision)
+                        ]['Valid'].iloc[0] == 0
+            except IndexError:
+                return True
 
         # metrics to be accumulated
         energy_dict = {}
@@ -245,14 +245,16 @@ class AcceleratorOptimizer(Annealer):
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
                 # check accuracy constraint
-                if not accuracy_constraint_satisfied(arch, accelerator.precision):
+                if violated_accuracy_constraint(arch, accelerator.precision):
                     continue
                 # check if this evaluation was executed before
                 if (arch, accelerator) in self.energy_dict:
                     continue
 
                 # adjust timeloop with the accelerator parameters
-                raise NotImplementedError
+                self.timeloop_wrapper.adjust_pe_array(accelerator.pe_array_x,
+                                                      accelerator.pe_array_y)
+                self.timeloop_wrapper.adjust_memories(accelerator)
 
                 energy_dict[(arch, accelerator)] = 0
                 latency_dict[(arch, accelerator)] = 0
@@ -273,17 +275,27 @@ class AcceleratorOptimizer(Annealer):
         self.area_dict.update(area_dict)
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
-        mapping, deadline_satisfied = self.sceduler.run(dnns=list(self.workload.dnns.keys()),
-                                                        accelerators=self.state,
-                                                        energy_dict=self.energy_dict,
-                                                        latency_dict=self.latency_dict)
+        schedule = self.scheduler.run(dnns=list(self.workload.dnns.keys()),
+                                      accelerators=self.state,
+                                      energy_dict=self.energy_dict,
+                                      latency_dict=self.latency_dict)
 
-        # TODO: Figure out how to get results for energy, latency and area based on the mapping
-        self.latest_energy = ''
-        self.latest_latency = ''
-        self.latest_area = ''
+        # get results for energy, latency and area based on the final schedule
+        self.latest_energy = sum([
+            energy_dict[(entry.item, entry.bin)] for entry in schedule.entries
+        ])
+        self.latest_latency = max([
+            sum([
+                latency_dict[(entry.item, entry.bin)] for entry in entries
+            ]) for bin, entries in schedule.as_dict(main_key='bin').items()
+        ])
+        self.latest_area = sum(
+            area_dict[(entry.item, entry.bin)] for entry in schedule.entries
+        )
 
-        if not deadline_satisfied or not area_constraint_satisfied(area):
+        # check deadline and area constraints
+        if schedule.violated_deadline(self.hw_constraints.deadline) or \
+           violated_area_constraint(self.latest_area):
             return self.WORST_ENERGY
         return self.latest_energy 
 
