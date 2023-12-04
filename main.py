@@ -194,7 +194,7 @@ def accelerator_exploration(args, workload, accuracy_lut):
         precision_options.append(16)
 
     accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
-    accel_cfg.design_space.precision_options = precision_options
+    accel_cfg.design_space['precision'] = precision_options
 
     logger.debug(f"Examining design space: {accel_cfg.design_space}")
 

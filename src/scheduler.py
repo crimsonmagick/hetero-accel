@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections import OrderedDict, namedtuple
 from enum import Enum
 
@@ -33,7 +34,7 @@ class Schedule:
         assert item not in self.assigned, f"Item {item} is already assigned to bin {self.assigned[item]}"
         start = self.end_timestamp[to_bin]
         end = start + duration
-        self.end_timestamp[bin] = end
+        self.end_timestamp[to_bin] = end
         self.entries.append(ScheduleEntry(start, end, to_bin, item))
         self.assigned[item] = to_bin
     
@@ -51,6 +52,9 @@ class Schedule:
             for key in keys
         ])
 
+    def visualize(self, savefile=None):
+        raise NotImplementedError
+
 
 class StaticScheduler:
     """Implementation of a static scheduler"""
@@ -60,16 +64,25 @@ class StaticScheduler:
         else:
             self.run = self._run_w_identical_bins
 
+        # ONLY for debugging
+        if getattr(sys, 'gettrace', None) is not None and sys.gettrace():
+            self.run = self._run_random_scheduling
+
     def _run_w_different_bins(self, items, bins, value_dict, weight_dict):
         """Static scheduling with heterogeneous bins w.r.t. value and weight per item,
            i.e., value_dict and weight_dict have different values for different bins.
         """
         schedule = Schedule(bins)
-
         # TODO: Write scheduling algorithm
+
+    def _run_random_scheduling(self, items, bins, value_dict, weight_dict):
+        schedule = Schedule(bins)
         for item in items:
             bin_sel = random.choice(bins)
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
+            print(item, bin_sel)
+            print(schedule.end_timestamp)
+            print(schedule.entries)
 
         # return the schedule, organized per bin
         return schedule
@@ -93,7 +106,9 @@ if __name__ == "__main__":
 
     for item in items:
         for bin in bins:
-            values[(item, bin)] = random.randint(0, 10)
-            weights[(item, bin)] = random.randint(0, 10)
+            values[(item, bin)] = random.randint(1, 10)
+            weights[(item, bin)] = random.randint(1, 10)
 
     schedule = s.run(items, bins, values, weights)
+
+    pass

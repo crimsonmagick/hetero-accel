@@ -2,9 +2,11 @@ import logging
 import random
 import os.path
 import sys
+from types import SimpleNamespace
 from time import time
-from collections import namedtuple
+from glob import glob
 from simanneal import Annealer
+from src import project_dir
 from src.scheduler import SchedulerType, StaticScheduler
 from src.timeloop import TimeloopWrapper
 
@@ -14,16 +16,20 @@ __all__ = ['DesignSpace', 'AcceleratorOptimizer']
 logger = logging.getLogger(__name__)
 
 
-class DesignSpace(namedtuple):
+class DesignSpace(SimpleNamespace):
     """Wrapper for the design space of possible accelerator architectures
     """
-    def __new__(cls, accelerator_state_class, **kwargs):
+    def __init__(self, accelerator_state_class, **kwargs):
+        super().__init__(**kwargs)
+        self._fields = list(self.__dict__.keys())
         self.accelerator_state_class = accelerator_state_class
         for key, value in kwargs.items():
-            assert key in super()._fields
+            assert key in accelerator_state_class._fields, f'{key}'
             assert isinstance(value, (list, tuple)) and len(value) > 0
-        self = super(DesignSpace, cls).__new__(cls, **kwargs)
-        return self
+
+    # def __setattr__(self, key, val):
+    #     """Emulating the functionality of a namedtuple"""
+    #     raise AttributeError('Cannot set new values for DesignSpace')
 
     def sample(self):
         """Get a random sample from the design space
@@ -67,7 +73,6 @@ class AcceleratorOptimizer(Annealer):
         ):
         self.num_accelerators = num_accelerators
         self.accelerator_cfg = accelerator_cfg
-        self.design_space = accelerator_cfg.design_space
         self.workload = workload
         self.accuracy_lut = accuracy_lut
         self.hw_constraints = hw_constraints
@@ -75,6 +80,8 @@ class AcceleratorOptimizer(Annealer):
         self.latency_dict = {}
         self.area_dict = {}
         self.logdir = args.logdir
+        self.design_space = DesignSpace(accelerator_cfg.state,
+                                        **accelerator_cfg.design_space)
 
         # initialize timeloop
         self.init_timeloop(args.layer_type_whitelist)
@@ -240,15 +247,24 @@ class AcceleratorOptimizer(Annealer):
         area_dict = {}
         latency_dict = {}
 
+        # cleanup the timeloop files
+        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
+            os.remove(timeloop_file)
+
+        logger.info(f"Beginning energy calculation")
         # iterate over each accelerator
         for accelerator in self.state:
+            logger.info(f"Evaluating on accelerator: {accelerator._asdict()}")
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
+                logger.info(f"\tDNN {arch}")
                 # check accuracy constraint
                 if violated_accuracy_constraint(arch, accelerator.precision):
+                    logger.info(f"\tSkipping evaluation: accuracy violation")
                     continue
                 # check if this evaluation was executed before
                 if (arch, accelerator) in self.energy_dict:
+                    logger.info(f"\tSkipping evaluation: already estimated")
                     continue
 
                 # adjust timeloop with the accelerator parameters
@@ -264,10 +280,18 @@ class AcceleratorOptimizer(Annealer):
 
                     # run timeloop and get results
                     self.timeloop_wrapper.run(problem_name)
-                    results = self.timeloop_wrapper.get_results()
+                    results = self.timeloop_wrapper.get_results(output_dir=project_dir)
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
                     area_dict[(arch, accelerator)] += results.area
+
+                logger.info(f"\tEvaluation resutls: energy={energy_dict[(arch, accelerator)]},
+                                                    latency={latency_dict[(arch, accelerator)]},
+                                                    area={area_dict[(arch, accelerator)]}")
+
+        # cleanup the timeloop files
+        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
+            os.remove(timeloop_file)
 
         # update stored metrics with executed evaluations
         self.energy_dict.update(energy_dict)
@@ -292,15 +316,21 @@ class AcceleratorOptimizer(Annealer):
         self.latest_area = sum(
             area_dict[(entry.item, entry.bin)] for entry in schedule.entries
         )
+        logger.info(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
+        logger.info(f"SA Energy results: energy={self.latest_energy},
+                                         latency={self.latest_latency},
+                                         area={self.latest_area}")
+        logger.info("*--------------*")
 
         # check deadline and area constraints
         if schedule.violated_deadline(self.hw_constraints.deadline) or \
            violated_area_constraint(self.latest_area):
             return self.WORST_ENERGY
-        return self.latest_energy 
+        return self.latest_energy
 
 
 if __name__ == "__main__":
+
     a = DesignSpace(pe_array_x=list(range(10)),
                     pe_array_y=list(range(10)),
                     precision=list(range(10)),
@@ -317,9 +347,9 @@ if __name__ == "__main__":
                     psum_spad_size=list(range(10)))
 
 
-    #print(a == b)
-    #print(a.sample())
-    #print(a.extract([1, 2, 3, 4, 5, 6, 7]))
+    print(a == b)
+    print(a.sample())
+    print(a.extract([1, 2, 3, 4, 5, 6, 7]))
 
     prev_state = a.sample()
     new_state = a.sample()

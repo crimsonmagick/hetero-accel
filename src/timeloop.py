@@ -305,7 +305,7 @@ class TimeloopArch:
         # functions for specific accelerator types
         if accelerator_type == AcceleratorType.Eyeriss:
             self.adjust_precision = self._adjust_precision_eyeriss
-            self.adjust_memories = self._adjust_memories
+            self.adjust_memories = self._adjust_memories_eyeriss
             self.get_default_params = self._get_default_params_eyeriss
             self.get_config = self._get_config_eyeriss
 
@@ -370,12 +370,13 @@ class TimeloopArch:
     def _adjust_memories_eyeriss(self, accelerator_instance):
         """Adjust each specific memory unit of the accelerator
         """
-        # TODO: Figure out how to change the memories here
-        raise NotImplementedError
-        accelerator_instance.sram_size
-        accelerator_instance.ifmap_spad_size
-        accelerator_instance.weights_spad_size
-        accelerator_instance.psum_spad_size
+        params = {
+            'sram_depth': accelerator_instance.sram_size,
+            'ifmap_spad_depth': accelerator_instance.ifmap_spad_size,
+            'weights_spad_depth': accelerator_instance.weights_spad_size,
+            'psum_spad_depth': accelerator_instance.psum_spad_size
+        }
+        self.adjust_params(params)
 
     def _get_default_params_eyeriss(self):
         """Get the default parameters for all levels of an

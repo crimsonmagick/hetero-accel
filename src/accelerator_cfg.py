@@ -1,6 +1,5 @@
 from enum import Enum
 from collections import namedtuple
-from src.optimizer import DesignSpace
 
 
 class AcceleratorType(Enum):
@@ -20,6 +19,8 @@ class AcceleratorProfile:
         self.type = accelerator_type
 
         if accelerator_type == AcceleratorType.Eyeriss:
+            self.state = EyerissAcceleratorState
+
             # accelerator parameters, according to https://ieeexplore.ieee.org/document/7738524
             self.width = 14
             self.height = 12
@@ -44,14 +45,16 @@ class AcceleratorProfile:
             psum_spad_size_options = [16, 24, 32, 40, 48, 64, 80, 96]
             sram_size_options = [45000, 60000, 800000, 108000, 120000, 140000, 180000]
             precision_options = [8, 16, 32]
+            # prepare dictionary with design space parameters, according to the self.state class
+            self.design_space = {
+                'pe_array_x': width_options,
+                'pe_array_y': height_options,
+                'precision': precision_options,
+                'sram_size': sram_size_options,
+                'ifmap_spad_size': ifmap_spad_size_options,
+                'weights_spad_size': weights_spad_size_options,
+                'psum_spad_size': psum_spad_size_options
+            }
 
-            self.design_space = DesignSpace(EyerissAcceleratorState,
-                                            pe_array_x=width_options,
-                                            pe_array_y=height_options,
-                                            precision=precision_options,
-                                            sram_size=sram_size_options,
-                                            ifmap_spad_size=ifmap_spad_size_options,
-                                            weights_spad_size=weights_spad_size_options,
-                                            psum_spad_size=psum_spad_size_options)
         else:
             raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
