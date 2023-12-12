@@ -26,6 +26,8 @@ def app_args(parser):
                              'statistics for each DNN, per quantization profile')
     parser.add_argument('--scheduler-type', type=scheduler_type_arg, default='ours',
                         help=f'Select default scheduler. Default is our scheduler.')
+    parser.add_argument('--load-state-from', metavar='PATH',
+                        help='Load the state of the optimizer from the given file')
 
     op_mode = parser.add_argument_group("Execution mode arguments")
     op_mode_exc = op_mode.add_mutually_exclusive_group()

@@ -1,0 +1,3 @@
+[submodule "generalizedassignmentsolver"]
+	path = generalizedassignmentsolver
+	url = https://github.com/fontanf/generalizedassignmentsolver.git

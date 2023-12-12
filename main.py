@@ -16,7 +16,7 @@ from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
 from src.accelerator_cfg import AcceleratorProfile
-from src.optimizer import DesignSpace, AcceleratorOptimizer
+from src.optimizer import AcceleratorOptimizer
 
 
 logger = logging.getLogger(__name__)
@@ -91,9 +91,12 @@ def quant_exploration(args, workload):
     """Exploration of possible quantization profiles
     """
     skip_exploration = False
-    if args.dnn_accuracy_lut_file is not None and os.path.exists(args.dnn_accuracy_lut_file):
+    if getattr(args, 'dnn_accuracy_lut_file', None) is not None and \
+       os.path.exists(args.dnn_accuracy_lut_file):
         skip_exploration = True
         preloaded_dnn_accuracy_lut = pd.read_csv(args.dnn_accuracy_lut_file)
+        assert all(arch in preloaded_dnn_accuracy_lut['Network'].unique() for arch in workload.dnns), \
+            f"All DNNs {list(workload.dnns.keys())} must be included in the preloaded accuracy LUT"
         logger.info(f'=> Skipping exhaustive exploration: loaded LUT from {args.dnn_accuracy_lut_file}')
 
     # structure of the LUT
@@ -101,6 +104,9 @@ def quant_exploration(args, workload):
 
     compressors = {}
     for arch, net_wrapper in workload.dnns.items():
+        if skip_exploration:
+            continue
+
         # initialize compressor
         compression_args = SimpleNamespace(logdir=args.logdir,
                                            pruning_high=args.pruning_high,
@@ -120,8 +126,6 @@ def quant_exploration(args, workload):
                                                    workload.datasets[net_wrapper.model.dataset],
                                                    net_wrapper.model)
         compressors[arch] = compressor
-        if skip_exploration:
-            continue
 
         logger.info(f'=> Beginning exhaustive exploration for {arch}')
 

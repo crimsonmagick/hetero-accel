@@ -6,7 +6,7 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-    - arch: mobilenetv2
+    - arch: vgg11
       dataset: cifar100
       pretrained: true
       resumed_checkpoint_path: null

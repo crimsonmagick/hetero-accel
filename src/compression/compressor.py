@@ -42,7 +42,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         if self.model.is_image_classifier:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
         else:
-            raise NotImplementedError
+            raise NotImplementedError("Only CrossEntropyLoss is set for image classifiers. "
+                                      "Please add more criterions for other DNNs")
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           lr=0.01, weight_decay=1e-4)
 

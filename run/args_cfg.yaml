@@ -6,6 +6,7 @@ app_args:
         global_seed: 0
         dnn_accuracy_lut_file: lut.csv
         scheduler_type: ours
+        load_state_from: state.sa.pkl
 
 op_mode_args:
         evaluate_model_mode: False

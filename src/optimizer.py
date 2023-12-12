@@ -2,12 +2,13 @@ import logging
 import random
 import os.path
 import sys
+import pickle
 from types import SimpleNamespace
 from time import time
 from glob import glob
 from simanneal import Annealer
 from src import project_dir
-from src.scheduler import SchedulerType, StaticScheduler
+from src.scheduler import SchedulerType, Scheduler
 from src.timeloop import TimeloopWrapper
 
 
@@ -86,17 +87,22 @@ class AcceleratorOptimizer(Annealer):
         # initialize timeloop
         self.init_timeloop(args.layer_type_whitelist)
         # initialize scheduler
-        self.init_scheduler(args.scheduler_type)
+        self.scheduler = Scheduler(args.scheduler_type)
+        self.latest_schedule = None
 
-        # use the default accelerator as the initial state of the exploration
-        initial_state = self.design_space.extract(self.accelerator_cfg.width,
-                                                  self.accelerator_cfg.height,
-                                                  self.accelerator_cfg.precision_weights,
-                                                  self.accelerator_cfg.glb_sram_size,
-                                                  self.accelerator_cfg.ifmap_spad_size,
-                                                  self.accelerator_cfg.weights_spad_size,
-                                                  self.accelerator_cfg.psum_spad_size)
-        initial_state = [initial_state] * self.num_accelerators
+        if getattr(args, 'load_state_from', None) is not None and \
+           os.path.exists(args.load_state_from):
+            initial_state = self.load_state(args.load_state_from)
+        else:
+            # use the default accelerator as the initial state of the exploration
+            initial_state = self.design_space.extract(self.accelerator_cfg.width,
+                                                      self.accelerator_cfg.height,
+                                                      self.accelerator_cfg.precision_weights,
+                                                      self.accelerator_cfg.glb_sram_size,
+                                                      self.accelerator_cfg.ifmap_spad_size,
+                                                      self.accelerator_cfg.weights_spad_size,
+                                                      self.accelerator_cfg.psum_spad_size)
+            initial_state = [initial_state] * self.num_accelerators
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
@@ -150,14 +156,6 @@ class AcceleratorOptimizer(Annealer):
                                                    problem_filepath)
                 layer_idx += 1
 
-    def init_scheduler(self, scheduler_type):
-        """Initialize the design-time model of the scheduler
-        """
-        if scheduler_type == SchedulerType.Ours:
-            self.scheduler = StaticScheduler(heterogeneous_bins=True)
-        else:
-            raise NotImplemented(f'Scheduler of type {scheduler_type} is not implemented yet')
-
     def run(self):
         """Run Simulated Annealing
         """
@@ -185,6 +183,9 @@ class AcceleratorOptimizer(Annealer):
                         '{Elapsed:s}  {Remaining:s}'
                         .format(Temp=T, Energy=E, Accept=acceptance, Improve=improvement,
                                 Elapsed=time_string(elapsed), Remaining=time_string(remain)))
+        
+        # save schedule
+        self.latest_schedule.visualize()
 
     def _update_stderr(self, step, T, E, acceptance, improvement):
         """Direct copy from the update function of Annealer
@@ -218,6 +219,29 @@ class AcceleratorOptimizer(Annealer):
                           Remaining=time_string(remain)),
                   file=sys.stderr, end="")
             sys.stderr.flush()
+
+    def save_state(self):
+        """Save the latest state and results from energy/fitness calculation
+        """
+        state_dict = {'energy': self.energy_dict,
+                      'latency': self.latency_dict,
+                      'area': self.area_dict,
+                      'schedule': self.latest_schedule,
+                      'state': self.state}
+        with open(os.path.join(self.logdir, 'state.sa.pkl'), 'wb') as f:
+            pickle.dump(state_dict, f)
+
+    def load_state(self, load_from):
+        """Load the state and its results from a given file
+        """
+        with open(load_from, 'rb') as f:
+            state_dict = pickle.load(f)
+        self.energy_dict = state_dict['energy']
+        self.latency_dict = state_dict['latency']
+        self.area_dict = state_dict['area']
+        self.latest_schedule = state_dict['schedule']
+        initial_state = state_dict['state']
+        return initial_state
 
     def move(self):
         """Alter the current state, by changing at least one accelerator
@@ -257,7 +281,7 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"Evaluating on accelerator: {accelerator._asdict()}")
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
-                logger.info(f"\tDNN {arch}")
+                logger.info(f"\tEvaluating on DNN: {arch}")
                 # check accuracy constraint
                 if violated_accuracy_constraint(arch, accelerator.precision):
                     logger.info(f"\tSkipping evaluation: accuracy violation")
@@ -277,6 +301,7 @@ class AcceleratorOptimizer(Annealer):
                 area_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
                 for problem_name in self.timeloop_problems_per_dnn[arch]:
+                    logger.info(f"\t\t{problem_name}")
 
                     # run timeloop and get results
                     self.timeloop_wrapper.run(problem_name)
@@ -285,24 +310,32 @@ class AcceleratorOptimizer(Annealer):
                     latency_dict[(arch, accelerator)] += results.cycles
                     area_dict[(arch, accelerator)] += results.area
 
-                logger.info(f"\tEvaluation resutls: energy={energy_dict[(arch, accelerator)]},
-                                                    latency={latency_dict[(arch, accelerator)]},
-                                                    area={area_dict[(arch, accelerator)]}")
+                logger.info(f"\tEvaluation results: energy={energy_dict[(arch, accelerator)]}, "
+                                                    f"latency={latency_dict[(arch, accelerator)]}, "
+                                                    f"area={area_dict[(arch, accelerator)]}")
+
+            # update stored metrics with executed evaluations
+            self.energy_dict.update(energy_dict)
+            self.latency_dict.update(latency_dict)
+            self.area_dict.update(area_dict)
 
         # cleanup the timeloop files
         for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
             os.remove(timeloop_file)
 
-        # update stored metrics with executed evaluations
-        self.energy_dict.update(energy_dict)
-        self.latency_dict.update(area_dict)
-        self.area_dict.update(area_dict)
-
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
-        schedule = self.scheduler.run(dnns=list(self.workload.dnns.keys()),
-                                      accelerators=self.state,
-                                      energy_dict=self.energy_dict,
-                                      latency_dict=self.latency_dict)
+        schedule = self.scheduler.run(items=list(self.workload.dnns.keys()),
+                                      bins=self.state,
+                                      value_dict=self.energy_dict,
+                                      weight_dict=self.latency_dict)
+        # save schedule of latest move
+        self.latest_schedule = schedule
+
+        # return in case of invalid schedule
+        if schedule is None:
+            self.latest_energy = self.latest_latency = self.latest_area = None
+            logger.info(f"Could not find valid schedule")
+            return self.WORST_ENERGY
 
         # get results for energy, latency and area based on the final schedule
         self.latest_energy = sum([
@@ -317,45 +350,16 @@ class AcceleratorOptimizer(Annealer):
             area_dict[(entry.item, entry.bin)] for entry in schedule.entries
         )
         logger.info(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
-        logger.info(f"SA Energy results: energy={self.latest_energy},
-                                         latency={self.latest_latency},
-                                         area={self.latest_area}")
+        logger.info(f"SA Energy results: energy={self.latest_energy}, "
+                                         f"latency={self.latest_latency}, "
+                                         f"area={self.latest_area}")
         logger.info("*--------------*")
+
+        # save the results
+        self.save_state()
 
         # check deadline and area constraints
         if schedule.violated_deadline(self.hw_constraints.deadline) or \
            violated_area_constraint(self.latest_area):
             return self.WORST_ENERGY
         return self.latest_energy
-
-
-if __name__ == "__main__":
-
-    a = DesignSpace(pe_array_x=list(range(10)),
-                    pe_array_y=list(range(10)),
-                    precision=list(range(10)),
-                    sram_size=list(range(10)),
-                    ifmap_spad_size=list(range(10)),
-                    weights_spad_size=list(range(10)),
-                    psum_spad_size=list(range(10)))
-    b = DesignSpace(pe_array_x=list(range(10)),
-                    pe_array_y=list(range(10)),
-                    precision=list(range(10)),
-                    sram_size=list(range(10)),
-                    ifmap_spad_size=list(range(10)),
-                    weights_spad_size=list(range(10)),
-                    psum_spad_size=list(range(10)))
-
-
-    print(a == b)
-    print(a.sample())
-    print(a.extract([1, 2, 3, 4, 5, 6, 7]))
-
-    prev_state = a.sample()
-    new_state = a.sample()
-    while new_state == prev_state:
-        new_state = a.sample()
-
-    print(prev_state)
-    print(new_state)
-
