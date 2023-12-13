@@ -53,5 +53,5 @@ simanneal_args:
         simanneal_Ttmin: 2.5
         simanneal_steps: 50000
         simanneal_updates: 100
-        simanneal_auto_schedule: True
+        simanneal_auto_schedule: False
 

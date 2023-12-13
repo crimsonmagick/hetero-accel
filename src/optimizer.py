@@ -116,16 +116,16 @@ class AcceleratorOptimizer(Annealer):
         # setup scheduling parameters during annealing
         self.update = self._update_logging
         self.copy_strategy = 'deepcopy'
-        if args.simanneal_auto_schedule or \
-            args is None or \
-            any(getattr(arg, args, None) is None
+        if args is None or \
+            getattr(args, 'simanneal_auto_schedule', False) or \
+            any(getattr(args, arg, None) is None
                 for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
             # automatic annealing schedule
             self.set_schedule(self.auto(minutes=10))
         else:
             # user-defined annealing schedule
             self.Tmax = args.simanneal_Tmax
-            self.Tmin = args.simaneal_Tmin
+            self.Tmin = args.simanneal_Tmin
             self.steps = args.simanneal_steps
             self.updates = args.simanneal_updates
 
@@ -172,7 +172,7 @@ class AcceleratorOptimizer(Annealer):
             m, s = divmod(s, 60)     # split remainder into minutes and seconds
             return '%4i:%02i:%02i' % (h, m, s)
 
-        elapsed = time.time() - self.start
+        elapsed = time() - self.start
         if step == 0:
             logger.info('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining')
             logger.info('\r{Temp:12.5f}  {Energy:12.2f}                      {Elapsed:s}            '
@@ -183,7 +183,6 @@ class AcceleratorOptimizer(Annealer):
                         '{Elapsed:s}  {Remaining:s}'
                         .format(Temp=T, Energy=E, Accept=acceptance, Improve=improvement,
                                 Elapsed=time_string(elapsed), Remaining=time_string(remain)))
-        
         # save schedule
         self.latest_schedule.visualize()
 
@@ -198,7 +197,7 @@ class AcceleratorOptimizer(Annealer):
             m, s = divmod(s, 60)     # split remainder into minutes and seconds
             return '%4i:%02i:%02i' % (h, m, s)
 
-        elapsed = time.time() - self.start
+        elapsed = time() - self.start
         if step == 0:
             print('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining',
                   file=sys.stderr)
@@ -254,8 +253,14 @@ class AcceleratorOptimizer(Annealer):
     def energy(self):
         """Evaluate the fitness of the current state
         """
+        def violated_deadline(schedule):
+            deadline = getattr(self.hw_constraints, 'deadline', None)
+            # the constraint is not violated if a deadline is not given
+            return deadline is not None and \
+                   any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
+
         def violated_area_constraint(area):
-            return area > self.initial_area * (1 - self.hw_constraints.area) 
+            return area > getattr(self, 'initial_area', 0.0) * (1 - getattr(self.hw_constraints, 'area', 1.0)) 
 
         def violated_accuracy_constraint(arch, precision):
             try:
@@ -308,6 +313,7 @@ class AcceleratorOptimizer(Annealer):
                     results = self.timeloop_wrapper.get_results(output_dir=project_dir)
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
+                    # TODO: Area comes back as 0.0. Fix
                     area_dict[(arch, accelerator)] += results.area
 
                 logger.info(f"\tEvaluation results: energy={energy_dict[(arch, accelerator)]}, "
@@ -339,15 +345,15 @@ class AcceleratorOptimizer(Annealer):
 
         # get results for energy, latency and area based on the final schedule
         self.latest_energy = sum([
-            energy_dict[(entry.item, entry.bin)] for entry in schedule.entries
+            self.energy_dict[(entry.tag, entry.bin)] for entry in schedule.entries
         ])
         self.latest_latency = max([
             sum([
-                latency_dict[(entry.item, entry.bin)] for entry in entries
+                self.latency_dict[(entry.tag, entry.bin)] for entry in entries
             ]) for bin, entries in schedule.as_dict(main_key='bin').items()
         ])
         self.latest_area = sum(
-            area_dict[(entry.item, entry.bin)] for entry in schedule.entries
+            self.area_dict[(entry.tag, entry.bin)] for entry in schedule.entries
         )
         logger.info(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
         logger.info(f"SA Energy results: energy={self.latest_energy}, "
@@ -359,7 +365,7 @@ class AcceleratorOptimizer(Annealer):
         self.save_state()
 
         # check deadline and area constraints
-        if schedule.violated_deadline(self.hw_constraints.deadline) or \
+        if violated_deadline(schedule) or \
            violated_area_constraint(self.latest_area):
             return self.WORST_ENERGY
         return self.latest_energy

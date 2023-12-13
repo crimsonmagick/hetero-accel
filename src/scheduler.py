@@ -50,11 +50,8 @@ class Schedule:
         start = self.end_timestamp[to_bin]
         end = start + duration
         self.end_timestamp[to_bin] = end
-        self.entries.append(ScheduleEntry(start, end, to_bin, item))
+        self.entries.append(ScheduleEntry(start, end, bin=to_bin, tag=item))
         self.assigned[item] = to_bin
-
-    def violated_deadline(self, deadline):
-        return any(end_timestamp >= deadline for end_timestamp in self.end_timestamp.values())
 
     def as_dict(self, main_key='bin'):
         assert main_key in ScheduleEntry._fields, f"Select as main_key one of the followning {ScheduleEntry._fields}"
@@ -90,7 +87,7 @@ class Schedule:
                     this_batch.append(entry_for_this_batch)
                     last_added = True
                 except IndexError:
-                    this_batch.append(ScheduleEntry(0, 0, bin, ''))
+                    this_batch.append(ScheduleEntry(0, 0, bin, tag=''))
 
             if last_added:
                 batch_entries.append(this_batch)
@@ -145,13 +142,13 @@ class Scheduler:
         # if getattr(sys, 'gettrace', None) is not None and sys.gettrace():
         #     self.run = self._run_random_scheduling
 
-    def _run_ours(self, items, bins, value_dict, weight_dict):
+    def _run_ours(self, items, bins, value_dict, weight_dict, max_capacity=None):
         """Static scheduling with heterogeneous bins w.r.t. value and weight per item,
            i.e., value_dict and weight_dict have different values for different bins.
            This is an implementation of the generalized assignment problem
            We use the solver algorithmic options found in: https://github.com/fontanf/generalizedassignmentsolver
         """
-        # TODO: Write scheduling algorithm. Dynamic programming/Branch-and-bound?
+        # NOTE: Other options: Dynamic programming/Branch-and-bound?
         def write_input_file(infile):
             """Create the input file for the solver
             """
@@ -171,12 +168,16 @@ class Scheduler:
                     weights = [weight_dict[(item, bin)] for item in items]
                     f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
                 # write the maximum weight (capacity) of each bin (agent)
-                f.write(' '.join([str(capacity) for capacity in capacities]))
+                f.write(' '.join([str(int(capacity)) for capacity in capacities]))
 
         schedule = Schedule(bins)
-        capacities = [math.inf for _ in bins]   # TODO: This could be the deadline cosntraint implemented
-        solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
+        # TODO: This could be the deadline cosntraint, right now is the sum of all possible assignments
+        capacities = [
+            sum([weight_dict[(item, bin)] for item in items]) if max_capacity is None else max_capacity
+            for bin in bins
+        ]
 
+        solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
         logdir = logging.getLogger().logdir
         resdir = os.path.join(logdir, 'generalizedassignmentsolver')
         os.makedirs(resdir, exist_ok=True)
@@ -188,6 +189,7 @@ class Scheduler:
         # write value/profit (oposite to cost) and weight to file
         write_input_file(infile)
         # construct command for solver
+        # TODO: Study the possible options for the solver
         command = f"cd {solver_dir} && " \
                   f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
                   f"-a 'mthg -f -pij/wij' " \
@@ -203,13 +205,15 @@ class Scheduler:
         # check if all items are assigned in the solution
         if re.search('Number of items.*[(](\d+)%', p.stdout).group(1) != '100':
             return
-        
+
         # get assignment via the stdout of the command
         assigns = re.search('Item\s+Agent\n.*?\n(.*)', p.stdout, re.DOTALL).group(1)
         assigns = [re.sub('\s+', ' ', assign.strip()).split(' ') for assign in assigns.split('\n')[:-1]]
         # complete the item-to-bin assignment and define the schedule
-        for item, bin_idx in assigns:
-            schedule.add(item, bins[bin_idx], weight_dict[(item, bins[bin_idx])])
+        for item_idx, bin_idx in assigns:
+            item = items[int(item_idx)]
+            bin = bins[int(bin_idx)]
+            schedule.add(item, bin, weight_dict[(item, bin)])
 
         # # read the solution which contains an ordered list of bins, per item
         # with open(solution_file, 'r') as f:
@@ -218,13 +222,15 @@ class Scheduler:
         # for item, bin_idx in zip(items, solution.strip().replace('\n', ' ').split(' ')):
         #     schedule.add(item, bins[bin_idx], weight_dict[(item, bins[bin_idx])])
 
+        return schedule
+
     def _run_baseline(self, items, bins, value_dict, weight_dict, **kwargs):
         raise NotImplementedError
 
     def _run_sota(self, items, bins, value_dict, weight_dict, **kwargs):
         raise NotImplementedError
 
-    def _run_random_scheduling(self, items, bins, value_dict, weight_dict):
+    def _run_random_scheduling(self, items, bins, value_dict, weight_dict, **kwargs):
         schedule = Schedule(bins)
         for item in items:
             bin_sel = random.choice(bins)
@@ -232,19 +238,19 @@ class Scheduler:
         # return the schedule, organized per bin
         return schedule
 
-    def _run_with_identical_bins(self, items, bins, value_dict, weight_dict):
+    def _run_with_identical_bins(self, items, bins, value_dict, weight_dict, **kwargs):
         """Static scheduling with homogeneous bins w.r.t. of values and weights per item,
            i.e., value_dict and weight_dict have equal values for different bins.
            This is an implementation of the Multiple Knapsack problem
         """
         raise NotImplementedError
 
-    def _run_exhaustive(self, items, bins, value_dict, weight_dict):
+    def _run_exhaustive(self, items, bins, value_dict, weight_dict, **kwargs):
         """Exhaustive search for optimal static scheduling to maximize 
         """
         raise NotImplementedError
 
-    def _run_greedy(self, items, bins, value_dict, weight_dict, target_weight=None):
+    def _run_greedy(self, items, bins, value_dict, weight_dict, **kwargs):
         """Greedy implementation of a static scheduling for the generative
            assignment problem. Options here are:
            1) Order the items based on their value and then,
