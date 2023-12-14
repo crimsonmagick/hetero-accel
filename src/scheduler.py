@@ -2,8 +2,8 @@ import logging
 import os.path
 import math
 import re
+import subprocess
 import numpy as np
-import subprocess as sp
 from collections import OrderedDict, namedtuple
 from enum import Enum
 from time import time
@@ -199,7 +199,7 @@ class Scheduler:
 
         # run command
         start = time()
-        p = sp.run(command, shell=True, check=True, capture_output=True, text=True)
+        p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
         logger.debug(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
 
         # check if all items are assigned in the solution

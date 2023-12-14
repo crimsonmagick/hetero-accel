@@ -5,6 +5,7 @@ import logging
 import subprocess
 import re
 from time import time
+from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ from src import timeloop_dir
 from src.accelerator_cfg import AcceleratorType
 
 
-__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch']
+__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper']
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class TimeloopWrapper:
         self.workloads = workloads if workloads is not None else OrderedDict()
         self.init_files()
         self.init_arch(accelerator_type)
+        self.init_mapper()
 
     def init_files(self):
         """Initialize files and directories
@@ -44,8 +46,7 @@ class TimeloopWrapper:
         output_dir = os.path.join(self.workdir, 'output')
         os.makedirs(output_dir, exist_ok=True)
 
-        # copy files to the created directories
-        shutil.copyfile(self.template.mapper, os.path.join(self.workdir, 'mapper.yaml'))
+        # copy constraint files to the created directory
         for constraint_file in self.template.constraint:
             shutil.copy2(constraint_file, constraint_dir)
 
@@ -53,7 +54,6 @@ class TimeloopWrapper:
         self.workload_dir = workload_dir
         self.constraint_dir = constraint_dir
         self.output_dir = output_dir
-        self.mapper_file = self.template.mapper
 
     def init_problem(self, problem_name, problem_type, dimensions, problem_filepath=None):
         """Initialize a workload wrapper
@@ -81,13 +81,21 @@ class TimeloopWrapper:
                            for compfile in self.template.arch[1:]]
         self.arch = TimeloopArch(accelerator_type, arch_dir, arch_file, component_files)
  
+    def init_mapper(self):
+        """Initialize the mapper object for the mapping optimization
+        """
+        mapper_file = os.path.join(self.workdir, 'mapper.yaml')
+        shutil.copyfile(self.template.mapper, mapper_file)
+        self.mapper = TimeloopMapper(mapper_file)
+
     def run(self, problem_name):
         """Execute the Timeloop+Accelergy infrastructure via command-line
         """
         command = f'timeloop-mapper ' \
-                  f'{self.arch.workdir}/*.yaml ' \
+                  f'{self.arch.arch_filepath} ' \
+                  f'{" ".join(self.arch.component_files)} ' \
                   f'{self.workloads[problem_name].problem_filepath} ' \
-                  f'{self.mapper_file} ' \
+                  f'{self.mapper.mapper_filepath} ' \
                   f'{self.constraint_dir}/*.yaml ' \
                   #f'--outdir {self.output_dir} '
         logger.debug(f'timeloop-mapper command: {command}')
@@ -111,26 +119,25 @@ class TimeloopWrapper:
             stats = f.read()
 
         gflops = re.search('GFLOPs .*?: ([\d.]+)', stats).group(1)
-        gflops = float(gflops)
+        gflops = float(gflops)              # @1GHz
         utilization = re.search('Utilization: ([\d.]+)', stats).group(1)
-        utilization = float(utilization)
+        utilization = float(utilization)    # non-unit
         cycles = re.search('Cycles: ([\d.]+)', stats).group(1)
-        cycles = float(cycles)
+        cycles = float(cycles)              # non-unit
         energy = re.search('Energy: ([\d.]+)', stats).group(1)
-        energy = float(energy)
+        energy = float(energy)              # uJ
         edp = re.search('EDP.*?: (.*)', stats).group(1)
-        edp = float(edp)
+        edp = float(edp)                    # J * cycle
+        # TODO: Area comes back as 0.0. Maybe because of DRAM area=0.0. Fix.
         area = re.search('Area: ([\d.]+)', stats).group(1)
-        area = float(area)
+        area = float(area)                  # mm^2
 
         return TimeloopStats(gflops, utilization, cycles, energy, edp, area)
 
     # TODO: Search for ways to adjust timeloop according to weight pruning
-    # TODO: Search how to incorporate eridanus-like pruning into energy estimations
-    # TODO: Account for quantization; add custom MAC units to timeloop
 
-    def adjust_precision(self, problem_name, precision):
-        """Adjust the precision of the architecture
+    def adjust_precision(self, precision):
+        """Adjust the precision of the architecture, including arithmetic and memory units
         """
         self.arch.adjust_precision(precision)
         self.arch.to_yaml()
@@ -153,6 +160,10 @@ class TimeloopWrapper:
         """
         self.arch.adjust_memories(accelerator_instance)
         self.arch.to_yaml()
+
+    def adjust_mapper(self, param_name, param_value):
+        self.mapper.adjust_param(param_name, param_value)
+        self.mapper.to_yaml()
 
 
 class TimeloopTemplate:
@@ -301,7 +312,7 @@ class TimeloopArch:
         self.arch_filepath = arch_file
         self.component_files = component_files 
         self.name = self.__class__.__name__
-        
+
         # functions for specific accelerator types
         if accelerator_type == AcceleratorType.Eyeriss:
             self.adjust_precision = self._adjust_precision_eyeriss
@@ -314,6 +325,7 @@ class TimeloopArch:
 
         # initialize dict with parameters
         self.get_default_params()
+        self.init_params = deepcopy(self.params)
         self.get_config()
 
     def to_yaml(self, filepath=None):
@@ -347,23 +359,41 @@ class TimeloopArch:
     ### Accelerator-specific functions ###
 
     def _adjust_precision_eyeriss(self, precision):
-        """Adjust the data precision of the architecture
+        """Adjust the data precision of the architecture, including memory and compute units
         """
-        # TODO: Memory width must be perfectly dividable by block_size * word_bits,
-        #       which does not work for sub-8 bit quantization currently
+        # NOTE: For each memory unit, the following assertion must be satisfied:
+        #       width % (word_bits * block_size) == 0
+        #       Also, another assertion (cluster_size is probably width/word_bits):
+        #       specs_.instances.Get() % specs_.cluster_size.Get() == 0
+
+        def adjust_mem_width(width, word_bits_precision):
+            """This is the technique for adjusting the memory width for
+               specific word bits precision. Three options are available:
+               1) Leave to baseline (16 bits): Causes errors because of 
+                  assertion for division (first one above)
+               2) Match the width with the word bits. This works, but creates
+                  cluster sizes of 1, which do not lead to low energy.
+               3) Round to next higher divisor of the word bits. This gives
+                  the best energy/area trade-off (i.e., lower energy but not too
+                  high area). However, the cluster size assertion must be satisfied,
+                  so needs careful handling.
+               We go for the third option here. It also was tested with [2, 8] bits
+               and timeloop does not throw any errors
+            """
+            return width + (width % word_bits_precision)
+
+        # We only change the parameters of the MAC unit and the scratchpads.
+        # The DRAM and SRAM are not affected by the precision of the MAC units,
+        # and any changes to the dummy register buffers do not affect the results 
         params = {
-            'dram_word_bits': precision,
-            'sram_word_bits': precision,
-            'regfile_width': precision,
-            'regfile_word_bits': precision,
-            'ifmap_spad_width': precision,
-            'ifmap_spad_word_bits': precision,
-            'weights_spad_width': precision,
-            'weights_spad_word_bits': precision,
-            'psum_spad_width': precision,
-            'psum_spad_word_bits': precision,
             'mac_datawidth': precision,
-            'mac_class': 'fpmac' if precision == 32 else 'intmac'
+            'mac_class': 'fpmac' if precision == 32 else 'intmac',
+            'ifmap_spad_word_bits': precision,
+            'weights_spad_word_bits': precision,
+            'psum_spad_word_bits': precision,
+            'ifmap_spad_width': adjust_mem_width(self.init_params.ifmap_spad_width, precision),
+            'weights_spad_width': adjust_mem_width(self.init_params.weights_spad_width, precision),
+            'psum_spad_width': adjust_mem_width(self.init_params.psum_spad_width, precision)
         }
         self.adjust_params(params)
 
@@ -537,3 +567,59 @@ class TimeloopArch:
         config['subtree'] = [level1]
 
         self.config = config
+
+
+class TimeloopMapper:
+    """Utility wrapper class fot the mapping optimizer
+    """
+    def __init__(self, mapper_file):
+        self.mapper_filepath = mapper_file
+        self.get_params()
+        self.get_config()
+
+    def get_params(self):
+        """Collect the default configuration parameters of the mapper 
+        """
+        self.params = SimpleNamespace()
+        self.params.optimization_metrics = ['delay', 'energy']
+        self.params.live_status = False
+        self.params.num_threads = 8
+        self.params.timeout = 15000
+        self.params.victory_condition = 500
+        self.params.algorithm = 'random-pruned'
+        self.params.max_permutations_per_if_visit = 16
+
+    def get_config(self):
+        """Write the configuration parameters to a yaml-like dict
+        """
+        config = {
+            'optimization-metrics': self.params.optimization_metrics,
+            'live-status': self.params.live_status,
+            'num-threads': self.params.num_threads,
+            'timeout': self.params.timeout,
+            'victory-condition': self.params.victory_condition,
+            'algorithm': self.params.algorithm,
+            'max-permutations-per-if-visit': self.params.max_permutations_per_if_visit
+        }
+        self.config = config
+
+    def adjust_param(self, param_name, value):
+        """Generic function to override a parameter value
+        """
+        assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
+        setattr(self.params, param_name, value)
+        # update the configuration with new parameters
+        self.get_config()
+
+    def to_yaml(self, filepath=None):
+        """Write the configuration of the mapper to a yaml file
+        """
+        if self.config is None:
+            self.get_config()
+
+        if filepath is None:
+            assert self.mapper_filepath is not None
+            filepath = self.mapper_filepath
+
+        with open(filepath, 'w') as f:
+            f.write(yaml.dump({'mapper': self.config}))

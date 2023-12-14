@@ -313,7 +313,6 @@ class AcceleratorOptimizer(Annealer):
                     results = self.timeloop_wrapper.get_results(output_dir=project_dir)
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
-                    # TODO: Area comes back as 0.0. Fix
                     area_dict[(arch, accelerator)] += results.area
 
                 logger.info(f"\tEvaluation results: energy={energy_dict[(arch, accelerator)]}, "

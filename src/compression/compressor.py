@@ -130,7 +130,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
 
             # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
-            self.timeloop_wrapper.adjust_precision(name, bits)
+            self.timeloop_wrapper.adjust_precision(bits)
         
             # execute timeloop
             self.timeloop_wrapper.run(name)
