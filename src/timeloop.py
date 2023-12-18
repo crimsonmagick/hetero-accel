@@ -4,20 +4,23 @@ import shutil
 import logging
 import subprocess
 import re
+import numpy as np
 from time import time
 from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
 from types import SimpleNamespace
-from src import timeloop_dir
+from src import template_timeloop_dir
+from src import project_dir
 from src.accelerator_cfg import AcceleratorType
+from src.utils import force_quotes_on_str
 
 
 __all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper']
 
 logger = logging.getLogger(__name__)
 
-TIMELOOP_VERSION = 0.3
+TIMELOOP_ACCELERGY_VERSION = 0.4
 
 
 TimeloopStats = namedtuple('TimeloopStats', ['gflops', 'utilization', 'cycles',
@@ -41,19 +44,17 @@ class TimeloopWrapper:
         """
         workload_dir = os.path.join(self.workdir, 'problem')
         os.makedirs(workload_dir, exist_ok=True)
+        self.workload_dir = workload_dir
         constraint_dir = os.path.join(self.workdir, 'constraints')
         os.makedirs(constraint_dir, exist_ok=True)
+        self.constraint_dir = constraint_dir
         output_dir = os.path.join(self.workdir, 'output')
         os.makedirs(output_dir, exist_ok=True)
+        self.output_dir = output_dir
 
         # copy constraint files to the created directory
         for constraint_file in self.template.constraint:
             shutil.copy2(constraint_file, constraint_dir)
-
-        # save files and directories for execution
-        self.workload_dir = workload_dir
-        self.constraint_dir = constraint_dir
-        self.output_dir = output_dir
 
     def init_problem(self, problem_name, problem_type, dimensions, problem_filepath=None):
         """Initialize a workload wrapper
@@ -65,7 +66,6 @@ class TimeloopWrapper:
             problem_filepath = os.path.join(self.workload_dir, f'{problem_name}_{problem_type}.yaml')
 
         problem = TimeloopProblem(problem_name, problem_type, dimensions, problem_filepath)
-        problem.to_yaml()
         self.workloads[problem_name] = problem
 
     def init_arch(self, accelerator_type):
@@ -97,27 +97,25 @@ class TimeloopWrapper:
                   f'{self.workloads[problem_name].problem_filepath} ' \
                   f'{self.mapper.mapper_filepath} ' \
                   f'{self.constraint_dir}/*.yaml ' \
-                  #f'--outdir {self.output_dir} '
+                  f'-o {self.output_dir} '
         logger.debug(f'timeloop-mapper command: {command}')
         start = time()
         p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
         logger.debug(f"Executed timeloop-mapper command in {time() - start:.3e} "
                      f"with exitcode: {p.returncode}")
+        return p
 
-    def get_results(self, output_dir=None):
-        """Get the results of a succesfull run from Timeloop. Note, there is a detailed script
-           that does something similar:
-           https://github.com/compstruct/procrustes-timeloop-model/blob/master/scripts/parse_timeloop_output.py#L16
+    def get_results(self):
+        """Get the results of a succesfull run from Timeloop. Note, timeloop provides
+           a script that does a more analytical parsing: 
+           https://github.com/NVlabs/timeloop/blob/master/scripts/parse_timeloop_output.py#L55
         """
-        if output_dir is None:
-            assert self.output_dir is not None
-            output_dir = self.output_dir
-
-        stats_file = os.path.join(output_dir, 'timeloop-mapper.stats.txt')
+        stats_file = os.path.join(self.output_dir, 'timeloop-mapper.stats.txt')
         assert os.path.exists(stats_file)
         with open(stats_file, 'r') as f:
             stats = f.read()
 
+        # TODO: More results can be extracted here
         gflops = re.search('GFLOPs .*?: ([\d.]+)', stats).group(1)
         gflops = float(gflops)              # @1GHz
         utilization = re.search('Utilization: ([\d.]+)', stats).group(1)
@@ -128,11 +126,29 @@ class TimeloopWrapper:
         energy = float(energy)              # uJ
         edp = re.search('EDP.*?: (.*)', stats).group(1)
         edp = float(edp)                    # J * cycle
-        # TODO: Area comes back as 0.0. Maybe because of DRAM area=0.0. Fix.
+
+        # NOTE: Area comes back as 0.0 from the stats file. We override with ART values
         area = re.search('Area: ([\d.]+)', stats).group(1)
         area = float(area)                  # mm^2
+        if area <= 0.0:
+            area_summary_file = os.path.join(self.output_dir, 'timeloop-mapper.ART.yaml')
+            assert os.path.exists(area_summary_file)
+            with open(area_summary_file, 'r') as stream:
+                area_dict = yaml.safe_load(stream)
+            # this is in um^2
+            area = sum([item['area'] for item in area_dict['ART']['tables']])
 
         return TimeloopStats(gflops, utilization, cycles, energy, edp, area)
+
+    def cleanup(self, override_outdir=None):
+        """Remove files from the output directory after a run
+        """
+        if override_outdir is not None:
+            outdir = override_outdir
+        elif len(glob(f'{self.output_dir}/*')) > 0:
+            outdir = self.output_dir
+        for file in glob(os.path.join(outdir, 'timeloop-mapper*')):
+            os.remove(file)
 
     # TODO: Search for ways to adjust timeloop according to weight pruning
 
@@ -171,11 +187,10 @@ class TimeloopTemplate:
     """
     def __init__(self, accelerator_type):
         if accelerator_type == AcceleratorType.Eyeriss:
-            files_dir = os.path.join(timeloop_dir, '06-mapper-convlayer-eyeriss')
-            self.mapper = os.path.join(files_dir, 'mapper', 'mapper.yaml')
-            self.arch = [os.path.join(files_dir, 'arch', 'eyeriss_like.yaml')]
-            self.arch += glob(os.path.join(files_dir, 'arch', 'components', '*.yaml'))
-            self.constraint = glob(os.path.join(files_dir, 'constraints', '*.yaml'))
+            self.mapper = os.path.join(template_timeloop_dir, 'mapper', 'mapper.yaml')
+            self.arch = [os.path.join(template_timeloop_dir, 'arch', 'eyeriss_like.yaml')]
+            self.arch += glob(os.path.join(template_timeloop_dir, 'arch', 'components', '*.yaml'))
+            self.constraint = glob(os.path.join(template_timeloop_dir, 'constraints', '*.yaml'))
 
         else:
             raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
@@ -194,6 +209,7 @@ class TimeloopProblem:
                f"Layer of type {problem_type} is not supported"
         self.problem_type = problem_type
         self.get_config()
+        self.to_yaml()
 
     def get_config(self):
         """Gather the configuration of the problem/workload in dict format
@@ -327,19 +343,48 @@ class TimeloopArch:
         self.get_default_params()
         self.init_params = deepcopy(self.params)
         self.get_config()
+        self._sync_version()
+        self.to_yaml()
+
+    def _sync_version(self):
+        """Set the correct timeloop+accelergy version to all files
+        """
+        for component_file in self.component_files:
+            with open(component_file, 'r') as stream:
+                yaml_dict = yaml.safe_load(stream)
+            
+            if 'compound_components' in yaml_dict:
+                yaml_dict['compound_components']['version'] = TIMELOOP_ACCELERGY_VERSION
+            else:
+                yaml_dict['version'] = TIMELOOP_ACCELERGY_VERSION
+
+            with open(component_file, 'w') as f:
+                f.write(yaml.dump(yaml_dict))
 
     def to_yaml(self, filepath=None):
         """Write the configuration of the architecture to a yaml file
         """
-        if self.config is None:
-            self.get_config()
+        use_default_flow_style = True
+        if TIMELOOP_ACCELERGY_VERSION > 0.3:
+            # make sure to use quotes on each str item
+            try:
+                force_quotes_on_str(self.config)
+            except AssertionError:
+                logger.error(f"Config failed:\n{self.config}")
+                with open('temp.yaml', 'w') as f:
+                    f.write(yaml.dump({'architecture': self.config},
+                                      default_flow_style=use_default_flow_style))
+                raise
+            use_default_flow_style = False
 
         if filepath is None:
             assert self.arch_filepath is not None
             filepath = self.arch_filepath
+
         with open(filepath, 'w') as f:
-            f.write(yaml.dump({'architecture': self.config}))
-    
+            f.write(yaml.dump({'architecture': self.config},
+                              default_flow_style=use_default_flow_style))
+
     def adjust_params(self, params):
         """Generic function to override parameter values
         """
@@ -358,42 +403,59 @@ class TimeloopArch:
 
     ### Accelerator-specific functions ###
 
-    def _adjust_precision_eyeriss(self, precision):
-        """Adjust the data precision of the architecture, including memory and compute units
+    def _adjust_precision_eyeriss(self, precision, num_clusters=1):
+        """Adjust the data precision of the architecture, including memory and compute units.
+           We only change the parameters of the MAC unit and the scratchpads, not the DRAM or SRAM.
+
+           For each memory unit/buffer, the two following assertions must be satisfied:
+           1) width % (word_bits * block_size) == 0
+                https://github.com/NVlabs/timeloop/blob/be27768a6466aeae18c52d0221ce778b8b58870c/src/model/buffer.cpp#L285
+                This dictates that the width of the buffer has to be perfectly divided
+                by word_bits * block_size
+           2) specs_.instances.Get() % specs_.cluster_size.Get() == 0
+                https://github.com/NVlabs/timeloop/blob/be27768a6466aeae18c52d0221ce778b8b58870c/src/model/buffer.cpp#L1275
+                This needs the number of instances of a buffer (i.e., when instantiated
+                in a mesh) to be dividable by the cluster size. The formula for the cluster
+                size is: cluster_size = width / (word_bits * block_size).   
+            The architecture of the memory and the dependecies of its parameters are well illustrated here:
+                https://github.com/NVlabs/timeloop/pull/176
+            
+            We modify the memory width, via the number of clusters, to comply with the
+            above assertions, whilst keeping the same block size.
         """
-        # NOTE: For each memory unit, the following assertion must be satisfied:
-        #       width % (word_bits * block_size) == 0
-        #       Also, another assertion (cluster_size is probably width/word_bits):
-        #       specs_.instances.Get() % specs_.cluster_size.Get() == 0
+        def adjust_mem_width(buffer_name, word_bits, block_size):
+            width = num_clusters * word_bits * block_size
+            cluster_size = width / (word_bits * block_size)
+            assert self.params.pe_array_x % cluster_size == 0, \
+                f"{buffer_name}: Instances ({self.params.pe_array_x}) are not dividable by cluster_size " \
+                f"({cluster_size} = {width} / ({word_bits} * {block_size}))"
+            return width
+            # round the width to the immediately higher perfect divisor of word_bits
+            # choices = np.arange(prev_width, prev_width + word_bits)
+            # return int(choices[np.where(choices % word_bits == 0)][0])
 
-        def adjust_mem_width(width, word_bits_precision):
-            """This is the technique for adjusting the memory width for
-               specific word bits precision. Three options are available:
-               1) Leave to baseline (16 bits): Causes errors because of 
-                  assertion for division (first one above)
-               2) Match the width with the word bits. This works, but creates
-                  cluster sizes of 1, which do not lead to low energy.
-               3) Round to next higher divisor of the word bits. This gives
-                  the best energy/area trade-off (i.e., lower energy but not too
-                  high area). However, the cluster size assertion must be satisfied,
-                  so needs careful handling.
-               We go for the third option here. It also was tested with [2, 8] bits
-               and timeloop does not throw any errors
-            """
-            return width + (width % word_bits_precision)
-
-        # We only change the parameters of the MAC unit and the scratchpads.
-        # The DRAM and SRAM are not affected by the precision of the MAC units,
-        # and any changes to the dummy register buffers do not affect the results 
         params = {
+            # MAC unit
             'mac_datawidth': precision,
             'mac_class': 'fpmac' if precision == 32 else 'intmac',
+            # word bits of scratchpads/dummy register file
             'ifmap_spad_word_bits': precision,
             'weights_spad_word_bits': precision,
             'psum_spad_word_bits': precision,
-            'ifmap_spad_width': adjust_mem_width(self.init_params.ifmap_spad_width, precision),
-            'weights_spad_width': adjust_mem_width(self.init_params.weights_spad_width, precision),
-            'psum_spad_width': adjust_mem_width(self.init_params.psum_spad_width, precision)
+            'regfile_word_bits': precision,
+            # width of scratchpads/dummy register file
+            'ifmap_spad_width': adjust_mem_width('ifmap_spad',
+                                                 precision,
+                                                 self.init_params.ifmap_spad_block_size),
+            'weights_spad_width': adjust_mem_width('weights_spad',
+                                                   precision,
+                                                   self.init_params.weights_spad_block_size),
+            'psum_spad_width': adjust_mem_width('psum_spad',
+                                                precision,
+                                                self.init_params.psum_spad_block_size),
+            'regfile_width': adjust_mem_width('dummy_regfile',
+                                              precision,
+                                              self.init_params.regfile_block_size,)
         }
         self.adjust_params(params)
 
@@ -420,30 +482,35 @@ class TimeloopArch:
         # external DRAM attributes
         self.params.dram_width = 64
         self.params.dram_word_bits = 16
+        self.params.dram_block_size = 4
         # global SRAM attributes
         self.params.sram_class = 'smartbuffer_SRAM'
         self.params.sram_depth = 16384
         self.params.sram_width = 64
         self.params.sram_n_banks = 32
         self.params.sram_word_bits = 16
+        self.params.sram_block_size = 4
         self.params.sram_read_bandwidth = 16
         self.params.sram_write_bandwidth = 16
         # dummy register file attributes
         self.params.regfile_depth = 16
         self.params.regfile_width = 16
         self.params.regfile_word_bits = 16
+        self.params.regfile_block_size = 1
         # class for implementing scratchpads
         self.params.spad_class = 'smartbuffer_RF'
         # attributes for IFM scratchpad
         self.params.ifmap_spad_depth = 12
         self.params.ifmap_spad_width = 16
         self.params.ifmap_spad_word_bits = 16
+        self.params.ifmap_spad_block_size = 1
         self.params.ifmap_spad_read_bandwidth = 2
         self.params.ifmap_spad_write_bandwidth = 2
         # attributes for Weights' scratchpad
         self.params.weights_spad_depth = 192
         self.params.weights_spad_width = 16
         self.params.weights_spad_word_bits = 16
+        self.params.weights_spad_block_size = 1
         self.params.weights_spad_read_bandwidth = 2
         self.params.weights_spad_write_bandwidth = 2
         # attributes for Partial Sums' scratchpad
@@ -451,6 +518,7 @@ class TimeloopArch:
         self.params.psum_spad_width = 16
         self.params.psum_spad_update_fifo_depth = 2
         self.params.psum_spad_word_bits = 16
+        self.params.psum_spad_block_size = 1
         self.params.psum_spad_read_bandwidth = 2
         self.params.psum_spad_write_bandwidth = 2
         # MAC unit attributes
@@ -462,7 +530,7 @@ class TimeloopArch:
            architecture in a dict format
         """
         config = {}
-        config['version'] = TIMELOOP_VERSION
+        config['version'] = TIMELOOP_ACCELERGY_VERSION
 
         level1 = {}
         level1['name'] = 'system'
@@ -473,7 +541,7 @@ class TimeloopArch:
                 'attributes': {
                     'type': 'LPDDR4',
                     'width': self.params.dram_width,
-                    'block-size': self.params.dram_width // self.params.dram_word_bits,
+                    'block-size': self.params.dram_block_size,
                     'word-bits': self.params.dram_word_bits
                 }
             }
@@ -492,7 +560,7 @@ class TimeloopArch:
                     'memory_depth': self.params.sram_depth,
                     'memory_width': self.params.sram_width,
                     'n_banks': self.params.sram_n_banks,
-                    'block-size': self.params.sram_width // self.params.sram_word_bits,
+                    'block-size': self.params.sram_block_size,
                     'word-bits': self.params.sram_word_bits,
                     'read_bandwidth': self.params.sram_read_bandwidth,
                     'write_bandwidth': self.params.sram_write_bandwidth
@@ -505,20 +573,20 @@ class TimeloopArch:
                     'depth': self.params.regfile_depth,
                     'width': self.params.regfile_width,
                     'word-bits': self.params.regfile_word_bits,
-                    'block-size': self.params.regfile_width // self.params.regfile_word_bits,
+                    'block-size': self.params.regfile_block_size,
                     'meshX': self.params.pe_array_x
                 }
             }
         ]
 
-        level3 = {'name': f'PE[0..{self.params.pe_array_x * self.params.pe_array_y - 1}]'}
+        level3 = {'name': f'PE[0..{(self.params.pe_array_x * self.params.pe_array_y) - 1}]'}
         level3_ifmap = {
             'name': 'ifmap_spad',
             'class': self.params.spad_class,
             'attributes': {
                 'memory_depth': self.params.ifmap_spad_depth,
                 'memory_width': self.params.ifmap_spad_width,
-                'block-size': self.params.ifmap_spad_width // self.params.ifmap_spad_word_bits,
+                'block-size': self.params.ifmap_spad_block_size,
                 'word-bits': self.params.ifmap_spad_word_bits,
                 'meshX': self.params.pe_array_x,
                 'read_bandwidth': self.params.ifmap_spad_read_bandwidth,
@@ -531,7 +599,7 @@ class TimeloopArch:
             'attributes': {
                 'memory_depth': self.params.weights_spad_depth,
                 'memory_width': self.params.weights_spad_width,
-                'block-size': self.params.weights_spad_width // self.params.weights_spad_word_bits,
+                'block-size': self.params.weights_spad_block_size,
                 'word-bits': self.params.weights_spad_word_bits,
                 'meshX': self.params.pe_array_x,
                 'read_bandwidth': self.params.weights_spad_read_bandwidth,
@@ -545,7 +613,7 @@ class TimeloopArch:
                 'memory_depth': self.params.psum_spad_depth,
                 'memory_width': self.params.psum_spad_width,
                 'update_fifo_depth': self.params.psum_spad_update_fifo_depth,
-                'block-size': self.params.psum_spad_width // self.params.psum_spad_word_bits,
+                'block-size': self.params.psum_spad_block_size,
                 'word-bits': self.params.psum_spad_word_bits,
                 'meshX': self.params.pe_array_x,
                 'read_bandwidth': self.params.psum_spad_read_bandwidth,
@@ -576,6 +644,7 @@ class TimeloopMapper:
         self.mapper_filepath = mapper_file
         self.get_params()
         self.get_config()
+        self.to_yaml()
 
     def get_params(self):
         """Collect the default configuration parameters of the mapper 
@@ -603,6 +672,16 @@ class TimeloopMapper:
         }
         self.config = config
 
+    def to_yaml(self, filepath=None):
+        """Write the configuration of the mapper to a yaml file
+        """
+        if filepath is None:
+            assert self.mapper_filepath is not None
+            filepath = self.mapper_filepath
+
+        with open(filepath, 'w') as f:
+            f.write(yaml.dump({'mapper': self.config}))
+
     def adjust_param(self, param_name, value):
         """Generic function to override a parameter value
         """
@@ -611,15 +690,32 @@ class TimeloopMapper:
         # update the configuration with new parameters
         self.get_config()
 
-    def to_yaml(self, filepath=None):
-        """Write the configuration of the mapper to a yaml file
-        """
-        if self.config is None:
-            self.get_config()
 
-        if filepath is None:
-            assert self.mapper_filepath is not None
-            filepath = self.mapper_filepath
+if __name__ == "__main__":
+    tw = TimeloopWrapper(AcceleratorType.Eyeriss,
+                         project_dir + '/test_tl')
 
-        with open(filepath, 'w') as f:
-            f.write(yaml.dump({'mapper': self.config}))
+    prob_name = 'resnet18__layer0_conv1'
+    prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
+    # have the file already in the test_tl/yamls/ directory
+    shutil.copyfile(project_dir + f'/test_tl/yamls/{prob_name}.yaml', prob_fp)
+
+    tw.workloads[prob_name] = SimpleNamespace()
+    tw.workloads[prob_name].problem_filepath = prob_fp
+
+    from src.accelerator_cfg import AcceleratorProfile
+    accel = AcceleratorProfile(AcceleratorType.Eyeriss)
+
+    tested = [
+        (8, 8, 4),
+    ]
+
+    for pex in accel.design_space['pe_array_x']:
+        for pey in accel.design_space['pe_array_y']:
+            for precision in [4, 5, 6, 7, 8]:
+                print(pex, pey, precision)
+
+                tw.adjust_pe_array(pex, pey)
+                tw.adjust_precision(precision)
+                p = tw.run(prob_name)
+                assert p.returncode == 0, f"{pex, pey, precision}\n{p.stderr}"

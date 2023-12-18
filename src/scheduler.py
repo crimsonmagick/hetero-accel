@@ -23,12 +23,10 @@ logger = logging.getLogger(__name__)
 
 class SchedulerType(Enum):
     Ours = 1
-    Baseline = 2
-    SoTA = 3
-    Random = 4
-    MultiKnapsack = 5
-    Exhaustive = 6
-    Greedy = 7
+    Random = 2
+    MultiKnapsack = 3
+    Exhaustive = 4
+    Greedy = 5
 
 
 ScheduleEntry = namedtuple('ScheduleEntry',
@@ -98,7 +96,9 @@ class Schedule:
         left = np.zeros(len(bin_dict))
         for batch_entry in batch_entries:
             widths = [entry.end - entry.start for entry in batch_entry]
-            bar_container = ax.barh(y=list(bin_dict.keys()),
+            y = [repr(bin) for bin in bin_dict.keys()]
+
+            bar_container = ax.barh(y=y,
                                     width=widths,
                                     height=0.9,
                                     align='center',
@@ -106,7 +106,7 @@ class Schedule:
                                     joinstyle='round',
                                     capstyle='round',
                                     fill=False,
-                                    linewidth=1,
+                                    linewidth=1.0,
                                     edgecolor='black',)
             ax.bar_label(bar_container,
                          labels=[f'{entry.tag}\n{entry.start}->{entry.end}'
@@ -124,14 +124,14 @@ class Schedule:
         logger.info(f"Schedule was saved in {savefile}")
 
 
+# TODO: Configure scheduler to work without complete value/weight dicts
+
 class Scheduler:
     """Implementations for the scheduler"""
     def __init__(self, scheduler_type=SchedulerType.Ours):
         self.type = scheduler_type
         self.run = {
             SchedulerType.Ours: self._run_ours,
-            SchedulerType.Baseline: self._run_baseline,
-            SchedulerType.SoTA: self._run_sota,
             SchedulerType.Random: self._run_random_scheduling,
             SchedulerType.MultiKnapsack: self._run_with_identical_bins,
             SchedulerType.Exhaustive: self._run_exhaustive,
@@ -224,18 +224,15 @@ class Scheduler:
 
         return schedule
 
-    def _run_baseline(self, items, bins, value_dict, weight_dict, **kwargs):
-        raise NotImplementedError
-
-    def _run_sota(self, items, bins, value_dict, weight_dict, **kwargs):
-        raise NotImplementedError
-
     def _run_random_scheduling(self, items, bins, value_dict, weight_dict, **kwargs):
+        """Random assignment of items to bins
+        """
         schedule = Schedule(bins)
         for item in items:
             bin_sel = random.choice(bins)
+            while (item, bin_sel) not in value_dict:
+                bin_sel = random.choice(bins)
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
-        # return the schedule, organized per bin
         return schedule
 
     def _run_with_identical_bins(self, items, bins, value_dict, weight_dict, **kwargs):
@@ -291,38 +288,57 @@ class Scheduler:
 if __name__ == "__main__":
     import random
 
-    s = Scheduler(SchedulerType.Greedy)
     items = ['apple', 'banana', 'orange', 'nectarine', 'strawberry']
     bins = ['BIN1', 'BIN2', 'BIN3']
     capacities = [100, 100, 100]
     value_dict = {}
     weight_dict = {}
+    schedule = Schedule(bins)
 
     for item in items:
         for bin in bins:
             value_dict[(item, bin)] = random.randint(1, 10)
             weight_dict[(item, bin)] = random.randint(1, 10)
 
-    with open('inp', 'w') as f:
+    solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
+    with open(f'{solver_dir}/gas.inp', 'w') as f:
         f.write(f'{len(bins)} {len(items)}\n')
         # write the value/profit
         for bin in bins:
             profits = [max([value for key, value in value_dict.items() if item in key]) - value_dict[(item, bin)]
                        for item in items]
-            f.write(' '.join([str(profit) for profit in profits]) + '\n')
+            f.write(' '.join([str(int(profit)) for profit in profits]) + '\n')
 
         for bin in bins:
             weights = [weight_dict[(item, bin)] for item in items]
-            f.write(' '.join([str(weight) for weight in weights]) + '\n')
+            f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
 
-        f.write(' '.join([str(capacity) for capacity in capacities]))
-
-    exit()
+        f.write(' '.join([str(int(capacity)) for capacity in capacities]))
 
 
-    t = time()
-    schedule = s.run(items, bins, value_dict, weight_dict)
-    print(f"Schedule took {time() - t:.2e}s")
+    command = f"cd {solver_dir} && " \
+                f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
+                f"-a 'mthg -f -pij/wij' " \
+                f"-i gas.inp -o gas.out -c gas.solution " \
+                f"2>&1 | tee gas.log"
+
+    # run command
+    start = time()
+    p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+    print(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
+
+    # check if all items are assigned in the solution
+    if re.search('Number of items.*[(](\d+)%', p.stdout).group(1) != '100':
+        exit(1)
+
+    # get assignment via the stdout of the command
+    assigns = re.search('Item\s+Agent\n.*?\n(.*)', p.stdout, re.DOTALL).group(1)
+    assigns = [re.sub('\s+', ' ', assign.strip()).split(' ') for assign in assigns.split('\n')[:-1]]
+    # complete the item-to-bin assignment and define the schedule
+    for item_idx, bin_idx in assigns:
+        item = items[int(item_idx)]
+        bin = bins[int(bin_idx)]
+        schedule.add(item, bin, weight_dict[(item, bin)])
+
     print(schedule.as_dict())
     schedule.visualize('schedule.png')
-    pass

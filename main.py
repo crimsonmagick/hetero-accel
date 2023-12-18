@@ -192,10 +192,15 @@ def accelerator_exploration(args, workload, accuracy_lut):
     precision_options = sorted(set(
         accuracy_lut.loc[accuracy_lut['Valid'] == 1]['QuantBits']
     ))
-    # remove 32 bits from the options
-    precision_options = precision_options[:-1]
-    if 16 not in precision_options:
-        precision_options.append(16)
+    # remove 16 and 32 bits from the options
+    try:
+        precision_options.remove(32)
+    except ValueError:
+        pass
+    try:
+        precision_options.remove(16)
+    except ValueError:
+        pass
 
     accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
     accel_cfg.design_space['precision'] = precision_options

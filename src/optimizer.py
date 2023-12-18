@@ -7,9 +7,9 @@ from types import SimpleNamespace
 from time import time
 from glob import glob
 from simanneal import Annealer
-from src import project_dir
-from src.scheduler import SchedulerType, Scheduler
+from src.scheduler import Scheduler
 from src.timeloop import TimeloopWrapper
+from src.utils import get_contents_table
 
 
 __all__ = ['DesignSpace', 'AcceleratorOptimizer']
@@ -32,11 +32,14 @@ class DesignSpace(SimpleNamespace):
     #     """Emulating the functionality of a namedtuple"""
     #     raise AttributeError('Cannot set new values for DesignSpace')
 
-    def sample(self):
-        """Get a random sample from the design space
+    def sample(self, override_dict=None):
+        """Get a random sample from the design space. A semi-random sample
+           can be obtained be setting specific values to the override dict
         """
+        override_dict = {} if override_dict is None else override_dict
         values = {
             field: random.choice(getattr(self, field))
+                if field not in override_dict else override_dict[field]
             for field in self._fields
         }
         #return super().__class__(**values)
@@ -90,23 +93,11 @@ class AcceleratorOptimizer(Annealer):
         self.scheduler = Scheduler(args.scheduler_type)
         self.latest_schedule = None
 
-        if getattr(args, 'load_state_from', None) is not None and \
-           os.path.exists(args.load_state_from):
-            initial_state = self.load_state(args.load_state_from)
-        else:
-            # use the default accelerator as the initial state of the exploration
-            initial_state = self.design_space.extract(self.accelerator_cfg.width,
-                                                      self.accelerator_cfg.height,
-                                                      self.accelerator_cfg.precision_weights,
-                                                      self.accelerator_cfg.glb_sram_size,
-                                                      self.accelerator_cfg.ifmap_spad_size,
-                                                      self.accelerator_cfg.weights_spad_size,
-                                                      self.accelerator_cfg.psum_spad_size)
-            initial_state = [initial_state] * self.num_accelerators
+        initial_state = self.get_initial_state(args)
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
-        assert self.energy() != self.WORST_ENERGY, "Baseline produces negative energy"
+        assert self.energy() <= self.WORST_ENERGY, "Baseline produces negative energy"
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
@@ -129,6 +120,38 @@ class AcceleratorOptimizer(Annealer):
             self.steps = args.simanneal_steps
             self.updates = args.simanneal_updates
 
+    def get_initial_state(self, args):
+        """Configure the initial state of the optimizer, w.r.t. the
+           selected heterogeneity of he accelerator. Note, this function 
+           is hard-coded for the Eyeriss accelerator
+        """
+        initial_state = []
+
+        if getattr(args, 'load_state_from', None) is not None and \
+           os.path.exists(args.load_state_from):
+            # load the initial state of the accelerator
+            initial_state = self.load_state(args.load_state_from)
+
+        else:
+            # build a heterogeneous accelerator, with specific precision for each accelerator
+            for accelerator_idx in range(self.num_accelerators):
+                precision = self.accelerator_cfg.design_space['precision'][accelerator_idx]
+                initial_state.append(
+                    self.design_space.extract(self.accelerator_cfg.width,
+                                              self.accelerator_cfg.height,
+                                              precision,
+                                              self.accelerator_cfg.glb_sram_size,
+                                              self.accelerator_cfg.ifmap_spad_size,
+                                              self.accelerator_cfg.weights_spad_size,
+                                              self.accelerator_cfg.psum_spad_size)
+                )
+                print(initial_state[-1])#.precision = 16
+        
+        logger.debug("Initial state:")
+        for state in initial_state:
+            logger.debug(f"\t{state}")
+        return initial_state
+
     def init_timeloop(self, layer_type_whitelist):
         """Initialize timeloop wrapper object
         """
@@ -136,13 +159,13 @@ class AcceleratorOptimizer(Annealer):
         self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
         # prepare each layer for timeloop simulations
-        layer_idx = 0
         self.timeloop_problems_per_dnn = {}
         for arch, net_wrapper in self.workload.dnns.items():
             self.timeloop_problems_per_dnn[arch] = []
 
             layers_to_consider = [name for name, module in net_wrapper.model.named_modules()
                                   if isinstance(module, layer_type_whitelist)]
+            layer_idx = 0
             for layer_name, layer_info in self.workload.get_summary(arch).items():
                 if layer_name not in layers_to_consider:
                     continue
@@ -235,6 +258,9 @@ class AcceleratorOptimizer(Annealer):
         """
         with open(load_from, 'rb') as f:
             state_dict = pickle.load(f)
+        logger.info(f"Loaded initial state from checkpoint ({load_from})")
+        logger.info(f"Checkpoint contents:\n{get_contents_table(state_dict)}\n")
+
         self.energy_dict = state_dict['energy']
         self.latency_dict = state_dict['latency']
         self.area_dict = state_dict['area']
@@ -243,12 +269,19 @@ class AcceleratorOptimizer(Annealer):
         return initial_state
 
     def move(self):
-        """Alter the current state, by changing at least one accelerator
+        """Alter the current state, by changing at least one accelerator for its
+           architectural parameters. The precision remains constant
         """
-        new_state = [self.design_space.sample() for _ in range(self.num_accelerators)]
+        new_state = self.state
         while new_state == self.state:
-            new_state = [self.design_space.sample() for _ in range(self.num_accelerators)]
+            new_state = [
+                self.design_space.sample(
+                    override_dict={'precision': self.accelerator_cfg.design_space['precision'][accelerator_idx]}
+                )
+                for accelerator_idx in range(self.num_accelerators)
+            ]
         self.state = new_state
+        logger.debug(f"Move taken: new state={new_state}")
 
     def energy(self):
         """Evaluate the fitness of the current state
@@ -276,10 +309,6 @@ class AcceleratorOptimizer(Annealer):
         area_dict = {}
         latency_dict = {}
 
-        # cleanup the timeloop files
-        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
-            os.remove(timeloop_file)
-
         logger.info(f"Beginning energy calculation")
         # iterate over each accelerator
         for accelerator in self.state:
@@ -287,19 +316,29 @@ class AcceleratorOptimizer(Annealer):
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
                 logger.info(f"\tEvaluating on DNN: {arch}")
-                # check accuracy constraint
-                if violated_accuracy_constraint(arch, accelerator.precision):
-                    logger.info(f"\tSkipping evaluation: accuracy violation")
-                    continue
                 # check if this evaluation was executed before
                 if (arch, accelerator) in self.energy_dict:
                     logger.info(f"\tSkipping evaluation: already estimated")
                     continue
 
+                # check accuracy constraint
+                if violated_accuracy_constraint(arch, accelerator.precision):
+                    logger.info(f"\tSkipping evaluation: accuracy violation")
+                    # TODO: This is temporary, until there is a way to not include some mappings 
+                    #       from the value/weight dict that is given to the scheduler
+                    self.energy_dict[(arch, accelerator)] = 0
+                    self.latency_dict[(arch, accelerator)] = 0
+                    self.area_dict[(arch, accelerator)] = 0
+                    continue
+
                 # adjust timeloop with the accelerator parameters
+                # NOTE: VERY important to change the PE array dimensions first,
+                #       such that the memory width can adjust to the new dimensions
+                #       and the change in precision
                 self.timeloop_wrapper.adjust_pe_array(accelerator.pe_array_x,
                                                       accelerator.pe_array_y)
                 self.timeloop_wrapper.adjust_memories(accelerator)
+                self.timeloop_wrapper.adjust_precision(accelerator.precision)
 
                 energy_dict[(arch, accelerator)] = 0
                 latency_dict[(arch, accelerator)] = 0
@@ -310,23 +349,22 @@ class AcceleratorOptimizer(Annealer):
 
                     # run timeloop and get results
                     self.timeloop_wrapper.run(problem_name)
-                    results = self.timeloop_wrapper.get_results(output_dir=project_dir)
+                    results = self.timeloop_wrapper.get_results()
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
                     area_dict[(arch, accelerator)] += results.area
+                    logger.debug(f"\t\tLayer-wise results: energy={results.energy}, "
+                                                         f"latency={results.cycles}, "
+                                                         f"area={results.area}")
 
                 logger.info(f"\tEvaluation results: energy={energy_dict[(arch, accelerator)]}, "
-                                                    f"latency={latency_dict[(arch, accelerator)]}, "
-                                                    f"area={area_dict[(arch, accelerator)]}")
+                                                  f"latency={latency_dict[(arch, accelerator)]}, "
+                                                  f"area={area_dict[(arch, accelerator)]}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
             self.latency_dict.update(latency_dict)
             self.area_dict.update(area_dict)
-
-        # cleanup the timeloop files
-        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
-            os.remove(timeloop_file)
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         schedule = self.scheduler.run(items=list(self.workload.dnns.keys()),
@@ -354,7 +392,7 @@ class AcceleratorOptimizer(Annealer):
         self.latest_area = sum(
             self.area_dict[(entry.tag, entry.bin)] for entry in schedule.entries
         )
-        logger.info(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
+        logger.debug(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
         logger.info(f"SA Energy results: energy={self.latest_energy}, "
                                          f"latency={self.latest_latency}, "
                                          f"area={self.latest_area}")

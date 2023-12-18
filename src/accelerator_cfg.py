@@ -35,8 +35,8 @@ class AcceleratorProfile:
             self.num_banks = 25
             self.sram_per_bank = 4000                   # in bytes (512b x 64b)
             self.clock_rate = 250 * 1e6                 # in Hz (100 - 250 MHz allowed)
-            self.dram_precision = 64                    # in bits 
-    
+            self.dram_precision = 64                    # in bits
+
             # design space parameters 
             # TODO: Figure out how to set up the design space more intelligently
             width_options = height_options = [8, 10, 12, 14, 16, 20, 25]
@@ -58,3 +58,9 @@ class AcceleratorProfile:
 
         else:
             raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
+
+    def __repr__(self) -> str:
+        if self.type == AcceleratorType.Eyeriss:
+            return f'Accel{self.precision_weights}b'
+        else:
+            return super().__repr__()

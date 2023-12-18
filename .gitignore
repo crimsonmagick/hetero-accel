@@ -8,3 +8,4 @@ latest_log_file
 wandb
 timeloop-mapper*
 timeloop-model*
+test_tl/

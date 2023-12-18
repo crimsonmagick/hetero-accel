@@ -25,7 +25,7 @@ def app_args(parser):
                         help='Path where the DNN-accuracy LUT is saved. Should contain '
                              'statistics for each DNN, per quantization profile')
     parser.add_argument('--scheduler-type', type=scheduler_type_arg, default='ours',
-                        help=f'Select default scheduler. Default is our scheduler.')
+                        help=f'Select scheduler type. Default is our scheduler.')
     parser.add_argument('--load-state-from', metavar='PATH',
                         help='Load the state of the optimizer from the given file')
 
@@ -203,10 +203,14 @@ def model_summary_type_arg(argstr):
 
 def scheduler_type_arg(argstr):
     str_to_scheduler_type_map = {'ours': SchedulerType.Ours,
-                                 'baseline': SchedulerType.Baseline,
-                                 'sota': SchedulerType.SoTA}
+                                 'random': SchedulerType.Random,
+                                 'multiknapsack': SchedulerType.MultiKnapsack,
+                                 'multiknapsack': SchedulerType.MultiKnapsack,
+                                 'exhaustive': SchedulerType.Exhaustive,
+                                 'greedy': SchedulerType.Greedy}
     try:
         return str_to_scheduler_type_map[argstr.lower()]
     except KeyError:
         raise argparse.ArgumentTypeError(f"--scheduler-type argument must be one of the following: "
                                          f"{str_to_scheduler_type_map.keys()}. Invalid argument {argstr}")
+

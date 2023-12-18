@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
 from time import time
-from src import project_dir, timeloop_dir
+from src import project_dir, template_timeloop_dir
 from src.args import app_args, workload_args, compression_args, accel_args, simanneal_args, check_args
 from src.args import ModelSummaryType
 
@@ -32,7 +32,8 @@ from src.args import ModelSummaryType
 __all__ = [
     'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
     'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
-    'log_training_progress', 'lut2csv', 'perfect_divisors',
+    'log_training_progress', 'lut2csv', 'perfect_divisors', 'get_contents_table',
+    'force_quotes_on_str',
     'get_sparsity', 'compute_model_statistics', 'get_dummy_input', 'model_summary',
     'handle_model_subapps',
 ]
@@ -173,18 +174,6 @@ def set_deterministic(seed):
 def load_checkpoint(model, chkpt_path=None, model_device='cuda', to_cpu=False, strict=False, verbose=True):
     """Load a pytorch training checkpoint.
     """
-    def get_contents_table(d):
-        def inspect_val(val):
-            if isinstance(val, (Number, str)):
-                return val
-            elif isinstance(val, type):
-                return val.__name__
-            return None
-
-        contents = [[k, type(d[k]).__name__, inspect_val(d[k])] for k in d.keys()]
-        contents = sorted(contents, key=lambda entry: entry[0])
-        return tabulate(contents, headers=["Key", "Type", "Value"], tablefmt="psql")
-
     def _load_optimizer():
         """Initialize optimizer with model parameters and load src_state_dict"""
         try:
@@ -473,6 +462,47 @@ def perfect_divisors(numbers, include_one=False):
     return divisors
 
 
+def get_contents_table(content_dict):
+    """Get a tabulated format from the content dictionary
+    """
+    def inspect_val(val):
+        if isinstance(val, (Number, str)):
+            return val
+        elif isinstance(val, type):
+            return val.__name__
+        return None
+
+    contents = [[k, type(content_dict[k]).__name__, inspect_val(content_dict[k])]
+                 for k in content_dict.keys()]
+    contents = sorted(contents, key=lambda entry: entry[0])
+    return tabulate(contents, headers=["Key", "Type", "Value"], tablefmt="psql")
+
+
+def force_quotes_on_str(nested_dict):
+    """Add quotes to each str located within a nested dict
+    """
+    class quoted(str):
+        pass
+
+    def quoted_presenter(dumper, data):
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+    yaml.add_representer(quoted, quoted_presenter)
+
+    def recursion_f(this_dict):
+        for key, value in this_dict.items():
+            if isinstance(value, dict):
+                recursion_f(this_dict[key])
+            elif isinstance(value, str):
+                this_dict[key] = quoted(value)
+            elif isinstance(value, (list, tuple)):
+                for v in value:
+                    assert isinstance(v, dict)
+                    recursion_f(v)
+
+    # execute the recursion function
+    recursion_f(nested_dict)
+
+
 def get_sparsity(param):
     """Calculate the sparsity across diverse dimentions
     """
@@ -747,7 +777,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy
-        accelergy_dir = os.path.join(os.path.dirname(timeloop_dir), 'accelergy')
+        accelergy_dir = os.path.join(os.path.dirname(template_timeloop_dir), 'accelergy')
         inputs_dir = os.path.join(accelergy_dir, '04_eyeriss_like', 'input')
         positional_args = f'{inputs_dir}/*.yaml {inputs_dir}/components/*.yaml'
         # correct accelergy version on files in the exercise
@@ -770,7 +800,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         logger.info(f'Executed accelergy command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
         # test timeloop model
-        inputs_dir = os.path.join(timeloop_dir, '04-model-conv1d+oc-3levelspatial')
+        inputs_dir = os.path.join(template_timeloop_dir, '04-model-conv1d+oc-3levelspatial')
         command = f'timeloop-model '\
                   f'{inputs_dir}/arch/*.yaml '\
                   f'{inputs_dir}/map/conv1d+oc+ic-3levelspatial-cp-ws.map.yaml '\
@@ -782,7 +812,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         logger.info(f'Executed timeloop-model command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
         # test timeloop mapper
-        inputs_dir = os.path.join(os.path.dirname(timeloop_dir), 'timeloop+accelergy')
+        inputs_dir = os.path.join(os.path.dirname(template_timeloop_dir), 'timeloop+accelergy')
         command = f'timeloop-mapper '\
                   f'{inputs_dir}/arch/eyeriss_like-int16.yaml '\
                   f'{inputs_dir}/arch/components/*.yaml '\
@@ -797,3 +827,31 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
     return do_exit
 
+
+
+if __name__ == "__main__":
+
+    config = {}
+    config['version'] = 0.4
+
+    level1 = {}
+    level1['name'] = 'system'
+    level1['local'] = [
+        {
+            'name': 'DRAM',
+            'class': 'DRAM',
+            'attributes': {
+                'type': 'LPDDR4',
+                'width': 64,
+                'block-size': 12,
+                'word-bits': 16
+            }
+        }
+    ]
+    config['subtree'] = [level1]
+
+
+
+
+    with open('temp.yaml', 'w') as f:
+        f.write(yaml.dump(config, default_flow_style=False))
