@@ -1,13 +1,12 @@
 ---
 app_args:
-        operation_mode: ours
+        operation_mode: baseline
         output_dir: 'logs'
         name: null
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: lut.csv
-        scheduler_type: ours
-        load_state_from: state.sa.pkl
+        scheduler_type: multiknapsack
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -47,12 +46,9 @@ compression_args:
 accel_args:
         accelerator_arch_type: eyeriss
         deadline_constraint: null
-        area_constraint: 0.1
+        area_constraint: null
 
-simanneal_args:
-        simanneal_Tmax: 25000.0
-        simanneal_Ttmin: 2.5
-        simanneal_steps: 50000
-        simanneal_updates: 100
-        simanneal_auto_schedule: False
-
+baseline_args:
+        baseline_num_accelerators: 4
+        baseline_homogeneous: True
+        baseline_precision: [16, 16, 16, 16]

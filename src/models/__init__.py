@@ -25,8 +25,8 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
                     'mnist': (batch_size, 1, 28, 28),
                    }.get(dataset)
         except KeyError:
-            logger.warn(f"Input shape for dataset {dataset} could not be determined")
-            return None
+            logger.error(f"Input shape for dataset {dataset} could not be determined")
+            exit(1)
 
     def assign_layer_names():
         """Assign human-readable names to the modules (layers)"""
@@ -101,6 +101,7 @@ def create_image_classification_model(arch, dataset, pretrained):
     def _create_mnist_model():
         return ic_models.mnist_models.__dict__[arch + '_' + 'mnist']()
 
+    # load the correct function
     if 'cifar' in dataset:
         return _create_cifar_model()
     elif 'imagenet' in dataset:
@@ -110,7 +111,7 @@ def create_image_classification_model(arch, dataset, pretrained):
 
 
 def create_image_segmentation_model(arch, dataset, pretrained):
-    return is_models.unet_model.__dict__[arch]()
+    return is_models.__dict__[arch]()
 
     try:
         weights = 'DEFAULT' if pretrained else None
@@ -120,16 +121,11 @@ def create_image_segmentation_model(arch, dataset, pretrained):
 
 
 def create_object_detection_model(arch, dataset, pretrained):
-    try:
-        weights = 'DEFAULT' if pretrained else None
-        return torch_models.__dict__[arch](weights=weights)
-    except KeyError:
-        raise NotImplementedError(f'Model {arch} is not supported for the {dataset} dataset')
+    raise NotImplementedError
 
 
 def create_language_processing_model(arch, dataset, pretrained):
     raise NotImplementedError
-    pass
 
 
 def create_recommendation_model(arch, dataset_pretrained):

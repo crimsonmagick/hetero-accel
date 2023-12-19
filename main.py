@@ -8,24 +8,29 @@ import numpy as np
 import pandas as pd
 import yaml
 from copy import deepcopy
+from collections import OrderedDict
 from types import SimpleNamespace
 from src import dataset_dirs
 from src.workload import MultiDNNWorkload
 from src.utils import env_cfg, handle_model_subapps
+from src.args import OperationMode
 from src.net_wrapper import TorchNetworkWrapper
 from src.compression.compressor import PruningQuantizationCompressor
 from src.dataset import load_data
 from src.accelerator_cfg import AcceleratorProfile
 from src.optimizer import AcceleratorOptimizer
+from src.baseline import run_baseline
 
 
 logger = logging.getLogger(__name__)
 
 
 def main():
-    """Main executing function
+    """Main executing function, supporting the execution of either
+       our optimization, or others for comparisons
     """
     args = env_cfg()
+    print(args.operation_mode)
     args.logdir = logging.getLogger().logdir
     # save arguments as pkl, for reproducibility
     with open(os.path.join(args.logdir, 'args.pkl'), 'wb') as f:
@@ -33,12 +38,19 @@ def main():
 
     # initialize the workload
     workload = setup_workload(args)
-
     # create a LUT of quantization profiles for each DNN-precision pairing
     dnn_accuracy_lut = quant_exploration(args, workload)
 
-    # perform a DSE to define the sub-accelerator architectures
-    accel, energy = accelerator_exploration(args, workload, dnn_accuracy_lut)
+    if args.operation_mode == OperationMode.Ours:
+        # perform a DSE to define the sub-accelerator architectures
+        accel, dense_mappings = accelerator_exploration(args, workload, dnn_accuracy_lut)
+        # prune the DNNs and include the mappings as options to the scheduler
+        mappings = include_pruned_mappings(args, workload, dnn_accuracy_lut, accel, dense_mappings)
+        # construct final schedule from all the mappings
+        schedule, metrics = final_schedule(accel, mappings)
+
+    elif args.operation_mode == OperationMode.Baseline:
+        run_baseline(args, workload, dnn_accuracy_lut)
 
 
 def setup_workload(args):
@@ -216,9 +228,32 @@ def accelerator_exploration(args, workload, accuracy_lut):
                                      hw_constraints=SimpleNamespace(deadline=args.deadline_constraint,
                                                                     area=args.area_constraint)
                                      )
-    optimizer.run()
+    # optimizer.run()
+    logger.info(optimizer.best_state)
 
-    return optimizer.best_state, optimizer.best_energy
+    mappings = OrderedDict()
+    for key in optimizer.energy_dict:
+        assert key in optimizer.latency_dict | optimizer.area_dict
+        mappings[key] = SimpleNamespace(energy=optimizer.energy_dict[key],
+                                        latency=optimizer.latency_dict[key],
+                                        area=optimizer.area_dict[key])
+    return optimizer.best_state, mappings
+
+
+def include_pruned_mappings(args, workload, dnn_accuracy_lut, accel, mappings):
+    """Prune the DNNs to increase the mappings options of the scheduler
+    """
+    raise NotImplementedError
+
+    for key in mappings:
+        mappings[key].pruned_energy = ''
+        mappings[key].pruned_latency = ''
+        mappings[key].pruned_area = ''
+    return mappings
+
+
+def final_schedule():
+    raise NotImplementedError
 
 
 if __name__ == '__main__':

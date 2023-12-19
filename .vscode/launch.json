@@ -16,13 +16,28 @@
             },
         },
         {
-            "name": "Python: main.py",
+            "name": "Ours (main.py)",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "args": [
                 "--yaml-cfg",
                 "run/args_cfg.yaml",
+                "--workload-cfg",
+                "run/workloads.yaml"
+            ],
+            "console": "integratedTerminal",
+            "redirectOutput": true,
+            "justMyCode": true
+        },
+        {
+            "name": "Baseline (main.py)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": [
+                "--yaml-cfg",
+                "run/baseline_cfg.yaml",
                 "--workload-cfg",
                 "run/workloads.yaml"
             ],

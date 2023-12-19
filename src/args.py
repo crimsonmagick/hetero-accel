@@ -1,8 +1,6 @@
 import argparse
-import os
 import numpy as np
 from enum import Enum
-from src import project_dir
 from src.accelerator_cfg import AcceleratorType
 from src.compression.pruning import PruningGroupType
 from src.scheduler import SchedulerType
@@ -10,6 +8,12 @@ from src.scheduler import SchedulerType
 
 def app_args(parser):
     """Arguments for running the main application"""
+    parser.add_argument("--mode", "-m", dest='operation_mode',
+                        type=operation_mode_arg, default='ours',
+                        help='Define the operation mode. Possible option are: '
+                              '\'ours\' (default, execute our SA-based optimization), '
+                              '\'baseline\' (execute a baseline calculation), ')
+
     parser.add_argument('--out-dir', '-o', dest='output_dir', default='logs',
                          help='Path to dump logs and checkpoints')
     parser.add_argument('--name', '-n', help='Experiment name')
@@ -29,18 +33,18 @@ def app_args(parser):
     parser.add_argument('--load-state-from', metavar='PATH',
                         help='Load the state of the optimizer from the given file')
 
-    op_mode = parser.add_argument_group("Execution mode arguments")
-    op_mode_exc = op_mode.add_mutually_exclusive_group()
-    op_mode_exc.add_argument('--evaluate-model', dest='evaluate_model_mode', action='store_true',
-                             help='Evaluate DNN model on test set')
-    op_mode_exc.add_argument('--train-model', dest='train_model_mode', action='store_true',
-                             help='Train DNN model on train set')
-    op_mode_exc.add_argument('--test-timeloop-accelergy', dest='test_timeloop_accelergy_mode', action='store_true',
-                             help='Execute an example to test if timeloop+accelergy works well')
-    op_mode_exc.add_argument('--model-summary', dest='model_summary_mode', type=model_summary_type_arg, default='',
-                             help='Specify the type of summary of the given DNNs')
-    op_mode_exc.add_argument('--test-pruning-quantization', dest='test_pruning_quant_mode', action='store_true',
-                             help='Execute a test of the effect of pruning on energy consumption')
+    dnn_op_mode = parser.add_argument_group("DNN execution mode arguments")
+    dnn_op_mode_exc = dnn_op_mode.add_mutually_exclusive_group()
+    dnn_op_mode_exc.add_argument('--evaluate-model', dest='evaluate_model_mode', action='store_true',
+                                 help='Evaluate DNN model on test set')
+    dnn_op_mode_exc.add_argument('--train-model', dest='train_model_mode', action='store_true',
+                                 help='Train DNN model on train set')
+    dnn_op_mode_exc.add_argument('--test-timeloop-accelergy', dest='test_timeloop_accelergy_mode', action='store_true',
+                                 help='Execute an example to test if timeloop+accelergy works well')
+    dnn_op_mode_exc.add_argument('--model-summary', dest='model_summary_mode', type=model_summary_type_arg, default='',
+                                 help='Specify the type of summary of the given DNNs')
+    dnn_op_mode_exc.add_argument('--test-pruning-quantization', dest='test_pruning_quant_mode', action='store_true',
+                                 help='Execute a test of the effect of pruning on energy consumption')
     return parser
 
 
@@ -144,6 +148,21 @@ def simanneal_args(parser):
     return parser
 
 
+def baseline_args(parser):
+    """Arguments related to the baseline accelerator
+    """
+    baseline_args = parser.add_argument_group('Baseline-related arguments')
+    baseline_args.add_argument('--baseline-num-accelerators', type=int, default=4,
+                               help='Define the number of sub-accelerators of the baseline '
+                                    'accelerator. Default is 4')
+    baseline_args.add_argument('--baseline-homogeneous', action='store_true',
+                               help='Set to use a homogeneous baseline, w.r.t. precision')
+    baseline_args.add_argument('--baseline-precision', type=int, nargs='+',
+                               help='List the precision per-accelerator in the heterogeneous '
+                                    'case or a single precision for the homogeneous one.')
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """
@@ -153,6 +172,20 @@ def check_args(args):
 
 
 ### Enumerators for argument parsing ###
+
+class OperationMode(Enum):
+    Ours = 1
+    Baseline = 2
+
+def operation_mode_arg(argstr):
+    str_to_operation_mode_map = {'ours': OperationMode.Ours,
+                                 'baseline': OperationMode.Baseline}
+    try:
+        return str_to_operation_mode_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--operation-mode argument must be one of the following: "
+                                         f"{str_to_operation_mode_map.keys()}. Invalid argument {argstr}")
+
 
 class OptimizerType(Enum):
     SGD = 1

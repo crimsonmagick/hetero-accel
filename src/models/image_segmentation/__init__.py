@@ -1,1 +1,1 @@
-from . import unet as unet_model
+from .unet import unet_3d

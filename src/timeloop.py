@@ -397,6 +397,10 @@ class TimeloopArch:
     def adjust_pe_array(self, pe_x, pe_y):
         """Adjust the dimensions of the PE array
         """
+        if self.params.pe_array_x == pe_x and \
+           self.params.pe_array_y == pe_y:
+            return
+
         params = {'pe_array_x': pe_x,
                   'pe_array_y': pe_y}
         self.adjust_params(params)
@@ -433,6 +437,9 @@ class TimeloopArch:
             # round the width to the immediately higher perfect divisor of word_bits
             # choices = np.arange(prev_width, prev_width + word_bits)
             # return int(choices[np.where(choices % word_bits == 0)][0])
+
+        if self.params.mac_datawidth == precision:
+            return
 
         params = {
             # MAC unit

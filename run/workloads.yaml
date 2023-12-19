@@ -1,6 +1,8 @@
 ---
+# Setting workloads according to: https://arxiv.org/abs/2210.14657
+# and the MLPerf suite: https://github.com/mlcommons/inference
 workloads:
-  A:
+  Atest:
     - arch: resnet18
       dataset: cifar10
       pretrained: true
@@ -11,8 +13,7 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-  B:
-    # TODO: Configure the benchmarks (dnn-dataset) below
+  Btest:
     # image segmentation
     - arch: unet_3d
       dataset: kits19
@@ -37,4 +38,3 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-

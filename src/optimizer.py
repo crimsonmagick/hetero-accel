@@ -123,8 +123,7 @@ class AcceleratorOptimizer(Annealer):
 
     def get_initial_state(self, args):
         """Configure the initial state of the optimizer, w.r.t. the
-           selected heterogeneity of he accelerator. Note, this function 
-           is hard-coded for the Eyeriss accelerator
+           selected heterogeneity of he accelerator
         """
         initial_state = []
 
@@ -137,17 +136,12 @@ class AcceleratorOptimizer(Annealer):
             # build a heterogeneous accelerator, with specific precision for each accelerator
             for accelerator_idx in range(self.num_accelerators):
                 precision = self.accelerator_cfg.design_space['precision'][accelerator_idx]
-                initial_state.append(
-                    self.design_space.extract(self.accelerator_cfg.width,
-                                              self.accelerator_cfg.height,
-                                              precision,
-                                              self.accelerator_cfg.glb_sram_size,
-                                              self.accelerator_cfg.ifmap_spad_size,
-                                              self.accelerator_cfg.weights_spad_size,
-                                              self.accelerator_cfg.psum_spad_size)
-                )
-                print(initial_state[-1])#.precision = 16
-        
+                values = [
+                    precision if 'precision' in field.lower() else getattr(self.accelerator_cfg, field)
+                    for field in self.design_space.fields
+                ]
+                initial_state.append(self.design_space.extract(*values))
+
         logger.debug("Initial state:")
         for state in initial_state:
             logger.debug(f"\t{state}")
@@ -244,7 +238,7 @@ class AcceleratorOptimizer(Annealer):
                   file=sys.stderr, end="")
             sys.stderr.flush()
 
-    def save_state(self):
+    def save_state(self, save_state_to=None):
         """Save the latest state and results from energy/fitness calculation
         """
         state_dict = {'energy': self.energy_dict,
@@ -252,18 +246,24 @@ class AcceleratorOptimizer(Annealer):
                       'area': self.area_dict,
                       'schedule': self.latest_schedule,
                       'state': self.state,
-                      'constraints': self.hw_constraints}
-        with open(os.path.join(self.logdir, 'state.sa.pkl'), 'wb') as f:
+                      'constraints': getattr(self, 'hw_constraints', None),
+                      'latest_energy': self.latest_energy,
+                      'latest_latency': self.latest_latency,
+                      'latest_area': self.latest_area}
+
+        save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
+        with open(save_state_to, 'wb') as f:
             pickle.dump(state_dict, f)
 
-    def load_state(self, load_from):
+    def load_state(self, load_from, save_state_to=None):
         """Load the state and its results from a given file
         """
         with open(load_from, 'rb') as f:
             state_dict = pickle.load(f)
-        copy(load_from, os.path.join(self.logdir, 'state.sa.pkl'))
         logger.info(f"Loaded initial state from checkpoint ({load_from})")
         logger.info(f"Checkpoint contents:\n{get_contents_table(state_dict)}\n")
+        save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
+        copy(load_from, save_state_to)
 
         self.energy_dict = state_dict['energy']
         self.latency_dict = state_dict['latency']
@@ -294,7 +294,7 @@ class AcceleratorOptimizer(Annealer):
         """
         start = time()
         logger.info(f"=> Beginning {'initial ' if initial else ''}energy calculation")
-        energy = self.__energy_evaluation()
+        energy = self._energy_evaluation()
         logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
         logger.info(f"SA Energy results:\n"
                     f"\tEnergy={self.latest_energy}\n"
@@ -303,7 +303,7 @@ class AcceleratorOptimizer(Annealer):
         logger.info("*--------------*")
         return energy
 
-    def __energy_evaluation(self):
+    def _energy_evaluation(self):
         """Evaluate the fitness of the current state
         """
         def violated_deadline(schedule):
@@ -313,7 +313,8 @@ class AcceleratorOptimizer(Annealer):
                    any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
 
         def violated_area_constraint(area):
-            return area > getattr(self, 'initial_area', 0.0) * (1 - getattr(self.hw_constraints, 'area', 1.0)) 
+            return area > getattr(self, 'initial_area', 0.0) * \
+                         (1 - getattr(getattr(self, 'hw_constraints', None), 'area', 1.0)) 
 
         def violated_accuracy_constraint(arch, precision):
             try:
