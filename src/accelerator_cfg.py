@@ -37,8 +37,7 @@ class AcceleratorProfile:
             self.clock_rate = 250 * 1e6                 # in Hz (100 - 250 MHz allowed)
             self.dram_precision = 64                    # in bits
 
-            # design space parameters 
-            # TODO: Figure out how to set up the design space more intelligently
+            # design space parameters
             width_options = height_options = [8, 10, 12, 14, 16, 20, 25]
             ifmap_spad_size_options = [8, 12, 16, 24, 32, 40, 48, 64]
             weights_spad_size_options = [256, 320, 384, 448, 512, 576, 640]

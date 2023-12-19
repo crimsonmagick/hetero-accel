@@ -205,8 +205,6 @@ def scheduler_type_arg(argstr):
     str_to_scheduler_type_map = {'ours': SchedulerType.Ours,
                                  'random': SchedulerType.Random,
                                  'multiknapsack': SchedulerType.MultiKnapsack,
-                                 'multiknapsack': SchedulerType.MultiKnapsack,
-                                 'exhaustive': SchedulerType.Exhaustive,
                                  'greedy': SchedulerType.Greedy}
     try:
         return str_to_scheduler_type_map[argstr.lower()]

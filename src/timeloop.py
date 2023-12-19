@@ -115,7 +115,7 @@ class TimeloopWrapper:
         with open(stats_file, 'r') as f:
             stats = f.read()
 
-        # TODO: More results can be extracted here
+        # NOTE: More results can be extracted here, but not needed for now
         gflops = re.search('GFLOPs .*?: ([\d.]+)', stats).group(1)
         gflops = float(gflops)              # @1GHz
         utilization = re.search('Utilization: ([\d.]+)', stats).group(1)

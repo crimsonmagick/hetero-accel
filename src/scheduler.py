@@ -15,7 +15,9 @@ from matplotlib import rcParams
 from src import project_dir
 
 
-__all__ = ['SchedulerType', 'ScheduleEntry', 'Schedule', 'StaticScheduler']
+__all__ = ['SchedulerType', 'ScheduleEntry', 'Schedule',
+           'SolverType', 'solver_args_dict'
+           'Scheduler']
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +27,7 @@ class SchedulerType(Enum):
     Ours = 1
     Random = 2
     MultiKnapsack = 3
-    Exhaustive = 4
-    Greedy = 5
+    Greedy = 4
 
 
 ScheduleEntry = namedtuple('ScheduleEntry',
@@ -124,29 +125,69 @@ class Schedule:
         logger.info(f"Schedule was saved in {savefile}")
 
 
-# TODO: Configure scheduler to work without complete value/weight dicts
+# TODO: Study the possible options for the solver
+
+class SolverType(Enum):
+    Greedy = 1
+    GreedyRegret = 2
+    MTHGGreedy = 3
+    MTHGGreedyRegret = 4
+    LocalSearch = 5
+    ColumnGenerationGreedy = 6
+    ColumnGenerationLimitedDiscrepency = 7
+    Random = 8
+    LocalSolver = 9
+    MixedIntegerLinearCBC = 10
+    MixedIntegerLinearCPLEX = 11
+    MixedIntegerLineargGurobi = 12
+    MixedIntegerLinearKnitro = 13
+    ConstraintGecode = 14
+    ConstraintCPLEX = 15
+
+solver_args_dict = {
+    SolverType.Greedy: '\"greedy -f wij\"',
+    SolverType.GreedyRegret: '\"greedy-regret -f wij\"',
+    SolverType.MTHGGreedy: '\"mthg -f wij\"',
+    SolverType.MTHGGreedyRegret: '\"mthg-regret -f wij\"',
+    SolverType.LocalSearch: '\"local-search --threads 4\"',
+    SolverType.ColumnGenerationGreedy: '\"column-generation-heuristic-greedy --linear-programming-solver cplex\"',
+    SolverType.ColumnGenerationLimitedDiscrepency: '\"column-generation-heuristic-limited-discrepancy-search --linear-programming-solver cplex\"',
+    SolverType.Random: 'random',
+    SolverType.LocalSolver: 'localsolver',
+    SolverType.MixedIntegerLinearCBC: 'milp-cbc',
+    SolverType.MixedIntegerLinearCPLEX: 'milp-cplex',
+    SolverType.MixedIntegerLineargGurobi: 'milp-gurobi',
+    SolverType.MixedIntegerLinearKnitro: 'milp-knitro',
+    SolverType.ConstraintGecode: 'constraint-programming-gecode',
+    SolverType.ConstraintCPLEX: 'constraint-programming-cplex',
+}
+
 
 class Scheduler:
     """Implementations for the scheduler"""
     def __init__(self, scheduler_type=SchedulerType.Ours):
         self.type = scheduler_type
-        self.run = {
+        self.__run_f = {
             SchedulerType.Ours: self._run_ours,
             SchedulerType.Random: self._run_random_scheduling,
             SchedulerType.MultiKnapsack: self._run_with_identical_bins,
-            SchedulerType.Exhaustive: self._run_exhaustive,
             SchedulerType.Greedy: self._run_greedy,
         }.get(scheduler_type)
 
-        # # ONLY for debugging
-        # if getattr(sys, 'gettrace', None) is not None and sys.gettrace():
-        #     self.run = self._run_random_scheduling
+    def run(self, *args, **kwargs):
+        """Wrapper over the main scheduling function, may be needed
+        """
+        if self.type == SchedulerType.Ours:
+            if 'solver_type' not in kwargs:
+                kwargs['solver_type'] = SolverType.MTHGGreedy
+        return self.__run_f(*args, **kwargs)
 
-    def _run_ours(self, items, bins, value_dict, weight_dict, max_capacity=None):
-        """Static scheduling with heterogeneous bins w.r.t. value and weight per item,
-           i.e., value_dict and weight_dict have different values for different bins.
-           This is an implementation of the generalized assignment problem
-           We use the solver algorithmic options found in: https://github.com/fontanf/generalizedassignmentsolver
+    def _run_ours(self, items, bins, cost_dict, weight_dict, max_capacity=None,
+                  solver_type=SolverType.MTHGGreedy, use_value=False):
+        """Static scheduling with heterogeneous bins w.r.t. cost/value and weight per item,
+           i.e., cost_dict and weight_dict have different values for different bins.
+           This is an implementation of the generalized assignment problem. We use the solver
+           algorithmic options found in: https://github.com/fontanf/generalizedassignmentsolver
         """
         # NOTE: Other options: Dynamic programming/Branch-and-bound?
         def write_input_file(infile):
@@ -155,23 +196,40 @@ class Scheduler:
             with open(infile, 'w') as f:
                 # write the number of bins (agents) and items (tasks)
                 f.write(f'{len(bins)} {len(items)}\n')
-                # write the value/profit (inverse of the cost)
+
+                # write the cost or value/profit
                 for bin in bins:
-                    profits = [
-                        max([value for key, value in value_dict.items() if item in key]) - value_dict[(item, bin)]
-                        for item in items
-                    ]
+                    costs = []
+                    for item in items:
+                        # in the case of an invalid mapping, the cost/value does not matter
+                        if weight_dict[(item, bin)] < 0:
+                            costs.append(0)
+                        # in the case of value/profit
+                        elif use_value:
+                            costs.append(
+                                max([value for key, value in cost_dict.items() if item in key]) - cost_dict[(item, bin)]   
+                            )
+                        # in the case of cost
+                        else:
+                            costs.append(
+                                cost_dict[(item, bin)]
+                            )
                     # TODO: Check if casting to int here is a problem. Floats do not work for this solver
-                    f.write(' '.join([str(int(profit)) for profit in profits]) + '\n')
+                    f.write(' '.join([str(int(cost)) for cost in costs]) + '\n')
+
                 # write the weights
-                for bin in bins:
-                    weights = [weight_dict[(item, bin)] for item in items]
+                for bin_idx, bin in enumerate(bins):
+                    # negative weights are marked as invalid mappings, and are assigned higher than the
+                    # maximum capacity of the bin, to make that mapping impossible
+                    weights = [weight_dict[(item, bin)] if weight_dict[(item, bin)] > 0 else capacities[bin_idx] + 1
+                               for item in items]
                     f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
+
                 # write the maximum weight (capacity) of each bin (agent)
                 f.write(' '.join([str(int(capacity)) for capacity in capacities]))
 
         schedule = Schedule(bins)
-        # TODO: This could be the deadline cosntraint, right now is the sum of all possible assignments
+        # if no deadline cosntraint is provided, the sum of all possible assignments to each bin is used
         capacities = [
             sum([weight_dict[(item, bin)] for item in items]) if max_capacity is None else max_capacity
             for bin in bins
@@ -179,25 +237,25 @@ class Scheduler:
 
         solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
         logdir = logging.getLogger().logdir
-        resdir = os.path.join(logdir, 'generalizedassignmentsolver')
+        resdir = os.path.join(logdir, 'scheduler_solver')
         os.makedirs(resdir, exist_ok=True)
         infile = os.path.join(resdir, 'inputs')
         outfile = os.path.join(resdir, 'output')
         solution_file = os.path.join(resdir, 'solution')
         logfile = os.path.join(resdir, 'log')
 
-        # write value/profit (oposite to cost) and weight to file
+        # write cost/profit and weight to file
         write_input_file(infile)
         # construct command for solver
-        # TODO: Study the possible options for the solver
+        solver_args = solver_args_dict.get(solver_type)    
         command = f"cd {solver_dir} && " \
                   f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
-                  f"-a 'mthg -f -pij/wij' " \
-                  f"-i {infile} -o {outfile} -c {solution_file} " \
+                  f"-a {solver_args} " \
+                  f"-i {infile} -o {outfile} -c {solution_file}" \
                   f"2>&1 | tee {logfile}"
-        logger.debug(f"Scheduling generalizedassignmentsolver command:\n{command}")
+        logger.debug(f"GeneralizedAssignmentSolver command:\n{command}")
 
-        # run command
+        # run command 
         start = time()
         p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
         logger.debug(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
@@ -214,17 +272,9 @@ class Scheduler:
             item = items[int(item_idx)]
             bin = bins[int(bin_idx)]
             schedule.add(item, bin, weight_dict[(item, bin)])
-
-        # # read the solution which contains an ordered list of bins, per item
-        # with open(solution_file, 'r') as f:
-        #     solution = f.read()
-        # # complete the item-to-bin assignment and define the schedule
-        # for item, bin_idx in zip(items, solution.strip().replace('\n', ' ').split(' ')):
-        #     schedule.add(item, bins[bin_idx], weight_dict[(item, bins[bin_idx])])
-
         return schedule
 
-    def _run_random_scheduling(self, items, bins, value_dict, weight_dict, **kwargs):
+    def _run_random_scheduling(self, items, bins, value_dict, weight_dict):
         """Random assignment of items to bins
         """
         schedule = Schedule(bins)
@@ -235,19 +285,13 @@ class Scheduler:
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
         return schedule
 
-    def _run_with_identical_bins(self, items, bins, value_dict, weight_dict, **kwargs):
-        """Static scheduling with homogeneous bins w.r.t. of values and weights per item,
-           i.e., value_dict and weight_dict have equal values for different bins.
+    def _run_with_identical_bins(self):
+        """Static scheduling with homogeneous bins w.r.t. of values and weights per item
            This is an implementation of the Multiple Knapsack problem
         """
         raise NotImplementedError
 
-    def _run_exhaustive(self, items, bins, value_dict, weight_dict, **kwargs):
-        """Exhaustive search for optimal static scheduling to maximize 
-        """
-        raise NotImplementedError
-
-    def _run_greedy(self, items, bins, value_dict, weight_dict, **kwargs):
+    def _run_greedy(self):
         """Greedy implementation of a static scheduling for the generative
            assignment problem. Options here are:
            1) Order the items based on their value and then,
@@ -257,12 +301,11 @@ class Scheduler:
               from highest to lowest
         """
         raise NotImplementedError("Not yet completed implementation")
-
         schedule = Schedule(bins)
 
         # order all items based on their value for any bin
         ordered_value_dict = OrderedDict(
-            sorted(value_dict.items(), key=lambda item: item[1], reverse=True)
+            sorted(cost_dict.items(), key=lambda item: item[1], reverse=True)
         )
 
         # 2d array of differences between all values for each item and any bin
@@ -286,59 +329,154 @@ class Scheduler:
 
 
 if __name__ == "__main__":
+    def write_input_file(infile):
+        """Create the input file for the solver
+        """
+        with open(infile, 'w') as f:
+            # write the number of bins (agents) and items (tasks)
+            f.write(f'{len(bins)} {len(items)}\n')
+
+            # write the cost or value/profit
+            for bin in bins:
+                costs = []
+                for item in items:
+                    # in the case of an invalid mapping, the cost/value does not matter
+                    if weight_dict[(item, bin)] < 0:
+                        costs.append(0)
+                    # in the case of value/profit
+                    elif use_value:
+                        costs.append(
+                            max([value for key, value in cost_dict.items() if item in key]) - cost_dict[(item, bin)]   
+                        )
+                    # in the case of cost
+                    else:
+                        costs.append(
+                            cost_dict[(item, bin)]
+                        )
+                # TODO: Check if casting to int here is a problem. Floats do not work for this solver
+                f.write(' '.join([str(int(cost)) for cost in costs]) + '\n')
+
+            # write the weights
+            for bin_idx, bin in enumerate(bins):
+                # negative weights are marked as invalid mappings, and are assigned higher than the
+                # maximum capacity of the bin, to make that mapping impossible
+                weights = [weight_dict[(item, bin)] if weight_dict[(item, bin)] > 0 else capacities[bin_idx] + 1
+                            for item in items]
+                f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
+
+            # write the maximum weight (capacity) of each bin (agent)
+            f.write(' '.join([str(int(capacity)) for capacity in capacities]))
+
+    def execute_schedule():
+        solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
+        write_input_file(f'{solver_dir}/gas.inp')
+        solver_args = solver_args_dict.get(SolverType.MTHGGreedy)
+        command = f"cd {solver_dir} && " \
+                    f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
+                    f"-a {solver_args} " \
+                    f"-i gas.inp -o gas.out -c gas.solution " \
+                    f"2>&1 | tee gas.log"
+        # print("Command:", command)
+
+        # run command
+        start = time()
+        p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+        # print(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
+
+        # check if all items are assigned in the solution
+        assert re.search('Number of items.*[(](\d+)%', p.stdout)
+        if re.search('Number of items.*[(](\d+)%', p.stdout).group(1) != '100':
+            print("Invalid assignment")
+            return
+
+        # get assignment via the stdout of the command
+        schedule = Schedule(bins)
+        assigns = re.search('Item\s+Agent\n.*?\n(.*)', p.stdout, re.DOTALL).group(1)
+        assigns = [re.sub('\s+', ' ', assign.strip()).split(' ') for assign in assigns.split('\n')[:-1]]
+        # complete the item-to-bin assignment and define the schedule
+        for item_idx, bin_idx in assigns:
+            item = items[int(item_idx)]
+            bin = bins[int(bin_idx)]
+            print(f"{item} ({cost_dict[(item, bin)]}, {weight_dict[(item, bin)]}) -> {bin}")
+            schedule.add(item, bin, weight_dict[(item, bin)])
+
+        # print(schedule.as_dict())
+        # schedule.visualize('schedule.png')
+        return schedule
+
+    def get_results(schedule): 
+        energy = sum([
+            cost_dict[(entry.tag, entry.bin)] for entry in schedule.entries
+        ])
+        latency = max([
+            sum([
+                weight_dict[(entry.tag, entry.bin)] for entry in entries
+            ]) for bin, entries in schedule.as_dict(main_key='bin').items()
+        ])
+        return energy, latency
+
+
+    ########################
     import random
+    random.seed(123)
+    LOAD_STATE = True
+    use_value = False
 
-    items = ['apple', 'banana', 'orange', 'nectarine', 'strawberry']
-    bins = ['BIN1', 'BIN2', 'BIN3']
-    capacities = [100, 100, 100]
-    value_dict = {}
-    weight_dict = {}
-    schedule = Schedule(bins)
+    if LOAD_STATE:
+        import pickle
+        with open('state.sa.pkl', 'rb') as f:
+            state_dict = pickle.load(f)
 
-    for item in items:
-        for bin in bins:
-            value_dict[(item, bin)] = random.randint(1, 10)
-            weight_dict[(item, bin)] = random.randint(1, 10)
+        cost_dict = state_dict['energy']
+        weight_dict = state_dict['latency']
+        initial_state = state_dict['state']
+        items = list({key[0] for key in weight_dict.keys()})
+        bins = list({key[1] for key in weight_dict.keys()})
+        capacities = [sum([weight_dict[(item, bin)] for item in items]) for bin in bins]
 
-    solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
-    with open(f'{solver_dir}/gas.inp', 'w') as f:
-        f.write(f'{len(bins)} {len(items)}\n')
-        # write the value/profit
-        for bin in bins:
-            profits = [max([value for key, value in value_dict.items() if item in key]) - value_dict[(item, bin)]
-                       for item in items]
-            f.write(' '.join([str(int(profit)) for profit in profits]) + '\n')
+        print()
+        schedule = execute_schedule()
+        energy, latency = get_results(schedule)
+        print("Energy:", energy)
+        print("Latency:", latency)
 
-        for bin in bins:
-            weights = [weight_dict[(item, bin)] for item in items]
-            f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
+    else:
+        items = ['apple', 'banana', 'orange', 'nectarine', 'strawberry', 'mango']
+        bins = ['BIN1', 'BIN2', 'BIN3']
+        capacities = [100, 100, 100]
+        
+        cost_dict = {}
+        weight_dict = {}
 
-        f.write(' '.join([str(int(capacity)) for capacity in capacities]))
+        for item_idx, item in enumerate(items):
+            for bin_idx, bin in enumerate(bins):
+                cost_dict[(item, bin)] = random.randint(1, 10)
+                weight_dict[(item, bin)] = random.randint(1, 10)
 
+        from copy import deepcopy
+        og_cdict = deepcopy(cost_dict)
+        og_wdict = deepcopy(weight_dict)
 
-    command = f"cd {solver_dir} && " \
-                f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
-                f"-a 'mthg -f -pij/wij' " \
-                f"-i gas.inp -o gas.out -c gas.solution " \
-                f"2>&1 | tee gas.log"
+        prob = 0.0
+        while prob < 1.1:
+            print()
+            print("Probability:", prob)
+            cost_dict = deepcopy(og_cdict)
+            weight_dict = deepcopy(og_wdict)
 
-    # run command
-    start = time()
-    p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-    print(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
+            for item_idx, item in enumerate(items):
+                for bin_idx, bin in enumerate(bins):
+                    if random.random() > prob:
+                        cost_dict[(item, bin)] = 0#10*max([value for key, value in cost_dict.items()
+                                                #   if item in key])
+                        weight_dict[(item, bin)] = capacities[bin_idx] + 1
+            print("Weight dict:", weight_dict)
+            print("Value dict:", cost_dict)
+            prob += 0.1
 
-    # check if all items are assigned in the solution
-    if re.search('Number of items.*[(](\d+)%', p.stdout).group(1) != '100':
-        exit(1)
-
-    # get assignment via the stdout of the command
-    assigns = re.search('Item\s+Agent\n.*?\n(.*)', p.stdout, re.DOTALL).group(1)
-    assigns = [re.sub('\s+', ' ', assign.strip()).split(' ') for assign in assigns.split('\n')[:-1]]
-    # complete the item-to-bin assignment and define the schedule
-    for item_idx, bin_idx in assigns:
-        item = items[int(item_idx)]
-        bin = bins[int(bin_idx)]
-        schedule.add(item, bin, weight_dict[(item, bin)])
-
-    print(schedule.as_dict())
-    schedule.visualize('schedule.png')
+            schedule = execute_schedule()
+            if schedule is None:
+                continue
+            energy, latency = get_results(schedule)
+            print("Energy:", energy)
+            print("Latency:", latency)

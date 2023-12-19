@@ -4,8 +4,9 @@ import os.path
 import sys
 import pickle
 from types import SimpleNamespace
+from collections import OrderedDict
 from time import time
-from glob import glob
+from shutil import copy
 from simanneal import Annealer
 from src.scheduler import Scheduler
 from src.timeloop import TimeloopWrapper
@@ -80,9 +81,9 @@ class AcceleratorOptimizer(Annealer):
         self.workload = workload
         self.accuracy_lut = accuracy_lut
         self.hw_constraints = hw_constraints
-        self.energy_dict = {}
-        self.latency_dict = {}
-        self.area_dict = {}
+        self.energy_dict = OrderedDict()
+        self.latency_dict = OrderedDict()
+        self.area_dict = OrderedDict()
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
                                         **accelerator_cfg.design_space)
@@ -97,7 +98,7 @@ class AcceleratorOptimizer(Annealer):
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
-        assert self.energy() <= self.WORST_ENERGY, "Baseline produces negative energy"
+        assert self.energy(initial=True) <= self.WORST_ENERGY, "Baseline produces negative energy"
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
@@ -207,7 +208,8 @@ class AcceleratorOptimizer(Annealer):
                         .format(Temp=T, Energy=E, Accept=acceptance, Improve=improvement,
                                 Elapsed=time_string(elapsed), Remaining=time_string(remain)))
         # save schedule
-        self.latest_schedule.visualize()
+        if self.latest_schedule is not None:
+            self.latest_schedule.visualize()
 
     def _update_stderr(self, step, T, E, acceptance, improvement):
         """Direct copy from the update function of Annealer
@@ -249,7 +251,8 @@ class AcceleratorOptimizer(Annealer):
                       'latency': self.latency_dict,
                       'area': self.area_dict,
                       'schedule': self.latest_schedule,
-                      'state': self.state}
+                      'state': self.state,
+                      'constraints': self.hw_constraints}
         with open(os.path.join(self.logdir, 'state.sa.pkl'), 'wb') as f:
             pickle.dump(state_dict, f)
 
@@ -258,12 +261,15 @@ class AcceleratorOptimizer(Annealer):
         """
         with open(load_from, 'rb') as f:
             state_dict = pickle.load(f)
+        copy(load_from, os.path.join(self.logdir, 'state.sa.pkl'))
         logger.info(f"Loaded initial state from checkpoint ({load_from})")
         logger.info(f"Checkpoint contents:\n{get_contents_table(state_dict)}\n")
 
         self.energy_dict = state_dict['energy']
         self.latency_dict = state_dict['latency']
         self.area_dict = state_dict['area']
+        if getattr(self, 'hw_constraints', None) is None:
+            self.hw_constraints = state_dict.get('constraints', None)
         self.latest_schedule = state_dict['schedule']
         initial_state = state_dict['state']
         return initial_state
@@ -281,9 +287,23 @@ class AcceleratorOptimizer(Annealer):
                 for accelerator_idx in range(self.num_accelerators)
             ]
         self.state = new_state
-        logger.debug(f"Move taken: new state={new_state}")
+        logger.debug(f"=> Move taken: new state={new_state}")
 
-    def energy(self):
+    def energy(self, initial=False):
+        """Wrapper function for estimating the SA energy
+        """
+        start = time()
+        logger.info(f"=> Beginning {'initial ' if initial else ''}energy calculation")
+        energy = self.__energy_evaluation()
+        logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
+        logger.info(f"SA Energy results:\n"
+                    f"\tEnergy={self.latest_energy}\n"
+                    f"\tLatency={self.latest_latency}\n"
+                    f"\tArea={self.latest_area}")
+        logger.info("*--------------*")
+        return energy
+
+    def __energy_evaluation(self):
         """Evaluate the fitness of the current state
         """
         def violated_deadline(schedule):
@@ -309,26 +329,24 @@ class AcceleratorOptimizer(Annealer):
         area_dict = {}
         latency_dict = {}
 
-        logger.info(f"Beginning energy calculation")
         # iterate over each accelerator
         for accelerator in self.state:
-            logger.info(f"Evaluating on accelerator: {accelerator._asdict()}")
+            logger.info(f"\tEvaluating on accelerator: {accelerator._asdict()}")
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
-                logger.info(f"\tEvaluating on DNN: {arch}")
+                logger.info(f"\t\tEvaluating on DNN: {arch}")
                 # check if this evaluation was executed before
                 if (arch, accelerator) in self.energy_dict:
-                    logger.info(f"\tSkipping evaluation: already estimated")
+                    logger.info(f"\t\tSkipping evaluation: already estimated")
                     continue
 
                 # check accuracy constraint
                 if violated_accuracy_constraint(arch, accelerator.precision):
-                    logger.info(f"\tSkipping evaluation: accuracy violation")
-                    # TODO: This is temporary, until there is a way to not include some mappings 
-                    #       from the value/weight dict that is given to the scheduler
-                    self.energy_dict[(arch, accelerator)] = 0
-                    self.latency_dict[(arch, accelerator)] = 0
-                    self.area_dict[(arch, accelerator)] = 0
+                    logger.info(f"\t\tSkipping evaluation: accuracy violation")
+                    # Invalid scheduling mappings are marked with negative weight (latency)
+                    self.energy_dict[(arch, accelerator)] = -1
+                    self.latency_dict[(arch, accelerator)] = -1
+                    self.area_dict[(arch, accelerator)] = -1
                     continue
 
                 # adjust timeloop with the accelerator parameters
@@ -345,7 +363,7 @@ class AcceleratorOptimizer(Annealer):
                 area_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
                 for problem_name in self.timeloop_problems_per_dnn[arch]:
-                    logger.info(f"\t\t{problem_name}")
+                    logger.info(f"\t\t\tEvaluating layer/problem: {problem_name}")
 
                     # run timeloop and get results
                     self.timeloop_wrapper.run(problem_name)
@@ -353,29 +371,33 @@ class AcceleratorOptimizer(Annealer):
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
                     area_dict[(arch, accelerator)] += results.area
-                    logger.debug(f"\t\tLayer-wise results: energy={results.energy}, "
-                                                         f"latency={results.cycles}, "
-                                                         f"area={results.area}")
+                    logger.debug(f"\t\t\tLayer-wise results: energy={results.energy}, "
+                                 f"latency={results.cycles}, area={results.area}")
 
-                logger.info(f"\tEvaluation results: energy={energy_dict[(arch, accelerator)]}, "
-                                                  f"latency={latency_dict[(arch, accelerator)]}, "
-                                                  f"area={area_dict[(arch, accelerator)]}")
+                logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
+                             f"\t\t\tEnergy={energy_dict[(arch, accelerator)]}\n"
+                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]}\n"
+                             f"\t\t\tArea={area_dict[(arch, accelerator)]}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
             self.latency_dict.update(latency_dict)
             self.area_dict.update(area_dict)
 
+        logger.debug("Completed mapping evaluation")
+
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
+        start = time()
         schedule = self.scheduler.run(items=list(self.workload.dnns.keys()),
                                       bins=self.state,
-                                      value_dict=self.energy_dict,
+                                      cost_dict=self.energy_dict,
                                       weight_dict=self.latency_dict)
         # save schedule of latest move
         self.latest_schedule = schedule
+        logger.debug(f"Schedule created in {time() - start:.3e}s")
 
-        # return in case of invalid schedule
         if schedule is None:
+            # return in case of invalid schedule
             self.latest_energy = self.latest_latency = self.latest_area = None
             logger.info(f"Could not find valid schedule")
             return self.WORST_ENERGY
@@ -392,11 +414,10 @@ class AcceleratorOptimizer(Annealer):
         self.latest_area = sum(
             self.area_dict[(entry.tag, entry.bin)] for entry in schedule.entries
         )
-        logger.debug(f"Scheduler results: {schedule.as_dict(main_key='bin')}")
-        logger.info(f"SA Energy results: energy={self.latest_energy}, "
-                                         f"latency={self.latest_latency}, "
-                                         f"area={self.latest_area}")
-        logger.info("*--------------*")
+
+        # log the results of the scheduling
+        schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
+        logger.info(f"Scheduler results:\n\t{schedule_str}")
 
         # save the results
         self.save_state()
