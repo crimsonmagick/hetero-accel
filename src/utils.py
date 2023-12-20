@@ -82,10 +82,14 @@ def cfg_from_yaml(args, cfg_yaml_file):
     """
     def replace_arg(name, value):
         # special handling for Enum type of arguments
-        if isinstance(getattr(args, name, None), Enum) and isinstance(value, str):
+        if isinstance(getattr(args, name, None), Enum) and value is not None:
+            assert isinstance(value, str)
             value = next(entry.value for entry in getattr(args, name).__class__
                          if entry.name.lower() == value)
-            value = getattr(args, name).__class__(value) 
+            value = getattr(args, name).__class__(value)
+        # special handling for lists (nargs='+/*/?')
+        elif isinstance(getattr(args, name, None), list) and value is not None:
+            value = [value] if not isinstance(value, list) else value
         setattr(args, name, value)
 
     # read configuration file

@@ -150,10 +150,14 @@ class TimeloopWrapper:
         for file in glob(os.path.join(outdir, 'timeloop-mapper*')):
             os.remove(file)
 
-    # TODO: Search for ways to adjust timeloop according to weight pruning
+    def adjust_architecture(self, accelerator_instance):
+        """Adjust the architectural parameters of the accelerator
+        """
+        self.arch.adjust(accelerator_instance)
+        self.arch.to_yaml()
 
     def adjust_precision(self, precision):
-        """Adjust the precision of the architecture, including arithmetic and memory units
+        """Adjust only the precision of the architecture
         """
         self.arch.adjust_precision(precision)
         self.arch.to_yaml()
@@ -163,19 +167,6 @@ class TimeloopWrapper:
         """
         self.workloads[problem_name].adjust_dimension(dimension, value, adjust_by)
         self.workloads[problem_name].to_yaml()
-
-    def adjust_pe_array(self, pe_array_x, pe_array_y):
-        """Adjust the dimensions of the PE array
-        """
-        self.arch.adjust_pe_array(pe_array_x, pe_array_y)
-        self.arch.to_yaml()
-
-    def adjust_memories(self, accelerator_instance):
-        """Adjust the accelerator-specific memories. Note, the accelerator
-           instance is given, instead of explict parameters
-        """
-        self.arch.adjust_memories(accelerator_instance)
-        self.arch.to_yaml()
 
     def adjust_mapper(self, param_name, param_value):
         self.mapper.adjust_param(param_name, param_value)
@@ -331,8 +322,8 @@ class TimeloopArch:
 
         # functions for specific accelerator types
         if accelerator_type == AcceleratorType.Eyeriss:
+            self.adjust = self._adjust_eyeriss
             self.adjust_precision = self._adjust_precision_eyeriss
-            self.adjust_memories = self._adjust_memories_eyeriss
             self.get_default_params = self._get_default_params_eyeriss
             self.get_config = self._get_config_eyeriss
 
@@ -361,6 +352,15 @@ class TimeloopArch:
             with open(component_file, 'w') as f:
                 f.write(yaml.dump(yaml_dict))
 
+    def adjust_params(self, params):
+        """Generic function to override parameter values
+        """
+        for param_name, value in params.items():
+            assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
+            setattr(self.params, param_name, value)
+        # update the configuration with new parameters
+        self.get_config()
+
     def to_yaml(self, filepath=None):
         """Write the configuration of the architecture to a yaml file
         """
@@ -385,16 +385,24 @@ class TimeloopArch:
             f.write(yaml.dump({'architecture': self.config},
                               default_flow_style=use_default_flow_style))
 
-    def adjust_params(self, params):
-        """Generic function to override parameter values
-        """
-        for param_name, value in params.items():
-            assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
-            setattr(self.params, param_name, value)
-        # update the configuration with new parameters
-        self.get_config()
+    ### Accelerator-specific functions ###
 
-    def adjust_pe_array(self, pe_x, pe_y):
+    def _adjust_eyeriss(self, accelerator_instance):
+        """Adjust the parameter of the architecture based on the
+           given accelerator instance
+        """
+        # NOTE: VERY important to change the PE array dimensions first,
+        #       such that the memory width can adjust to the new dimensions
+        #       and the change in precision
+        self._adjust_pe_array_eyeriss(accelerator_instance.pe_array_x,
+                                      accelerator_instance.pe_array_y)
+        self._adjust_memories_eyeriss(accelerator_instance.sram_size,
+                                      accelerator_instance.ifmap_spad_size,
+                                      accelerator_instance.weights_spad_size,
+                                      accelerator_instance.psum_spad_size)
+        self.adjust_precision(accelerator_instance.precision)
+
+    def _adjust_pe_array_eyeriss(self, pe_x, pe_y):
         """Adjust the dimensions of the PE array
         """
         if self.params.pe_array_x == pe_x and \
@@ -405,7 +413,17 @@ class TimeloopArch:
                   'pe_array_y': pe_y}
         self.adjust_params(params)
 
-    ### Accelerator-specific functions ###
+    def _adjust_memories_eyeriss(self, sram_size, ifmap_spad_size,
+                                 weights_spad_size, psum_spad_size):
+        """Adjust each specific memory unit of the accelerator
+        """
+        params = {
+            'sram_depth': sram_size,
+            'ifmap_spad_depth': ifmap_spad_size,
+            'weights_spad_depth': weights_spad_size,
+            'psum_spad_depth': psum_spad_size
+        }
+        self.adjust_params(params)
 
     def _adjust_precision_eyeriss(self, precision, num_clusters=1):
         """Adjust the data precision of the architecture, including memory and compute units.
@@ -463,17 +481,6 @@ class TimeloopArch:
             'regfile_width': adjust_mem_width('dummy_regfile',
                                               precision,
                                               self.init_params.regfile_block_size,)
-        }
-        self.adjust_params(params)
-
-    def _adjust_memories_eyeriss(self, accelerator_instance):
-        """Adjust each specific memory unit of the accelerator
-        """
-        params = {
-            'sram_depth': accelerator_instance.sram_size,
-            'ifmap_spad_depth': accelerator_instance.ifmap_spad_size,
-            'weights_spad_depth': accelerator_instance.weights_spad_size,
-            'psum_spad_depth': accelerator_instance.psum_spad_size
         }
         self.adjust_params(params)
 

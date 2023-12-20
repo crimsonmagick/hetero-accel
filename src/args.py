@@ -149,17 +149,39 @@ def simanneal_args(parser):
 
 
 def baseline_args(parser):
-    """Arguments related to the baseline accelerator
+    """Arguments related to the baseline accelerator. These can be used to evaluate
+       any single accelerator as well
     """
     baseline_args = parser.add_argument_group('Baseline-related arguments')
     baseline_args.add_argument('--baseline-num-accelerators', type=int, default=4,
                                help='Define the number of sub-accelerators of the baseline '
                                     'accelerator. Default is 4')
     baseline_args.add_argument('--baseline-homogeneous', action='store_true',
-                               help='Set to use a homogeneous baseline, w.r.t. precision')
-    baseline_args.add_argument('--baseline-precision', type=int, nargs='+',
+                               help='Set to use a homogeneous accelerator baseline')
+    # NOTE: These arguments have the same name ('baseline_' + arg) as the attributes of the accelerator cfg.
+    #       If another type of accelerator is added, add more arguments to correspond to its new attributes.
+    #       To do this, follow the same recipe: arguments have nargs='+', to be translated into lists
+    baseline_args.add_argument('--baseline-pe-array-x', type=int, nargs='+', default=[],
+                               help='List the PE row size per-accelerator in the heterogeneous '
+                                    'case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-pe-array-y', type=int, nargs='+', default=[],
+                               help='List the PE column size per-accelerator in the heterogeneous '
+                                    'case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-precision', type=int, nargs='+', default=[],
                                help='List the precision per-accelerator in the heterogeneous '
-                                    'case or a single precision for the homogeneous one.')
+                                    'case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-sram-size', type=int, nargs='+', default=[],
+                               help='List the SRAM size per-accelerator in the heterogeneous '
+                                    'case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-ifmap-spad-size', type=int, nargs='+', default=[],
+                               help='List the size of the IFM scratchpad per-accelerator in the '
+                                    'heterogeneous case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-weights-spad-size', type=int, nargs='+', default=[],
+                               help='List the size of the weights scratchpad per-accelerator in the '
+                                    'heterogeneous case or a single value for the homogeneous one.')
+    baseline_args.add_argument('--baseline-psum-spad-size', type=int, nargs='+', default=[],
+                               help='List the size of the partial sum scratchpad per-accelerator in the '
+                                    'heterogeneous case or a single value for the homogeneous one.')
     return parser
 
 

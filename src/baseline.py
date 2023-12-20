@@ -58,21 +58,30 @@ class BaselineEvaluator(AcceleratorOptimizer):
     def init_accelerator(self, args):
         """Create the multi-accelerator architecture
         """
-        print(len(args.baseline_precision))
-        if args.baseline_homogeneous:
-            if len(args.baseline_precision) == 1:
-                args.baseline_precision = [args.baseline_precision] * args.baseline_num_accelerators
-        assert len(args.baseline_precision) == args.baseline_num_accelerators 
-
         self.state = []
         for accelerator_idx in range(args.baseline_num_accelerators):
+
+            values = []
             # get the value for each attribute of the accelerator
-            values = [
-                args.baseline_precision[accelerator_idx] 
-                    if 'precision' in field.lower() else 
-                getattr(self.accelerator_cfg, field)
-                for field in self.accelerator_cfg.state._fields
-            ]
+            for field in self.accelerator_cfg.state._fields:
+                # if the attribute is not given as an argument, keep default
+                if getattr(args, 'baseline_' + field, None) is None:
+                    value = getattr(self.accelerator_cfg, field)
+                else:
+                    # if the default value is overriden by an argument
+                    value = getattr(args, 'baseline_' + field)
+                    try:
+                        value = value[0] if args.baseline_homogeneous else value[accelerator_idx]
+                    except (IndexError, TypeError):
+                        raise ValueError(f'Wrong number of arguments for --baseline-{field} ({value}) and a '
+                                         f'{"homogeneous" if args.baseline_homogeneous else "heterogeneous"} '
+                                         f'baseline accelerator of {args.baseline_num_accelerators} accelerators. '
+                                         'NOTE: In case of a non-homogeneous baseline accelerator, '
+                                         'provide as many arguments as the number of accelerators. '
+                                         'A homogenous baseline would use the first provided argument.')
+
+                values.append(value)
+
             # create the accelerator instance
             self.state.append(self.accelerator_cfg.state(*values))
 

@@ -285,11 +285,13 @@ class Scheduler:
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
         return schedule
 
-    def _run_with_identical_bins(self):
+    def _run_with_identical_bins(self, *args, **kwargs):
         """Static scheduling with homogeneous bins w.r.t. of values and weights per item
            This is an implementation of the Multiple Knapsack problem
         """
-        raise NotImplementedError
+        # TODO: This is a temporary implementation. We use the same GAP solver as ours,
+        #       but expect to have the same cost/weight values for all bins
+        return self._run_ours(*args, **kwargs)
 
     def _run_greedy(self):
         """Greedy implementation of a static scheduling for the generative

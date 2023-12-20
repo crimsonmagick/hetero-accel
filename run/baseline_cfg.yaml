@@ -51,4 +51,10 @@ accel_args:
 baseline_args:
         baseline_num_accelerators: 4
         baseline_homogeneous: True
-        baseline_precision: [16, 16, 16, 16]
+        baseline_pe_array_x: null
+        baseline_pe_array_y: null
+        baseline_precision: 16
+        baseline_sram_size: null
+        baseline_ifmap_spad_size: null
+        baseline_weights_spad_size: null
+        baseline_psum_spad_size: null

@@ -102,8 +102,8 @@ class AcceleratorOptimizer(Annealer):
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
-        logger.debug(f"SA: Initial state={self.state} -> Energy={self.initial_energy}, "
-                     f"Latency={self.initial_latency}, Area={self.initial_area}")
+        logger.info(f"Initial results -> Energy={self.initial_energy:.3e}, "
+                     f"Latency={self.initial_latency:.3e}, Area={self.initial_area:.3e}")
 
         # setup scheduling parameters during annealing
         self.update = self._update_logging
@@ -142,9 +142,9 @@ class AcceleratorOptimizer(Annealer):
                 ]
                 initial_state.append(self.design_space.extract(*values))
 
-        logger.debug("Initial state:")
+        logger.info("=> Initial state:")
         for state in initial_state:
-            logger.debug(f"\t{state}")
+            logger.info(f"\t{state}")
         return initial_state
 
     def init_timeloop(self, layer_type_whitelist):
@@ -254,6 +254,7 @@ class AcceleratorOptimizer(Annealer):
         save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
         with open(save_state_to, 'wb') as f:
             pickle.dump(state_dict, f)
+        logger.info(f"Saved state in: {save_state_to}")
 
     def load_state(self, load_from, save_state_to=None):
         """Load the state and its results from a given file
@@ -277,6 +278,7 @@ class AcceleratorOptimizer(Annealer):
     def move(self):
         """Alter the current state, by changing at least one accelerator for its
            architectural parameters. The precision remains constant
+           NOTE: This works for accelerators with the attribute 'precision'
         """
         new_state = self.state
         while new_state == self.state:
@@ -287,7 +289,10 @@ class AcceleratorOptimizer(Annealer):
                 for accelerator_idx in range(self.num_accelerators)
             ]
         self.state = new_state
-        logger.debug(f"=> Move taken: new state={new_state}")
+
+        logger.info("=> Move taken. New state:")
+        for state in new_state:
+            logger.info(f"\t{state}")
 
     def energy(self, initial=False):
         """Wrapper function for estimating the SA energy
@@ -307,7 +312,7 @@ class AcceleratorOptimizer(Annealer):
         """Evaluate the fitness of the current state
         """
         def violated_deadline(schedule):
-            deadline = getattr(self.hw_constraints, 'deadline', None)
+            deadline = getattr(getattr(self, 'hw_constraints', None), 'deadline', None)
             # the constraint is not violated if a deadline is not given
             return deadline is not None and \
                    any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
@@ -351,20 +356,14 @@ class AcceleratorOptimizer(Annealer):
                     continue
 
                 # adjust timeloop with the accelerator parameters
-                # NOTE: VERY important to change the PE array dimensions first,
-                #       such that the memory width can adjust to the new dimensions
-                #       and the change in precision
-                self.timeloop_wrapper.adjust_pe_array(accelerator.pe_array_x,
-                                                      accelerator.pe_array_y)
-                self.timeloop_wrapper.adjust_memories(accelerator)
-                self.timeloop_wrapper.adjust_precision(accelerator.precision)
+                self.timeloop_wrapper.adjust_architecture(accelerator)
 
                 energy_dict[(arch, accelerator)] = 0
                 latency_dict[(arch, accelerator)] = 0
                 area_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
                 for problem_name in self.timeloop_problems_per_dnn[arch]:
-                    logger.info(f"\t\t\tEvaluating layer/problem: {problem_name}")
+                    logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
 
                     # run timeloop and get results
                     self.timeloop_wrapper.run(problem_name)
@@ -385,7 +384,7 @@ class AcceleratorOptimizer(Annealer):
             self.latency_dict.update(latency_dict)
             self.area_dict.update(area_dict)
 
-        logger.debug("Completed mapping evaluation")
+        logger.info("Completed mapping evaluation")
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         start = time()
