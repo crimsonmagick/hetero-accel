@@ -4,7 +4,7 @@ import math
 import re
 import subprocess
 import numpy as np
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict, namedtuple, deque
 from enum import Enum
 from time import time
 # matplotlib imports
@@ -27,7 +27,7 @@ class SchedulerType(Enum):
     Ours = 1
     Random = 2
     MultiKnapsack = 3
-    Greedy = 4
+    SOTA = 4
 
 
 ScheduleEntry = namedtuple('ScheduleEntry',
@@ -171,7 +171,7 @@ class Scheduler:
             SchedulerType.Ours: self._run_ours,
             SchedulerType.Random: self._run_random_scheduling,
             SchedulerType.MultiKnapsack: self._run_with_identical_bins,
-            SchedulerType.Greedy: self._run_greedy,
+            SchedulerType.SOTA: self._run_sota
         }.get(scheduler_type)
 
     def run(self, *args, **kwargs):
@@ -274,13 +274,13 @@ class Scheduler:
             schedule.add(item, bin, weight_dict[(item, bin)])
         return schedule
 
-    def _run_random_scheduling(self, items, bins, value_dict, weight_dict):
+    def _run_random_scheduling(self, items, bins, cost_dict, weight_dict):
         """Random assignment of items to bins
         """
         schedule = Schedule(bins)
         for item in items:
             bin_sel = random.choice(bins)
-            while (item, bin_sel) not in value_dict:
+            while (item, bin_sel) not in cost_dict:
                 bin_sel = random.choice(bins)
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
         return schedule
@@ -293,41 +293,47 @@ class Scheduler:
         #       but expect to have the same cost/weight values for all bins
         return self._run_ours(*args, **kwargs)
 
-    def _run_greedy(self):
-        """Greedy implementation of a static scheduling for the generative
-           assignment problem. Options here are:
-           1) Order the items based on their value and then,
-              at each timestep assign the task with the greater difference between
-              their first and second-best assignment value.
-           2) Order the items based on their value and start the assignment
-              from highest to lowest
+    def _run_sota(self, items, bins, cost_dict, weight_dict):
+        """Execute the scheduling described in: https://ieeexplore.ieee.org/document/9789220.
+           We assume a queue of (randomly) shuffled items that are mapped to bins in the order
+           of the queue.
         """
-        raise NotImplementedError("Not yet completed implementation")
         schedule = Schedule(bins)
 
-        # order all items based on their value for any bin
-        ordered_value_dict = OrderedDict(
-            sorted(cost_dict.items(), key=lambda item: item[1], reverse=True)
-        )
+        random.shuffle(items)
+        queue = deque(items, maxlen=len(items))
+        ready_list = {bin: [] for bin in bins}
+        response_time = {item: {bin: -1 for bin in bins} for item in items}
 
-        # 2d array of differences between all values for each item and any bin
-        diff_2d = {}
-        for item in items:
-            values_2d = np.array(
-                [value for key,value in ordered_value_dict.items() if item in key]
-            )
-            values_2d = np.expand_dims(values_2d, 1)
-            diff_2d[item] = values_2d - values_2d.transpose() 
+        # populate the ready list of 
+        while len(queue) > 0:
+            next_item = queue.pop()
+            available_bins = [item_and_bin[1] for item_and_bin, weight in weight_dict.items()
+                               if next_item in item_and_bin and weight > 0]
+            
+            for available_bin in available_bins:
 
-        items_assigned = []
-        while len(items_assigned) < len(items):
-            select_index = 1
+                # TODO: Here we do design-time scheduling, so the agent (bin) is not
+                #       currently executing any tasks. Rather, we assign tasks to its
+                #       ready list so they can be executed in order
+                bin_workload = 0
+                weight_ready_list = sum([weight_dict[(item, available_bin)] for item in ready_list[available_bin]])
+                weight_next_item = weight_dict[(next_item, available_bin)]
+                assert weight_next_item >= 0
 
-            item_bin_pair, _ = ordered_value_dict.popitem(select_index)
-            schedule.add(item_bin_pair[0], item_bin_pair[1], weight_dict[item_bin_pair])
-            items_assigned.append(item_bin_pair[0])
+                # the response time is the sum of the current workload of the agent (bin),
+                #  the total weight of the items on the bin's ready list and the weight of 
+                #  the current item to-be-assigned
+                response_time[next_item][available_bin] = bin_workload + weight_ready_list + weight_next_item
+            
+            # the item/task is assigned to the bin with the minimum response time
+            selected_bin = min(response_time[next_item], key=response_time[next_item].get)
+            # assign the item to the ready list of the bin
+            ready_list[selected_bin].append(next_item)
+            # add to the schedule
+            schedule.add(next_item, selected_bin, weight_dict[(next_item, selected_bin)])
 
-
+        return schedule
 
 
 if __name__ == "__main__":

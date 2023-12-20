@@ -20,6 +20,7 @@ from src.dataset import load_data
 from src.accelerator_cfg import AcceleratorProfile
 from src.optimizer import AcceleratorOptimizer
 from src.baseline import run_baseline
+from src.sota import run_sota
 
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,13 @@ def main():
         # construct final schedule from all the mappings
         schedule, metrics = final_schedule(accel, mappings)
 
+    # evaluate a given baseline accelerator architecture
     elif args.operation_mode == OperationMode.Baseline:
         run_baseline(args, workload, dnn_accuracy_lut)
+    
+    # execute the optimizations in the state-of-the-art
+    elif args.operation_mode == OperationMode.SOTA:
+        run_sota(args, workload, dnn_accuracy_lut)
 
 
 def setup_workload(args):
@@ -228,12 +234,15 @@ def accelerator_exploration(args, workload, accuracy_lut):
                                      hw_constraints=SimpleNamespace(deadline=args.deadline_constraint,
                                                                     area=args.area_constraint)
                                      )
-    # optimizer.run()
-    logger.info(optimizer.best_state)
+    optimizer.run()
+
+    # save the best state
+    optimizer.set_state(optimizer.best_state)
+    optimizer.save_state(os.path.join(optimizer.logdir, 'best_state.sa.pkl'))
 
     mappings = OrderedDict()
     for key in optimizer.energy_dict:
-        assert key in optimizer.latency_dict | optimizer.area_dict
+        assert key in optimizer.latency_dict and key in optimizer.area_dict
         mappings[key] = SimpleNamespace(energy=optimizer.energy_dict[key],
                                         latency=optimizer.latency_dict[key],
                                         area=optimizer.area_dict[key])

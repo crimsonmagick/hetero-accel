@@ -102,11 +102,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
            using Timeloop/Accelergy
         """
         total_area = total_latency = total_power = total_energy = 0
-
-        # cleanup the timeloop files
-        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
-            os.remove(timeloop_file)
-
         _, layer_stats = self.compute_model_statistics()
         # itearate over all layers
         layer_idx = 0
@@ -127,14 +122,12 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                                            adjust_by=(1 - layer_stats[name]['sparsity_filters']))
             self.timeloop_wrapper.adjust_problem_dimension(name, 'C',
                                                            adjust_by=(1 - layer_stats[name]['sparsity_channels']))
-
             # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
             self.timeloop_wrapper.adjust_precision(bits)
         
             # execute timeloop
             self.timeloop_wrapper.run(name)
-
             # gather results from simulation
             results = self.timeloop_wrapper.get_results(project_dir)
             logger.debug(f'Timeloop results for layer {layer_idx} ({name}): '
@@ -146,10 +139,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             total_energy += results.energy
 
             layer_idx += 1
-
-        # cleanup the timeloop files
-        for timeloop_file in glob(os.path.join(project_dir, 'timeloop-mapper*')):
-            os.remove(timeloop_file)
 
         return total_area, total_latency, total_power, total_energy
 

@@ -1,0 +1,52 @@
+---
+app_args:
+        operation_mode: sota
+        output_dir: 'logs'
+        name: null
+        deterministic: True
+        global_seed: 0
+        dnn_accuracy_lut_file: lut.csv
+        scheduler_type: sota
+
+dnn_op_mode_args:
+        evaluate_model_mode: False
+        train_model_mode: False
+        test_timeloop_accelergy_mode: False
+        test_pruning_quant_mode: False
+        model_summary_mode: null
+
+workload_args:
+        workload_idx: Atest
+        workers: 15
+        batch_size: 128
+        load_serialized: False
+        gpus: 0
+        cpu: False
+        validation_split: 0.3
+        effective_train_size: 0.5
+        effective_valid_size: 0.5
+        effective_test_size: 1
+        model_verbose: False
+
+compression_args:
+        pruning_group_type: rows
+        pruning_high: 1.0
+        pruning_low: 0.0
+        pruning_incr: 0.05
+        quant_high: 8
+        quant_low: 4
+        quant_incr: 1
+        top1_constraint: 2
+        top5_constraint: null
+        loss_constraint: null
+        use_validation_set: False
+        size_constraint: 50
+        sparsity_constraint: null
+
+accel_args:
+        accelerator_arch_type: eyeriss
+        deadline_constraint: null
+        area_constraint: 0.05
+
+sota_args:
+        sota_load_baseline_results: baseline.results.pkl

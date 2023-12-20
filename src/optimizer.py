@@ -238,6 +238,13 @@ class AcceleratorOptimizer(Annealer):
                   file=sys.stderr, end="")
             sys.stderr.flush()
 
+    def set_state(self, state):
+        """Set a given state
+        """
+        self.state = state
+        self.latest_energy = self.latest_latency = self.latest_area = None
+        self.latest_schedule = None
+
     def save_state(self, save_state_to=None):
         """Save the latest state and results from energy/fitness calculation
         """
@@ -298,13 +305,13 @@ class AcceleratorOptimizer(Annealer):
         """Wrapper function for estimating the SA energy
         """
         start = time()
-        logger.info(f"=> Beginning {'initial ' if initial else ''}energy calculation")
+        logger.info(f"=> Beginning {'initial ' if initial else ''}energy evaluation")
         energy = self._energy_evaluation()
         logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
-        logger.info(f"SA Energy results:\n"
-                    f"\tEnergy={self.latest_energy}\n"
-                    f"\tLatency={self.latest_latency}\n"
-                    f"\tArea={self.latest_area}")
+        logger.info(f"Evaluation results:\n"
+                    f"\tEnergy={self.latest_energy:.3e}\n"
+                    f"\tLatency={self.latest_latency:.3e}\n"
+                    f"\tArea={self.latest_area:.3e}")
         logger.info("*--------------*")
         return energy
 
@@ -371,19 +378,18 @@ class AcceleratorOptimizer(Annealer):
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
                     area_dict[(arch, accelerator)] += results.area
-                    logger.debug(f"\t\t\tLayer-wise results: energy={results.energy}, "
-                                 f"latency={results.cycles}, area={results.area}")
+                    logger.debug(f"\t\t\tLayer-wise results: energy={results.energy:.3e}, "
+                                 f"latency={results.cycles:.3e}, area={results.area:.3e}")
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
-                             f"\t\t\tEnergy={energy_dict[(arch, accelerator)]}\n"
-                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]}\n"
-                             f"\t\t\tArea={area_dict[(arch, accelerator)]}")
+                             f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
+                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
+                             f"\t\t\tArea={area_dict[(arch, accelerator)]:.3e}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
             self.latency_dict.update(latency_dict)
             self.area_dict.update(area_dict)
-
         logger.info("Completed mapping evaluation")
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping

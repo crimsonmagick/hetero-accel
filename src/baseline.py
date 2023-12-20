@@ -1,8 +1,8 @@
 import logging
 import os.path
 from time import time
+from collections import OrderedDict
 from src.accelerator_cfg import AcceleratorProfile
-from src.timeloop import TimeloopWrapper
 from src.scheduler import Scheduler
 from src.optimizer import AcceleratorOptimizer
 
@@ -40,11 +40,9 @@ class BaselineEvaluator(AcceleratorOptimizer):
         self.accuracy_lut = accuracy_lut
         self.num_accelerators = args.baseline_num_accelerators
         self.logdir = args.logdir
-        self.timeloop_wrapper = None
-        self.timeloop_problems_per_dnn = None
-        self.energy_dict = {}
-        self.area_dict = {}
-        self.latency_dict = {}
+        self.energy_dict = OrderedDict()
+        self.latency_dict = OrderedDict()
+        self.area_dict = OrderedDict()
         self.latest_energy = self.latest_latency = self.latest_area = None
         self.latest_schedule = None
 
@@ -86,17 +84,7 @@ class BaselineEvaluator(AcceleratorOptimizer):
             self.state.append(self.accelerator_cfg.state(*values))
 
     def evaluate(self):
-        """Evaluate the multi-accelerator architecture
-        """
-        start = time()
-        logger.info("=> Beginning baseline evaluation")
-        self._energy_evaluation()
-        logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
-        logger.info(f"Baseline results:\n"
-                    f"\tEnergy={self.latest_energy}\n"
-                    f"\tLatency={self.latest_latency}\n"
-                    f"\tArea={self.latest_area}")
-        logger.info("*--------------*")
+        super().energy()
 
     def save_state(self):
         """Save the baseline measurements

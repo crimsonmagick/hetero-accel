@@ -185,6 +185,15 @@ def baseline_args(parser):
     return parser
 
 
+def sota_args(parser):
+    """State-of-the-art evaluation-related arguments
+    """
+    sota_args = parser.add_argument_group('SOTA-related arguments')
+    sota_args.add_argument('--sota-load-baseline-results', metavar='PATH',
+                           help='File where the evaluation results of a baseline accelerator')
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """
@@ -198,10 +207,12 @@ def check_args(args):
 class OperationMode(Enum):
     Ours = 1
     Baseline = 2
+    SOTA = 3
 
 def operation_mode_arg(argstr):
     str_to_operation_mode_map = {'ours': OperationMode.Ours,
-                                 'baseline': OperationMode.Baseline}
+                                 'baseline': OperationMode.Baseline,
+                                 'sota': OperationMode.SOTA}
     try:
         return str_to_operation_mode_map[argstr.lower()]
     except KeyError:
@@ -260,7 +271,7 @@ def scheduler_type_arg(argstr):
     str_to_scheduler_type_map = {'ours': SchedulerType.Ours,
                                  'random': SchedulerType.Random,
                                  'multiknapsack': SchedulerType.MultiKnapsack,
-                                 'greedy': SchedulerType.Greedy}
+                                 'sota': SchedulerType.SOTA}
     try:
         return str_to_scheduler_type_map[argstr.lower()]
     except KeyError:
