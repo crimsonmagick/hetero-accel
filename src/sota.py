@@ -71,8 +71,14 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.init_timeloop(args.layer_type_whitelist)
         # load baseline results
         self.load_baseline_results(args.sota_load_baseline_results)
+        # load state if provided
+        if getattr(args, 'load_state_from', None) is not None and \
+           os.path.exists(args.load_state_from):
+            # load the initial state of the accelerator
+            self.load_state(args.load_state_from)
+
         # discover the accelerator architecture
-        self.create_accelerator(args)
+        self.create_accelerator(getattr(args, 'area_constraint', None))
         # restore the desired scheduler
         self.scheduler = Scheduler(args.scheduler_type)
 
@@ -98,16 +104,15 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.baseline_area = bl_state_dict['latest_area'] / len(bl_state_dict['state'])
         logger.info(f"Baseline area: {self.baseline_area:.3e}")
 
-    def create_accelerator(self, args):
+    def create_accelerator(self, area_constraint):
         """Create the multi-accelerator architecture, based on a given
            area constraint, by iteratively performing area evaluations to
            find the optimal number of PEs for the systolic array
         """
-        assert getattr(args, 'area_constraint', None) is not None and \
-               0 < args.area_constraint < 1, \
+        assert (area_constraint is not None) and (0 < area_constraint < 1), \
             "An area constraint ([0, 1]) is needed to decide the dimensions of the PE array"
-        area_min = self.baseline_area * (1 - args.area_constraint)
-        area_max = self.baseline_area * (1 + args.area_constraint)
+        area_min = self.baseline_area * (1 - area_constraint)
+        area_max = self.baseline_area * (1 + area_constraint)
         logger.info(f"Area bounds: [{area_min:.3e}, {area_max:.3e}]")
 
         # For the area evaluations, we use our Scheduler. This will be reverted later
@@ -115,7 +120,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
 
         state = []
         previous_pes = self.baseline_state.pe_array_x * self.baseline_state.pe_array_y
-        for accelerator_idx in range(args.baseline_num_accelerators):
+        for accelerator_idx in range(self.num_accelerators):
             # initialize the area and number of PEs
             num_pes = previous_pes
             area = self.baseline_area
@@ -127,8 +132,11 @@ class SOTAEvaluator(AcceleratorOptimizer):
             while num_pes <= previous_pes or not (area_min <= area <= area_max):
                 # decrease the number of PEs
                 pe_x -= 1
+                assert pe_x > 0, "Invalid PE elements. Relax the area " \
+                                 "constraint to find a valid solution"
 
-                # create the accelerator instance, with specific precision and PE elements 
+                # create the accelerator instance, with specific precision and PE elements
+                # the rest of the attributes are the same as the baseline
                 values = []
                 for field in self.accelerator_cfg.state._fields:
                     if field in ('pe_array_x', 'pe_array_y'):
@@ -136,7 +144,8 @@ class SOTAEvaluator(AcceleratorOptimizer):
                     elif field == 'precision':
                         value = self.precision_options[accelerator_idx]
                     else:
-                        value = getattr(self.accelerator_cfg, field)
+                        # value = getattr(self.accelerator_cfg, field)
+                        value = getattr(self.baseline_state, field)
                     values.append(value)
                 accelerator = self.accelerator_cfg.state(*values)
                 num_pes = accelerator.pe_array_x * accelerator.pe_array_y

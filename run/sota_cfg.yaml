@@ -5,8 +5,9 @@ app_args:
         name: null
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: lut.csv
+        dnn_accuracy_lut_file: data/lut.csv
         scheduler_type: sota
+        load_state_from: data/sota.results.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -46,7 +47,7 @@ compression_args:
 accel_args:
         accelerator_arch_type: eyeriss
         deadline_constraint: null
-        area_constraint: 0.05
+        area_constraint: 0.1
 
 sota_args:
-        sota_load_baseline_results: baseline.results.pkl
+        sota_load_baseline_results: data/baseline.results.pkl

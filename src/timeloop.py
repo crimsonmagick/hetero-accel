@@ -91,13 +91,14 @@ class TimeloopWrapper:
     def run(self, problem_name):
         """Execute the Timeloop+Accelergy infrastructure via command-line
         """
+        logfile = os.path.join(self.output_dir, 'timeloop-mapper.log')
         command = f'timeloop-mapper ' \
                   f'{self.arch.arch_filepath} ' \
                   f'{" ".join(self.arch.component_files)} ' \
                   f'{self.workloads[problem_name].problem_filepath} ' \
                   f'{self.mapper.mapper_filepath} ' \
                   f'{self.constraint_dir}/*.yaml ' \
-                  f'-o {self.output_dir} '
+                  f'-o {self.output_dir} 2>&1 | tee {logfile}'
         logger.debug(f'timeloop-mapper command: {command}')
         start = time()
         p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
@@ -110,6 +111,23 @@ class TimeloopWrapper:
            a script that does a more analytical parsing: 
            https://github.com/NVlabs/timeloop/blob/master/scripts/parse_timeloop_output.py#L55
         """
+        def _get_area_from_ART(area_file=None):
+            """Gather an area measurement from the ART file. Note, the area
+               measurements in the file are per unit
+            """
+            area_summary_file = area_file or os.path.join(self.output_dir, 'timeloop-mapper.ART.yaml')
+            assert os.path.exists(area_summary_file)
+            with open(area_summary_file, 'r') as stream:
+                area_dict = yaml.safe_load(stream)
+            # this is in um^2
+            area = 0.0
+            for item in area_dict['ART']['tables']:
+                num_units = 1
+                if re.search('\d+[.]{2}\d+', item['name']):
+                    num_units = re.search("[.][.](\d+)[]]", item['name']).group(1)
+                area += (int(num_units) + 1) * item['area']
+            return area * 1e-6  # in mm^2
+
         stats_file = os.path.join(self.output_dir, 'timeloop-mapper.stats.txt')
         assert os.path.exists(stats_file)
         with open(stats_file, 'r') as f:
@@ -127,17 +145,11 @@ class TimeloopWrapper:
         edp = re.search('EDP.*?: (.*)', stats).group(1)
         edp = float(edp)                    # J * cycle
 
-        # NOTE: Area comes back as 0.0 from the stats file. We override with ART values
+        # get the area in mm^2 from the stats file
         area = re.search('Area: ([\d.]+)', stats).group(1)
-        area = float(area)                  # mm^2
-        if area <= 0.0:
-            area_summary_file = os.path.join(self.output_dir, 'timeloop-mapper.ART.yaml')
-            assert os.path.exists(area_summary_file)
-            with open(area_summary_file, 'r') as stream:
-                area_dict = yaml.safe_load(stream)
-            # this is in um^2
-            area = sum([item['area'] for item in area_dict['ART']['tables']])
-
+        # if area is 0.0 from the stats file, we override with ART values
+        area = _get_area_from_ART() if float(area) <= 0.0 else float(area)
+            
         return TimeloopStats(gflops, utilization, cycles, energy, edp, area)
 
     def cleanup(self, override_outdir=None):
@@ -712,24 +724,26 @@ if __name__ == "__main__":
     prob_name = 'resnet18__layer0_conv1'
     prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
     # have the file already in the test_tl/yamls/ directory
-    shutil.copyfile(project_dir + f'/test_tl/yamls/{prob_name}.yaml', prob_fp)
+    shutil.copyfile(project_dir + f'/test_tl/{prob_name}.yaml', prob_fp)
 
     tw.workloads[prob_name] = SimpleNamespace()
     tw.workloads[prob_name].problem_filepath = prob_fp
 
     from src.accelerator_cfg import AcceleratorProfile
-    accel = AcceleratorProfile(AcceleratorType.Eyeriss)
+    accel_cfg = AcceleratorProfile(AcceleratorType.Eyeriss)
 
-    tested = [
-        (8, 8, 4),
-    ]
+    pe_x = pe_y = 20
+    precision = accel_cfg.precision_weights
+    precision = 8
+    accel = accel_cfg.state(pe_array_x=pe_x,
+                            pe_array_y=pe_y,
+                            precision=precision,
+                            sram_size=accel_cfg.sram_size,
+                            ifmap_spad_size=accel_cfg.ifmap_spad_size,
+                            weights_spad_size=accel_cfg.weights_spad_size,
+                            psum_spad_size=accel_cfg.psum_spad_size)
 
-    for pex in accel.design_space['pe_array_x']:
-        for pey in accel.design_space['pe_array_y']:
-            for precision in [4, 5, 6, 7, 8]:
-                print(pex, pey, precision)
-
-                tw.adjust_pe_array(pex, pey)
-                tw.adjust_precision(precision)
-                p = tw.run(prob_name)
-                assert p.returncode == 0, f"{pex, pey, precision}\n{p.stderr}"
+    tw.adjust_architecture(accel)
+    p = tw.run(prob_name)
+    results = tw.get_results()
+    print(results._asdict())

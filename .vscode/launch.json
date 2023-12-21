@@ -44,6 +44,21 @@
             "console": "integratedTerminal",
             "redirectOutput": true,
             "justMyCode": true
+        },
+        {
+            "name": "SOTA (main.py)",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": [
+                "--yaml-cfg",
+                "run/sota_cfg.yaml",
+                "--workload-cfg",
+                "run/workloads.yaml"
+            ],
+            "console": "integratedTerminal",
+            "redirectOutput": true,
+            "justMyCode": true
         }
     ]
 }
