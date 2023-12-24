@@ -242,10 +242,10 @@ def accelerator_exploration(args, workload, accuracy_lut):
 
     mappings = OrderedDict()
     for key in optimizer.energy_dict:
-        assert key in optimizer.latency_dict and key in optimizer.area_dict
+        assert key in optimizer.latency_dict
         mappings[key] = SimpleNamespace(energy=optimizer.energy_dict[key],
                                         latency=optimizer.latency_dict[key],
-                                        area=optimizer.area_dict[key])
+                                        area=optimizer.area_dict[key[1]])  # area_dict is indexed by the accelerator only
     return optimizer.best_state, mappings
 
 

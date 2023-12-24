@@ -23,6 +23,7 @@ def run_baseline(args, workload, accuracy_lut):
 
     # get the results of the evaluation
     bl_evaluator.evaluate()
+    bl_evaluator.save_state()
 
 
 class BaselineEvaluator(AcceleratorOptimizer):
@@ -49,7 +50,8 @@ class BaselineEvaluator(AcceleratorOptimizer):
         # initialize accelerator
         self.init_accelerator(args)
         # initialize timeloop
-        self.init_timeloop(args.layer_type_whitelist)
+        self.init_timeloop(args.layer_type_whitelist,
+                           timeloop_workdir=os.path.join(self.logdir, 'timeloop_baseline'))
         # initialize scheduler
         self.scheduler = Scheduler(args.scheduler_type)
 

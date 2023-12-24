@@ -147,11 +147,12 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"\t{state}")
         return initial_state
 
-    def init_timeloop(self, layer_type_whitelist):
+    def init_timeloop(self, layer_type_whitelist, timeloop_workdir=None):
         """Initialize timeloop wrapper object
         """
-        tl_workdir = os.path.join(self.logdir, 'timeloop_simanneal')
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
+        if timeloop_workdir is None:
+            timeloop_workdir = os.path.join(self.logdir, 'timeloop_simanneal')
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, timeloop_workdir)
 
         # prepare each layer for timeloop simulations
         self.timeloop_problems_per_dnn = {}
@@ -308,10 +309,11 @@ class AcceleratorOptimizer(Annealer):
         logger.info(f"=> Beginning {'initial ' if initial else ''}energy evaluation")
         energy = self._energy_evaluation()
         logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
-        logger.info(f"Evaluation results:\n"
-                    f"\tEnergy={self.latest_energy:.3e}\n"
-                    f"\tLatency={self.latest_latency:.3e}\n"
-                    f"\tArea={self.latest_area:.3e}")
+        if self.latest_schedule is not None:
+            logger.info(f"Evaluation results:\n"
+                        f"\tEnergy={self.latest_energy:.3e}\n"
+                        f"\tLatency={self.latest_latency:.3e}\n"
+                        f"\tArea={self.latest_area:.3e}")
         logger.info("*--------------*")
         return energy
 
@@ -325,8 +327,12 @@ class AcceleratorOptimizer(Annealer):
                    any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
 
         def violated_area_constraint(area):
-            return area > getattr(self, 'initial_area', 0.0) * \
-                         (1 - getattr(getattr(self, 'hw_constraints', None), 'area', 1.0)) 
+            return not (
+                getattr(self, 'initial_area', None) is None or
+                getattr(self, 'hw_constraints', None) is None or
+                getattr(self.hw_constraints, 'area', None) is None or
+                area < self.initial_area * (1 + self.hw_constraints.area)
+            )
 
         def violated_accuracy_constraint(arch, precision):
             try:
@@ -339,8 +345,8 @@ class AcceleratorOptimizer(Annealer):
 
         # metrics to be accumulated
         energy_dict = {}
-        area_dict = {}
         latency_dict = {}
+        results = None
 
         # iterate over each accelerator
         for accelerator in self.state:
@@ -359,7 +365,6 @@ class AcceleratorOptimizer(Annealer):
                     # Invalid scheduling mappings are marked with negative weight (latency)
                     self.energy_dict[(arch, accelerator)] = -1
                     self.latency_dict[(arch, accelerator)] = -1
-                    self.area_dict[(arch, accelerator)] = -1
                     continue
 
                 # adjust timeloop with the accelerator parameters
@@ -367,7 +372,6 @@ class AcceleratorOptimizer(Annealer):
 
                 energy_dict[(arch, accelerator)] = 0
                 latency_dict[(arch, accelerator)] = 0
-                area_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
                 for problem_name in self.timeloop_problems_per_dnn[arch]:
                     logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
@@ -377,20 +381,30 @@ class AcceleratorOptimizer(Annealer):
                     results = self.timeloop_wrapper.get_results()
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
-                    area_dict[(arch, accelerator)] += results.area
-                    logger.debug(f"\t\t\tLayer-wise results: energy={results.energy:.3e}, "
-                                 f"latency={results.cycles:.3e}, area={results.area:.3e}")
+                    logger.debug(f"\t\t\tLayer-wise results: "
+                                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}")
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\tArea={area_dict[(arch, accelerator)]:.3e}")
+                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
             self.latency_dict.update(latency_dict)
-            self.area_dict.update(area_dict)
+            # store the accelerator area from the results of the last mapping
+            # all layers with the same accelerator should give the same area
+            if accelerator not in self.area_dict:
+                self.area_dict[accelerator] = getattr(results, 'area', None)
+            logger.debug(f"\tAccelerator area: {self.area_dict[accelerator]}")
+
         logger.info("Completed mapping evaluation")
+
+        # check the area constraint
+        self.latest_area = sum([self.area_dict[accelerator] for accelerator in self.state])
+        if violated_area_constraint(self.latest_area):
+            self.latest_schedule = None
+            self.latest_energy = self.latest_latency = None
+            return self.WORST_ENERGY
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         start = time()
@@ -404,11 +418,11 @@ class AcceleratorOptimizer(Annealer):
 
         if schedule is None:
             # return in case of invalid schedule
-            self.latest_energy = self.latest_latency = self.latest_area = None
+            self.latest_energy = self.latest_latency = None
             logger.info(f"Could not find valid schedule")
             return self.WORST_ENERGY
 
-        # get results for energy, latency and area based on the final schedule
+        # get results for energy and latency based on the final schedule
         self.latest_energy = sum([
             self.energy_dict[(entry.tag, entry.bin)] for entry in schedule.entries
         ])
@@ -417,19 +431,15 @@ class AcceleratorOptimizer(Annealer):
                 self.latency_dict[(entry.tag, entry.bin)] for entry in entries
             ]) for bin, entries in schedule.as_dict(main_key='bin').items()
         ])
-        self.latest_area = sum(
-            self.area_dict[(entry.tag, entry.bin)] for entry in schedule.entries
-        )
 
         # log the results of the scheduling
         schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
-        logger.info(f"Scheduler results:\n\t{schedule_str}")
 
         # save the results
         self.save_state()
+        logger.info(f"Scheduler results:\n\t{schedule_str}")
 
-        # check deadline and area constraints
-        if violated_deadline(schedule) or \
-           violated_area_constraint(self.latest_area):
+        # check deadline constraint
+        if violated_deadline(schedule):
             return self.WORST_ENERGY
         return self.latest_energy

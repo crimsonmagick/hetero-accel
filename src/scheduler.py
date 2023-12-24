@@ -1,6 +1,6 @@
 import logging
 import os.path
-import math
+import random
 import re
 import subprocess
 import numpy as np
@@ -308,9 +308,11 @@ class Scheduler:
         # populate the ready list of 
         while len(queue) > 0:
             next_item = queue.pop()
-            available_bins = [item_and_bin[1] for item_and_bin, weight in weight_dict.items()
-                               if next_item in item_and_bin and weight > 0]
-            
+            # gather the available bins for that item: only those with positive weight
+            #  (i.e., valid mapping) are considered
+            available_bins = [bin for bin in bins if (next_item, bin) in weight_dict and
+                                                     weight_dict[(next_item, bin)] > 0]
+
             for available_bin in available_bins:
 
                 # TODO: Here we do design-time scheduling, so the agent (bin) is not
@@ -327,7 +329,8 @@ class Scheduler:
                 response_time[next_item][available_bin] = bin_workload + weight_ready_list + weight_next_item
             
             # the item/task is assigned to the bin with the minimum response time
-            selected_bin = min(response_time[next_item], key=response_time[next_item].get)
+            selected_bin = min({bin: rtime for bin, rtime in response_time[next_item].items() if rtime >= 0},
+                               key=response_time[next_item].get)
             # assign the item to the ready list of the bin
             ready_list[selected_bin].append(next_item)
             # add to the schedule

@@ -49,7 +49,7 @@ accel_args:
         area_constraint: null
 
 baseline_args:
-        baseline_num_accelerators: 4
+        baseline_num_accelerators: 1
         baseline_homogeneous: True
         baseline_pe_array_x: null
         baseline_pe_array_y: null

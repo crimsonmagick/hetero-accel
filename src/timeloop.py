@@ -722,6 +722,7 @@ if __name__ == "__main__":
                          project_dir + '/test_tl')
 
     prob_name = 'resnet18__layer0_conv1'
+    # prob_name = 'vgg11__layer0_features.0'
     prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
     # have the file already in the test_tl/yamls/ directory
     shutil.copyfile(project_dir + f'/test_tl/{prob_name}.yaml', prob_fp)

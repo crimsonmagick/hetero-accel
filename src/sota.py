@@ -22,6 +22,7 @@ def run_sota(args, workload, accuracy_lut):
 
     # create the multi-accelerator
     sota_evaluator = SOTAEvaluator(args, accel_cfg, workload, accuracy_lut)
+    sota_evaluator.save_state()
     logger.info("Accelerator architecture:")
     for accelerator in sota_evaluator.state:
         logger.info(f"\t{accelerator}")
@@ -68,7 +69,8 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.num_accelerators = len(self.precision_options) 
 
         # initialize timeloop
-        self.init_timeloop(args.layer_type_whitelist)
+        self.init_timeloop(args.layer_type_whitelist,
+                           timeloop_workdir=os.path.join(self.logdir, 'timeloop_sota'))
         # load baseline results
         self.load_baseline_results(args.sota_load_baseline_results)
         # load state if provided
@@ -98,10 +100,11 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.latency_dict = bl_state_dict['latency']
         self.area_dict = bl_state_dict['area']
         # load the baseline architecture/state as a single accelerator 
-        assert len(set(bl_state_dict['state'])) == 1, "All baseline accelerators must be homogeneous"
+        assert len(bl_state_dict['state']) == 1, "A single baseline accelerator is needed as a baseline"
         self.baseline_state = bl_state_dict['state'][0]
         # load the baseline area of the single accelerator
-        self.baseline_area = bl_state_dict['latest_area'] / len(bl_state_dict['state'])
+        self.baseline_area = bl_state_dict['latest_area']
+        assert self.baseline_area is not None or self.baseline_state != 0.0
         logger.info(f"Baseline area: {self.baseline_area:.3e}")
 
     def create_accelerator(self, area_constraint):
@@ -122,14 +125,14 @@ class SOTAEvaluator(AcceleratorOptimizer):
         previous_pes = self.baseline_state.pe_array_x * self.baseline_state.pe_array_y
         for accelerator_idx in range(self.num_accelerators):
             # initialize the area and number of PEs
+            area = 2 * area_max
             num_pes = previous_pes
-            area = self.baseline_area
             pe_x = 2 * max(self.accelerator_cfg.pe_array_x, self.accelerator_cfg.pe_array_y)
 
             # make sure that as the precision lowers, the number of PEs increase and
             #  at the same time the area is kept within the margins
-            # NOTE: We assume a 'rectangle' PE array (i.e., pe_x == pe_y)
-            while num_pes <= previous_pes or not (area_min <= area <= area_max):
+            # NOTE: We assume a 'rectangular' PE array (i.e., pe_x == pe_y)
+            while not (num_pes >= previous_pes and area_min <= area <= area_max):
                 # decrease the number of PEs
                 pe_x -= 1
                 assert pe_x > 0, "Invalid PE elements. Relax the area " \
@@ -157,6 +160,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
 
             # save accelerator instance
             state.append(accelerator)
+            logger.info(f"=> Accepting accelerator: {accelerator}")
             # update area and number of PEs for next accelerator
             previous_pes = num_pes
 
