@@ -31,8 +31,8 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
 
         # pruner and quantizer for compression
         self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,
-                             eridanus_window_w=self.accelerator_profile.width,
-                             eridanus_window_h=self.accelerator_profile.height)
+                             eridanus_window_w=self.accelerator_profile.pe_array_x,
+                             eridanus_window_h=self.accelerator_profile.pe_array_y)
         self.quantizer = Quantizer(self.layers_to_compress)
 
         # timeloop wrapper to execute mapping searches and energy/area estimation

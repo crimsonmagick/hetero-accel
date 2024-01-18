@@ -220,6 +220,26 @@ def accelerator_exploration(args, workload, accuracy_lut):
     except ValueError:
         pass
 
+    # check if there is at least one valid option for each DNN
+    if any(
+        accuracy_lut.loc[
+            (accuracy_lut['Network'] == arch) & 
+            (accuracy_lut['QuantBits'] != 32) & 
+            (accuracy_lut['QuantBits'] != 16)
+        ]['Valid'].sum() == 0
+        for arch in workload.dnns
+    ):
+        which_dnns = [
+            arch for arch in workload.dnns
+            if accuracy_lut.loc[
+                (accuracy_lut['Network'] == arch) & 
+                (accuracy_lut['QuantBits'] != 32) & 
+                (accuracy_lut['QuantBits'] != 16)
+            ]['Valid'].sum() == 0
+        ]
+        raise ValueError("The following DNNs cannot be used, as all quantization options "
+                         f"violate the accuracy constraint: {', '.join(which_dnns)}")
+
     accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
     accel_cfg.design_space['precision'] = precision_options
 

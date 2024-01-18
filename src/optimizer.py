@@ -84,6 +84,7 @@ class AcceleratorOptimizer(Annealer):
         self.energy_dict = OrderedDict()
         self.latency_dict = OrderedDict()
         self.area_dict = OrderedDict()
+        self.latest_energy = self.latest_latency = self.latest_area = None
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
                                         **accelerator_cfg.design_space)
@@ -98,7 +99,7 @@ class AcceleratorOptimizer(Annealer):
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
-        assert self.energy(initial=True) <= self.WORST_ENERGY, "Baseline produces negative energy"
+        assert self.energy(initial=True) > self.WORST_ENERGY, "Baseline produces negative energy"
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
@@ -138,7 +139,7 @@ class AcceleratorOptimizer(Annealer):
                 precision = self.accelerator_cfg.design_space['precision'][accelerator_idx]
                 values = [
                     precision if 'precision' in field.lower() else getattr(self.accelerator_cfg, field)
-                    for field in self.design_space.fields
+                    for field in self.design_space._fields
                 ]
                 initial_state.append(self.design_space.extract(*values))
 
@@ -309,11 +310,17 @@ class AcceleratorOptimizer(Annealer):
         logger.info(f"=> Beginning {'initial ' if initial else ''}energy evaluation")
         energy = self._energy_evaluation()
         logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
+        # save the results
+        self.save_state()
+
         if self.latest_schedule is not None:
             logger.info(f"Evaluation results:\n"
                         f"\tEnergy={self.latest_energy:.3e}\n"
                         f"\tLatency={self.latest_latency:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
+        elif initial:
+            raise ValueError("Initial energy calculation cannot be invalid")
+
         logger.info("*--------------*")
         return energy
 
@@ -434,12 +441,10 @@ class AcceleratorOptimizer(Annealer):
 
         # log the results of the scheduling
         schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
-
-        # save the results
-        self.save_state()
         logger.info(f"Scheduler results:\n\t{schedule_str}")
 
         # check deadline constraint
         if violated_deadline(schedule):
+            logger.info(f"Deadline constraint violated")
             return self.WORST_ENERGY
         return self.latest_energy

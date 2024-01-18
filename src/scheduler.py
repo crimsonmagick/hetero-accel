@@ -182,8 +182,8 @@ class Scheduler:
                 kwargs['solver_type'] = SolverType.MTHGGreedy
         return self.__run_f(*args, **kwargs)
 
-    def _run_ours(self, items, bins, cost_dict, weight_dict, max_capacity=None,
-                  solver_type=SolverType.MTHGGreedy, use_value=False):
+    def _run_ours(self, items, bins, cost_dict, weight_dict,
+                  max_capacity=None, solver_type=SolverType.MTHGGreedy, use_value=False):
         """Static scheduling with heterogeneous bins w.r.t. cost/value and weight per item,
            i.e., cost_dict and weight_dict have different values for different bins.
            This is an implementation of the generalized assignment problem. We use the solver
@@ -201,7 +201,7 @@ class Scheduler:
                 for bin in bins:
                     costs = []
                     for item in items:
-                        # in the case of an invalid mapping, the cost/value does not matter
+                        # in the case of an invalid mapping, the cost/value/profit does not matter
                         if weight_dict[(item, bin)] < 0:
                             costs.append(0)
                         # in the case of value/profit
@@ -251,7 +251,7 @@ class Scheduler:
         command = f"cd {solver_dir} && " \
                   f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
                   f"-a {solver_args} " \
-                  f"-i {infile} -o {outfile} -c {solution_file}" \
+                  f"-i {infile} -o {outfile} -c {solution_file} " \
                   f"2>&1 | tee {logfile}"
         logger.debug(f"GeneralizedAssignmentSolver command:\n{command}")
 

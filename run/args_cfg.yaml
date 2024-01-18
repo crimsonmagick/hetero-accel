@@ -37,7 +37,7 @@ compression_args:
         quant_high: 8
         quant_low: 4
         quant_incr: 1
-        top1_constraint: 2
+        top1_constraint: 5
         top5_constraint: null
         loss_constraint: null
         use_validation_set: False

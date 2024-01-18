@@ -113,22 +113,14 @@ def create_image_classification_model(arch, dataset, pretrained):
 def create_image_segmentation_model(arch, dataset, pretrained):
     return is_models.__dict__[arch]()
 
-    try:
-        weights = 'DEFAULT' if pretrained else None
-        return torch_models.__dict__[arch](weights=weights)
-    except KeyError:
-        raise NotImplementedError(f'Model {arch} is not supported for the {dataset} dataset')
+
+def create_language_processing_model(arch, dataset, pretrained):
+    return lp_models.__dict__[arch]()
 
 
 def create_object_detection_model(arch, dataset, pretrained):
-    raise NotImplementedError
+    return od_models.__dict__[arch]()
 
 
-def create_language_processing_model(arch, dataset, pretrained):
-    raise NotImplementedError
-
-
-def create_recommendation_model(arch, dataset_pretrained):
-    raise NotImplementedError
-    pass
-
+def create_recommendation_model(arch, dataset, pretrained):
+    return rm_models.__dict__[arch]()

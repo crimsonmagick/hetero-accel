@@ -1,11 +1,10 @@
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torch.utils.data
 import logging
 import os.path
 import shutil
-import glob
 import numpy as np
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+import torch.utils.data
 
 
 logger = logging.getLogger(__name__)
@@ -33,14 +32,19 @@ def load_data(dataset, dataset_path, arch, batch_size, workers,
 def __dataset_factory(dataset):
     try:
         return {
+            # image classification
             'cifar10': get_cifar10_dataset,
             'cifar100': get_cifar100_dataset,
             'imagenet': get_imagenet_dataset,
             'tiny-imagenet': get_tinyimagenet_dataset,
             'mnist': get_mnist_dataset,
+            # image segmentation
             'kits19': get_kits_dataset,
+            # language processing
             'squad_v1.1': get_squad_dataset,
+            # object detection
             'coco_2017': get_coco_dataset,
+            # recommendation
             'criteo': get_criteo_dataset,
         }.get(dataset.lower(), None)
     except KeyError:
@@ -95,6 +99,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
 
     return train_loader, valid_loader or test_loader, test_loader
 
+
+### Dataset-specific functions 
 
 def get_cifar10_dataset(cifar10_path, arch, load_train, load_test):
     """Load the CIFAR10 dataset."""
@@ -282,7 +288,10 @@ def get_squad_dataset(data_dir, arch, load_train=True, load_test=True):
     raise NotImplementedError
 
 def get_coco_dataset(data_dir, arch, load_train=True, load_test=True):
-    raise NotImplementedError
+    """Get the MS Coco object detection dataset from PyTorch
+    """
+    dataset = datasets.CocoDetection(root=data_dir,)
+    dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks"))
 
 def get_criteo_dataset(data_dir, arch, load_train=True, load_test=True):
     raise NotImplementedError
