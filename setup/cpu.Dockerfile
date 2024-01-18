@@ -19,7 +19,7 @@ RUN mkdir -p /root/.ssh/ && \
 #COPY sth 
 WORKDIR /workspace
 RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
-	 git clone git@github.com:kompalas/hetero-accel.git
+	 git clone --recurse-submodules git@github.com:kompalas/hetero-accel.git
 WORKDIR /workspace/hetero-accel
 
 # install anaconda
@@ -43,8 +43,8 @@ RUN python3 -m pip install --upgrade pip && \
 
 # install timeloop-accelergy
 RUN apt install -y scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev 
-RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
-	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
+# RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
+# 	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
 WORKDIR accelergy-timeloop-infrastructure
 RUN git submodule sync && \
 	git submodule update --init && \
@@ -66,8 +66,8 @@ RUN cd src/timeloop/src/ && \
 RUN cd src/timeloop && \
 	scons -j4 --accelergy --static && \
 	cp build/timeloop-* /opt/conda/envs/haccel/bin
-RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
-	accelergy && \
+# RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+RUN accelergy && \
 	accelergyTables -r /workspace/hetero-accel/data/ && \
 	pip install git+https://github.com/Fibertree-Project/fibertree jupyter
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
@@ -76,6 +76,4 @@ WORKDIR /workspace/hetero-accel
 RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
 SHELL ["/bin/bash", "--login", "-c"]
 
-
 # ENTRYPOINT ["/bin/bash", "-i"]
-

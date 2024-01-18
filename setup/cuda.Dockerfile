@@ -67,8 +67,8 @@ RUN cd src/timeloop/src/ && \
 RUN cd src/timeloop && \
 	scons -j4 --accelergy --static && \
 	cp build/timeloop-* /opt/conda/envs/haccel/bin
-RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
-	accelergy && \
+# RUN git clone https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git && \
+RUN accelergy && \
 	accelergyTables -r /workspace/hetero-accel/data/ && \
 	pip install git+https://github.com/Fibertree-Project/fibertree jupyter
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
@@ -76,5 +76,3 @@ ENV PATH $PATH:/opt/conda/evns/haccel/bin
 WORKDIR /workspace/hetero-accel
 RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
 SHELL ["/bin/bash", "--login", "-c"]
-
-# ENTRYPOINT ["/bin/bash", "-i"]
