@@ -48,7 +48,10 @@ class BaselineEvaluator(AcceleratorOptimizer):
         self.latest_schedule = None
 
         # initialize accelerator
-        self.init_accelerator(args)
+        self.init_accelerator(args)        
+        if getattr(args, 'load_state_from', None) is not None and \
+           os.path.exists(args.load_state_from):
+            self.load_state(args.load_state_from)
         # initialize timeloop
         self.init_timeloop(args.layer_type_whitelist,
                            timeloop_workdir=os.path.join(self.logdir, 'timeloop_baseline'))

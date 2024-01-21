@@ -23,6 +23,15 @@ RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
 	 git clone git@github.com:kompalas/hetero-accel.git
 WORKDIR /workspace/hetero-accel
 
+# install generalized assignment solver
+RUN apt-get install apt-transport-https curl gnupg -y && \
+	curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor >bazel-archive-keyring.gpg && \
+	mv bazel-archive-keyring.gpg /usr/share/keyrings && \
+	echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8" | tee /etc/apt/sources.list.d/bazel.list && \
+	apt-get update && apt-get install bazel
+RUN cd generalizedassignmentsolver && \
+	bazel build -- //...
+
 # install anaconda
 ENV CONDA_DIR /opt/conda
 RUN apt-get install --yes libgl1-mesa-glx libegl1-mesa libxrandr2 libxrandr2 libxss1 libxcursor1 libxcomposite1 libasound2 libxi6 libxtst6 && \

@@ -2,7 +2,7 @@
 app_args:
         operation_mode: sota
         output_dir: 'logs'
-        name: null
+        name: sota
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: data/lut.csv
