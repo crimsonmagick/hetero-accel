@@ -26,8 +26,7 @@ class TorchNetworkWrapper:
         self.model = model
         if model is None:
             self.init_model()
-        self.summary = model_summary(self.model)
-        self.num_layers = len(self.summary)
+        self.run_summary()
 
     @classmethod
     def from_args(cls, args):
@@ -91,6 +90,16 @@ class TorchNetworkWrapper:
                 to_cpu=self.device == 'cpu',
                 #verbose=self.verbose
             )
+
+    def run_summary(self, data_loader=None):
+        """Create a summary for the DNN model
+        """
+        if data_loader is None and getattr(self.model, 'input_shape', None) is None:
+            self.summary = self.num_layers = None
+        else:
+            dummy_input = next(iter(data_loader))[0].shape if data_loader else None
+            self.summary = model_summary(self.model, dummy_input)
+            self.num_layers = len(self.summary)
 
     def log_model(self, test_loader, tb_logger):
         """Record the graph of the model and its various statistics using TensorBoard

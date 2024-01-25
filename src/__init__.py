@@ -13,6 +13,8 @@ dataset_dirs = {
         'cifar10': os.path.join(os.path.dirname(project_dir), 'data', 'cifar10'),
         'cifar100': os.path.join(os.path.dirname(project_dir), 'data', 'cifar100'),
         'imagenet': os.path.join(os.path.dirname(project_dir), 'data', 'Imagenet'),
+        'voc_det': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
+        'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
         }
 
 cifar10_pretrained_paths = {

@@ -14,4 +14,5 @@ def _bert(model_path, do_lower_case=False):
     return model, tokenizer
 
 
-bert = partial(_bert, '')
+def bert():
+    raise NotImplementedError

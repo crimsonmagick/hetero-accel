@@ -51,7 +51,7 @@ class UNet(nn.Module):
         self.outc = torch.utils.checkpoint(self.outc)
 
 
-def _unet_3d(n_channels, n_classes):
+def _unet_3d(n_channels, n_classes, pretrained=True):
     return UNet(n_channels, n_classes)
 
 

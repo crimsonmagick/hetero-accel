@@ -608,7 +608,7 @@ def get_dummy_input(device=None, input_shape=None):
     return create_recurse(input_shape)
 
 
-def model_summary(model):
+def model_summary(model, dummy_input=None):
     """Record statistics for input/output dimensions of each layer of a given model
     """
     def register_hook(module):
@@ -682,7 +682,11 @@ def model_summary(model):
     model.apply(register_hook)
 
     # execute a forward pass
-    dummy_input = get_dummy_input(model.device, model.input_shape)
+    if dummy_input is None:
+        assert getattr(model, 'input_shape', None) is not None, "To complete the summary, either provide " \
+                                                                "a pre-configured tensor-shape or attribute " \
+                                                                "it to the DNN model"
+        dummy_input = get_dummy_input(model.device, model.input_shape)
     model(dummy_input)
 
     # remove the hooks

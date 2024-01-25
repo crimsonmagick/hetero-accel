@@ -2,9 +2,15 @@ import logging
 import os.path
 import shutil
 import numpy as np
+import PIL.Image
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torch.utils.data
+from torchvision.transforms import v2
+from torch.utils.data.backward_compatibility import worker_init_fn
+from collections import defaultdict
+from functools import partial
+from src.dataset_utils import VOCTransform
 
 
 logger = logging.getLogger(__name__)
@@ -14,7 +20,7 @@ def load_data(dataset, dataset_path, arch, batch_size, workers,
               validation_split, train_size, valid_size, test_size, test_only,
               verbose):
 
-    dataset_fn = __dataset_factory(dataset)
+    dataset_fn = __dataset_factory(dataset, batch_size=batch_size)
     train_loader, valid_loader, test_loader = get_data_loaders(dataset_fn, dataset_path, arch, batch_size, workers,
                                                                validation_split, train_size, valid_size, test_size,
                                                                test_only)
@@ -29,7 +35,7 @@ def load_data(dataset, dataset_path, arch, batch_size, workers,
     return train_loader, valid_loader, test_loader
 
 
-def __dataset_factory(dataset):
+def __dataset_factory(dataset, batch_size):
     try:
         return {
             # image classification
@@ -39,13 +45,16 @@ def __dataset_factory(dataset):
             'tiny-imagenet': get_tinyimagenet_dataset,
             'mnist': get_mnist_dataset,
             # image segmentation
-            'kits19': get_kits_dataset,
-            # language processing
-            'squad_v1.1': get_squad_dataset,
+            'voc_seg': get_vocseg_dataset,
             # object detection
+            'voc_det': get_vocdet_dataset,
             'coco_2017': get_coco_dataset,
-            # recommendation
-            'criteo': get_criteo_dataset,
+            # language processing,
+            'sst2': partial(get_sst2_dataset, batch_size=batch_size),
+            'multi30k': get_multi30k_dataset, 
+            # video processing
+            'moving_mnist': get_moving_mnist_dataset,
+            'kinetics': get_kinetics_dataset,
         }.get(dataset.lower(), None)
     except KeyError:
         raise ValueError('Dataset {} not supported'.format(dataset))
@@ -73,7 +82,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     test_sampler = torch.utils.data.RandomSampler(test_indices,
                                                   num_samples=int(effective_test_size * len(test_indices)))
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size, sampler=test_sampler, num_workers=workers, pin_memory=True, drop_last=True
+        test_dataset, batch_size=batch_size, sampler=test_sampler,
+        num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
     )
     if test_only:
         return None, None, test_loader
@@ -85,7 +95,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     train_sampler = torch.utils.data.RandomSampler(train_indices,
                                                    num_samples=int(effective_train_size * len(train_indices)))
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=workers, pin_memory=True, drop_last=True
+        train_dataset, batch_size=batch_size, sampler=train_sampler,
+        num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
     )
 
     valid_loader = None
@@ -94,7 +105,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
         valid_sampler = torch.utils.data.RandomSampler(valid_indices,
                                                        num_samples=int(effective_valid_size * len(valid_indices)))
         valid_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, sampler=valid_sampler, num_workers=workers, pin_memory=True, drop_last=True
+            train_dataset, batch_size=batch_size, sampler=valid_sampler,
+            num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
         )
 
     return train_loader, valid_loader or test_loader, test_loader
@@ -281,18 +293,224 @@ def get_mnist_dataset(data_dir, arch, load_train=True, load_test=True):
     return train_dataset, test_dataset
 
 
-def get_kits_dataset(data_dir, arch, load_train=True, load_test=True):
-    raise NotImplementedError
+def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
+    """Get the Pascal VOC image segmentation dataset from PyTorch
+    """
+    traindata = testdata = None
+    if load_train:
+        traindata = datasets.VOCSegmentation(data_dir,
+                                             year="2012",
+                                             image_set="train",
+                                             download=False,
+                                             transform=transforms.ToTensor(),
+                                             target_transform=transforms.ToTensor())
 
-def get_squad_dataset(data_dir, arch, load_train=True, load_test=True):
-    raise NotImplementedError
+    if load_test:
+        testdata = datasets.VOCSegmentation(data_dir,
+                                            year='2012',
+                                            image_set="val",
+                                            download=False,
+                                            transform=transforms.ToTensor(),
+                                            target_transform=transforms.ToTensor())
+    return traindata, testdata
+
+
+def get_vocdet_dataset(data_dir, arch, load_train=True, load_test=True):
+    """Get the Pascal VOC object detection dataset from PyTorch
+    """
+    traindata = testdata = None
+    if load_train:
+        traindata = datasets.VOCDetection(data_dir, year="2012",
+                                          image_set="train",
+                                          download=False,
+                                          transforms=VOCTransform())
+
+    if load_test:
+        testdata = datasets.VOCDetection(data_dir, year='2012',
+                                        image_set="val",
+                                        download=False,
+                                        transforms=VOCTransform())
+        
+    return traindata, testdata
+
 
 def get_coco_dataset(data_dir, arch, load_train=True, load_test=True):
     """Get the MS Coco object detection dataset from PyTorch
     """
-    dataset = datasets.CocoDetection(root=data_dir,)
+    assert load_test is False, "The COCO dataset is not split into train/test annotations yet"
+    transforms = transforms.Compose(
+        [
+            transforms.RandomPhotometricDistort(),
+            transforms.RandomZoomOut(
+                fill=defaultdict(lambda: 0, {PIL.Image.Image: (123, 117, 104)})
+            ),
+            transforms.RandomIoUCrop(),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToImageTensor(),
+            transforms.ConvertImageDtype(torch.float32),
+            transforms.SanitizeBoundingBox(),
+        ]
+    )
+
+    annFile = os.path.join(data_dir, 'annotations.json')
+    assert os.path.exists(annFile)
+    dataset = datasets.CocoDetection(root=data_dir, annFile=annFile, transforms=transforms)
     dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks"))
 
-def get_criteo_dataset(data_dir, arch, load_train=True, load_test=True):
-    raise NotImplementedError
+    return dataset
+
+
+def get_sst2_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=16):
+    """Get the SST-2 dataset for binary text classification 
+    """
+    if 'xlmr' in arch:
+        text_transform = torchtext.models.XLMR_BASE_ENCODER.transform()
+    
+    def batch_transform(x):
+        """Transform the raw dataset using API (i.e apply transformation on the whole batch)
+        """
+        return {"token_ids": text_transform(x["text"]), "target": x["label"]}
+
+    train_dataset = test_dataset = None
+    if load_train:
+        train_dataset = torchtext.datasets.SST2(root=data_dir, split="train")
+        train_dataset = train_dataset.batch(batch_size).rows2columnar(["text", "label"])
+        train_dataset = train_dataset.map(lambda x: batch_transform)
+
+    if load_test:
+        test_dataset = torchtext.datasets.SST2(root=data_dir, split="test")
+        test_dataset = test_dataset.batch(batch_size).rows2columnar(["text", "label"])
+        test_dataset = test_dataset.map(lambda x: batch_transform)
+
+    return train_dataset, test_dataset
+
+
+def get_multi30k_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=5):
+    """ Multi30k dataset for English to German translation
+    """
+    language_pair = ("en", "de")
+    task = "translate English to German"
+
+    train_datapipe = test_datapipe = None
+    if load_train:
+        train_datapipe = torchtext.datasets.Multi30k(split="train", language_pair=language_pair)
+        train_datapipe = train_datapipe.map(partial(apply_prefix, task))
+        train_datapipe = train_datapipe.batch(batch_size)
+        train_datapipe = train_datapipe.rows2columnar(["english", "german"])
+
+    if load_test:
+        test_datapipe = torchtext.datasets.Multi30k(split="test", language_pair=language_pair)
+        test_datapipe = test_datapipe.map(partial(apply_prefix, task))
+        test_datapipe = test_datapipe.batch(batch_size)
+        test_datapipe = test_datapipe.rows2columnar(["english", "german"])
+
+    return train_datapipe, test_datapipe
+
+
+def get_moving_mnist_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=5):
+    """MovingMNIST dataset
+    """
+    train_dataset = test_dataset = None
+    if load_train:
+        train_dataset = datasets.MovingMNIST(root=data_dir,
+                                             download=True,
+                                             split='train')
+
+    if load_test:
+        test_dataset = datasets.MovingMNIST(root=data_dir,
+                                            download=True,
+                                            split='test')
+
+    return train_dataset, test_dataset
+
+
+def get_kinetics_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=5):
+    """Kinetics-400/600/700 are action recognition video datasets. This dataset consider 
+       every video as a collection of video clips of fixed size, specified by frames_per_clip, 
+       where the step in frames between each clip is given by step_between_clips.
+    """
+    train_dataset = test_dataset = None
+    if load_train:
+        train_dataset = datasets.Kinetics(root=data_dir,
+                                          frames_per_clip=5,
+                                          num_classes='400',
+                                          split='train',
+                                          download=True)
+        
+    if load_test:
+        test_dataset = datasets.Kinetics(root=data_dir,
+                                         frames_per_clip=5,
+                                         num_classes='400',
+                                         split='test',
+                                         download=True)
+
+    return train_dataset, test_dataset
+
+
+if __name__ == "__main__":
+    from src import project_dir, dataset_dirs
+    from src.models import create_model
+    import torchtext
+    from functools import partial
+
+    # def split_list(list_to_split, ratio, shuffle=False):
+    #     if shuffle:
+    #         np.random.shuffle(list_to_split)
+    #     split_idx = int(np.floor(ratio * len(list_to_split)))
+    #     return list_to_split[:split_idx], list_to_split[split_idx:]
+
+    # # load the datasets
+    # train_dataset, test_dataset = get_vocseg_dataset(dataset_dirs['voc_seg'], 'unet_3d', load_train=True, load_test=True)
+
+    # test_indices = list(range(len(test_dataset)))
+    # #test_sampler = SwitchingSubsetRandomSampler(test_indices, effective_test_size)
+    # test_sampler = torch.utils.data.RandomSampler(test_indices,
+    #                                               num_samples=int(0.1 * len(test_indices)))
+
+    # test_loader = torch.utils.data.DataLoader(
+    #     test_dataset,
+    #     batch_size=1,
+    #     sampler=test_sampler,
+    #     num_workers=4,
+    #     worker_init_fn=worker_init_fn,
+    #     pin_memory=True,
+    #     drop_last=True
+    # )
+
+    # next(iter(test_loader))
+    # exit()
+
+    seg_model = create_model('unet_3d', 'voc_seg')
+    det_model = create_model('tinyyolov2', 'voc_det')
+
+    seg_train, seg_valid, seg_test = load_data(
+        'voc_seg', dataset_dirs['voc_seg'], 'unet_3d', 1, 4, 0, 0.1, 0.1, 0.1, False, True
+    )
+    next(iter(seg_test))
+
+    det_train, det_valid, det_test = load_data(
+        'voc_det', dataset_dirs['voc_det'], 'tinyyolov2', 32, 4, 0, 0.1, 0.1, 0.1, False, True
+    )
+    next(iter(det_test))
+
+    det_out = det_model(det_test)
+    seg_out = seg_model(seg_test)
+    exit()
+
+    transform = torchtext.models.T5_BASE_GENERATION.transform()
+    model = torchtext.models.T5_BASE_GENERATION.get_model()
+
+    def apply_prefix(task, x):
+        return f"{task}: " + x[0], x[1]
+
+    multi_batch_size = 5
+    language_pair = ("en", "de")
+    multi_datapipe = torchtext.datasets.Multi30k(split="test", language_pair=language_pair)
+    task = "translate English to German"
+
+    multi_datapipe = multi_datapipe.map(partial(apply_prefix, task))
+    multi_datapipe = multi_datapipe.batch(multi_batch_size)
+    multi_datapipe = multi_datapipe.rows2columnar(["english", "german"])
+    multi_dataloader = torch.utils.data.DataLoader(multi_datapipe, batch_size=None)
+
 

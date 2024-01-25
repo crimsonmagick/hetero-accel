@@ -5,7 +5,7 @@ from . import image_classification as ic_models
 from . import image_segmentation as is_models
 from . import object_detection as od_models
 from . import language_processing as lp_models
-from . import recommendation as rm_models
+from . import video_processing as vp_models
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,13 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
                     'cifar10': (batch_size, 3, 32, 32),
                     'cifar100': (batch_size, 3, 32, 32),
                     'mnist': (batch_size, 1, 28, 28),
+                    'voc_seg': None,
+                    'voc_det': (batch_size, 3, 320, 320),
+                    'coco': (),
+                    'sst2': (),
+                    'multi30k': (),
+                    'moving_mnist': (),
+                    'kinetics': (),
                    }.get(dataset)
         except KeyError:
             logger.error(f"Input shape for dataset {dataset} could not be determined")
@@ -39,11 +46,15 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
                       'cifar10': create_image_classification_model,
                       'cifar100': create_image_classification_model,
                       'imagenet': create_image_classification_model,
-                      'kits19': create_image_segmentation_model,
-                      'coco_2017': create_object_detection_model,
-                      'squad_v1.1': create_language_processing_model,
-                      'criteo': create_recommendation_model,
+                      'voc_seg': create_image_segmentation_model,
+                      'voc_det': create_object_detection_model,
+                      'coco': create_object_detection_model,
+                      'sst2': create_language_processing_model,
+                      'multi30k': create_language_processing_model,
+                      'moving_mnist': create_video_processing_model,
+                      'kinetics': create_video_processing_model,
                      }.get(dataset)
+    assert create_model_f is not None, f"Dataset {dataset} is not supported"
     model = create_model_f(arch, dataset, pretrained)
 
     if verbose:
@@ -111,16 +122,16 @@ def create_image_classification_model(arch, dataset, pretrained):
 
 
 def create_image_segmentation_model(arch, dataset, pretrained):
-    return is_models.__dict__[arch]()
+    return is_models.__dict__[arch](pretrained=pretrained)
 
 
 def create_language_processing_model(arch, dataset, pretrained):
-    return lp_models.__dict__[arch]()
+    return lp_models.__dict__[arch](pretrained=pretrained)
 
 
 def create_object_detection_model(arch, dataset, pretrained):
-    return od_models.__dict__[arch]()
+    return od_models.__dict__[arch](pretrained=pretrained)
 
 
-def create_recommendation_model(arch, dataset, pretrained):
-    return rm_models.__dict__[arch]()
+def create_video_processing_model(arch, dataset, pretrained):
+    return vp_models.__dict__[arch](pretrained=pretrained)

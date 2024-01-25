@@ -84,6 +84,7 @@ class AcceleratorOptimizer(Annealer):
         self.energy_dict = OrderedDict()
         self.latency_dict = OrderedDict()
         self.area_dict = OrderedDict()
+        self.step = 0
         self.latest_energy = self.latest_latency = self.latest_area = None
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
@@ -289,6 +290,7 @@ class AcceleratorOptimizer(Annealer):
            architectural parameters. The precision remains constant
            NOTE: This works for accelerators with the attribute 'precision'
         """
+        self.step += 1
         new_state = self.state
         while new_state == self.state:
             new_state = [
@@ -299,7 +301,7 @@ class AcceleratorOptimizer(Annealer):
             ]
         self.state = new_state
 
-        logger.info("=> Move taken. New state:")
+        logger.info(f"=> Move #{int(self.step)} taken. New state:")
         for state in new_state:
             logger.info(f"\t{state}")
 

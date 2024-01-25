@@ -36,25 +36,26 @@ workloads:
   Btest:
     # image segmentation
     - arch: unet_3d
-      dataset: kits19
+      dataset: voc_seg
       pretrained: true
+      batch_size: 1
       resumed_checkpoint_path: null
       batch_print_frequency: 100
     # language processing
-    - arch: bert
-      dataset: squad_v1.1
+    - arch: t5
+      dataset: multi30k
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
     # object detection
-    - arch: ssd300_vgg16
-      dataset: coco2017
+    - arch: tinyyolov2
+      dataset: voc_det
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
     # recommendation
-    - arch: dlrm_v2
-      dataset: criteo
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
+    # - arch: dlrm_v2
+    #   dataset: criteo
+    #   pretrained: true
+    #   resumed_checkpoint_path: null
+    #   batch_print_frequency: 100

@@ -75,9 +75,14 @@ def setup_workload(args):
     # setup each DNN separately
     for idx, workload_dict in enumerate(multi_dnn_workload):
 
-        # configure and save DNN wrapper
+        # gather workload arguments
         for name, value in workload_dict.items():
             setattr(dnn_args, name, value)
+        # specific handling of batch size
+        if 'batch_size' not in workload_dict:
+            dnn_args.batch_size = args.batch_size
+
+        # configure and save DNN wrapper
         net_wrapper = TorchNetworkWrapper.from_args(dnn_args)
         dnns[net_wrapper.model.arch] = net_wrapper
         print_frequency[net_wrapper.model.arch] = dnn_args.batch_print_frequency
@@ -88,7 +93,7 @@ def setup_workload(args):
                 dnn_args.dataset,
                 dataset_dirs[dnn_args.dataset],
                 net_wrapper.model.arch,
-                args.batch_size,
+                dnn_args.batch_size,
                 args.workers,
                 args.validation_split,
                 args.effective_train_size,
@@ -99,6 +104,11 @@ def setup_workload(args):
             )
             datasets[dnn_args.dataset] = data_loaders
 
+        # manually execute the summary, if not already done
+        if getattr(net_wrapper, 'summary', None) is None:
+            net_wrapper.run_summary(datasets[dnn_args.dataset][0])
+
+        # execute sub-applications
         if handle_model_subapps(net_wrapper, data_loaders, args):
             exit(0)
 
