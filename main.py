@@ -266,10 +266,6 @@ def accelerator_exploration(args, workload, accuracy_lut):
                                      )
     optimizer.run()
 
-    # save the best state
-    optimizer.set_state(optimizer.best_state)
-    optimizer.save_state(os.path.join(optimizer.logdir, 'best_state.sa.pkl'))
-
     mappings = OrderedDict()
     for key in optimizer.energy_dict:
         assert key in optimizer.latency_dict

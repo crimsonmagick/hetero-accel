@@ -66,7 +66,7 @@ class DesignSpace(SimpleNamespace):
 class AcceleratorOptimizer(Annealer):
     """Wrapper for Simulated Annealing optimizer
     """
-    WORST_ENERGY = -1.0
+    WORST_ENERGY = 1e10
 
     def __init__(self,
                  args,
@@ -85,6 +85,7 @@ class AcceleratorOptimizer(Annealer):
         self.latency_dict = OrderedDict()
         self.area_dict = OrderedDict()
         self.step = 0
+        self.state = None
         self.latest_energy = self.latest_latency = self.latest_area = None
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
@@ -96,11 +97,18 @@ class AcceleratorOptimizer(Annealer):
         self.scheduler = Scheduler(args.scheduler_type)
         self.latest_schedule = None
 
-        initial_state = self.get_initial_state(args)
+        # load previous evaluations
+        self.loaded_state = None
+        if getattr(args, 'load_state_from', None) is not None and \
+           os.path.exists(args.load_state_from):
+            # later, use the loaded state as the first move of the annealing procedure
+            self.loaded_state = self.load_state(args.load_state_from)
+
+        initial_state = self.get_initial_state()
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
 
         # get baseline measurements
-        assert self.energy(initial=True) > self.WORST_ENERGY, "Baseline produces negative energy"
+        assert self.energy(initial=True) < self.WORST_ENERGY, "Baseline produces negative energy"
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
@@ -108,7 +116,6 @@ class AcceleratorOptimizer(Annealer):
                      f"Latency={self.initial_latency:.3e}, Area={self.initial_area:.3e}")
 
         # setup scheduling parameters during annealing
-        self.update = self._update_logging
         self.copy_strategy = 'deepcopy'
         if args is None or \
             getattr(args, 'simanneal_auto_schedule', False) or \
@@ -122,32 +129,6 @@ class AcceleratorOptimizer(Annealer):
             self.Tmin = args.simanneal_Tmin
             self.steps = args.simanneal_steps
             self.updates = args.simanneal_updates
-
-    def get_initial_state(self, args):
-        """Configure the initial state of the optimizer, w.r.t. the
-           selected heterogeneity of he accelerator
-        """
-        initial_state = []
-
-        if getattr(args, 'load_state_from', None) is not None and \
-           os.path.exists(args.load_state_from):
-            # load the initial state of the accelerator
-            initial_state = self.load_state(args.load_state_from)
-
-        else:
-            # build a heterogeneous accelerator, with specific precision for each accelerator
-            for accelerator_idx in range(self.num_accelerators):
-                precision = self.accelerator_cfg.design_space['precision'][accelerator_idx]
-                values = [
-                    precision if 'precision' in field.lower() else getattr(self.accelerator_cfg, field)
-                    for field in self.design_space._fields
-                ]
-                initial_state.append(self.design_space.extract(*values))
-
-        logger.info("=> Initial state:")
-        for state in initial_state:
-            logger.info(f"\t{state}")
-        return initial_state
 
     def init_timeloop(self, layer_type_whitelist, timeloop_workdir=None):
         """Initialize timeloop wrapper object
@@ -177,69 +158,42 @@ class AcceleratorOptimizer(Annealer):
                                                    problem_filepath)
                 layer_idx += 1
 
-    def run(self):
-        """Run Simulated Annealing
+    def get_initial_state(self):
+        """Configure the initial state of the optimizer, w.r.t. the
+           selected heterogeneity of he accelerator
         """
-        self.anneal()
-        self.save_state(os.path.join(self.logdir, f'simanneal_energy_{self.best_energy}.state'))
+        initial_state = []
+        # build a heterogeneous accelerator, with specific precision for each accelerator
+        for accelerator_idx in range(self.num_accelerators):
+            precision = self.accelerator_cfg.design_space['precision'][accelerator_idx]
+            values = [
+                precision if 'precision' in field.lower() else getattr(self.accelerator_cfg, field)
+                for field in self.design_space._fields
+            ]
+            initial_state.append(self.design_space.extract(*values))
 
-    def _update_logging(self, step, T, E, acceptance, improvement):
-        """Log the results of the exploration (override from parent)
+        logger.info("=> Initial state:")
+        for state in initial_state:
+            logger.info(f"\t{state}")
+        return initial_state
+
+    def load_state(self, load_from, save_state_to=None):
+        """Load the state and its results from a given file
         """
-        def time_string(seconds):
-            """Returns time in seconds as a string formatted HHHH:MM:SS."""
-            s = int(round(seconds))  # round to nearest second
-            h, s = divmod(s, 3600)   # get hours and remainder
-            m, s = divmod(s, 60)     # split remainder into minutes and seconds
-            return '%4i:%02i:%02i' % (h, m, s)
+        with open(load_from, 'rb') as f:
+            state_dict = pickle.load(f)
+        logger.info(f"Loaded initial state from checkpoint ({load_from})")
+        logger.info(f"Checkpoint contents:\n{get_contents_table(state_dict)}\n")
+        save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
+        copy(load_from, save_state_to)
 
-        elapsed = time() - self.start
-        if step == 0:
-            logger.info('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining')
-            logger.info('\r{Temp:12.5f}  {Energy:12.2f}                      {Elapsed:s}            '
-                        .format(Temp=T, Energy=E, Elapsed=time_string(elapsed)))
-        else:
-            remain = (self.steps - step) * (elapsed / step)
-            logger.info('\r{Temp:12.5f}  {Energy:12.2f}   {Accept:7.2%}   {Improve:7.2%}  '
-                        '{Elapsed:s}  {Remaining:s}'
-                        .format(Temp=T, Energy=E, Accept=acceptance, Improve=improvement,
-                                Elapsed=time_string(elapsed), Remaining=time_string(remain)))
-        # save schedule
-        if self.latest_schedule is not None:
-            self.latest_schedule.visualize()
-
-    def _update_stderr(self, step, T, E, acceptance, improvement):
-        """Direct copy from the update function of Annealer
-           https://github.com/perrygeo/simanneal/blob/master/simanneal/anneal.py#L127
-        """
-        def time_string(seconds):
-            """Returns time in seconds as a string formatted HHHH:MM:SS."""
-            s = int(round(seconds))  # round to nearest second
-            h, s = divmod(s, 3600)   # get hours and remainder
-            m, s = divmod(s, 60)     # split remainder into minutes and seconds
-            return '%4i:%02i:%02i' % (h, m, s)
-
-        elapsed = time() - self.start
-        if step == 0:
-            print('\n Temperature        Energy    Accept   Improve     Elapsed   Remaining',
-                  file=sys.stderr)
-            print('\r{Temp:12.5f}  {Energy:12.2f}                      {Elapsed:s}            '
-                  .format(Temp=T,
-                          Energy=E,
-                          Elapsed=time_string(elapsed)),
-                  file=sys.stderr, end="")
-            sys.stderr.flush()
-        else:
-            remain = (self.steps - step) * (elapsed / step)
-            print('\r{Temp:12.5f}  {Energy:12.2f}   {Accept:7.2%}   {Improve:7.2%}  {Elapsed:s}  {Remaining:s}'
-                  .format(Temp=T,
-                          Energy=E,
-                          Accept=acceptance,
-                          Improve=improvement,
-                          Elapsed=time_string(elapsed),
-                          Remaining=time_string(remain)),
-                  file=sys.stderr, end="")
-            sys.stderr.flush()
+        self.energy_dict.update(state_dict['energy'])
+        self.latency_dict.update(state_dict['latency'])
+        self.area_dict.update(state_dict['area'])
+        if getattr(self, 'hw_constraints', None) is None:
+            self.hw_constraints = state_dict.get('constraints', None)
+        self.latest_schedule = state_dict['schedule']
+        return state_dict['state']
 
     def set_state(self, state):
         """Set a given state
@@ -266,39 +220,54 @@ class AcceleratorOptimizer(Annealer):
             pickle.dump(state_dict, f)
         logger.info(f"Saved state in: {save_state_to}")
 
-    def load_state(self, load_from, save_state_to=None):
-        """Load the state and its results from a given file
+    def run(self):
+        """Run Simulated Annealing
         """
-        with open(load_from, 'rb') as f:
-            state_dict = pickle.load(f)
-        logger.info(f"Loaded initial state from checkpoint ({load_from})")
-        logger.info(f"Checkpoint contents:\n{get_contents_table(state_dict)}\n")
-        save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
-        copy(load_from, save_state_to)
+        self.anneal()
+        # save the best state
+        self.set_state(self.best_state)
+        self.save_state(os.path.join(self.logdir, 'best_state.sa.pkl'))
 
-        self.energy_dict = state_dict['energy']
-        self.latency_dict = state_dict['latency']
-        self.area_dict = state_dict['area']
-        if getattr(self, 'hw_constraints', None) is None:
-            self.hw_constraints = state_dict.get('constraints', None)
-        self.latest_schedule = state_dict['schedule']
-        initial_state = state_dict['state']
-        return initial_state
+    def update(self, step, T, E, acceptance, improvement):
+        """Internal update for the status of the simulated annealing
+        """
+        # return super().update(step, T, E, acceptance, improvement)
+        def time_string(seconds):
+            """Returns time in seconds as a string formatted HHHH:MM:SS."""
+            s = int(round(seconds))  # round to nearest second
+            h, s = divmod(s, 3600)   # get hours and remainder
+            m, s = divmod(s, 60)     # split remainder into minutes and seconds
+            return '%4i:%02i:%02i' % (h, m, s)
+
+        if step == 0:
+            return
+
+        elapsed = time() - self.start
+        remain = (self.steps - step) * (elapsed / step)
+        logger.info("Update --> Temperature\tEnergy\t\tAccept\tImprove\tElapsed\tRemaining")
+        logger.info(f"Update --> {T:8.3e}\t{E:8.3e}\t"
+                    f"{acceptance:6.2%}\t{improvement:6.2%}\t"
+                    f"{time_string(elapsed)}\t{time_string(remain)}")
 
     def move(self):
-        """Alter the current state, by changing at least one accelerator for its
-           architectural parameters. The precision remains constant
-           NOTE: This works for accelerators with the attribute 'precision'
+        """Alter the current state
         """
         self.step += 1
-        new_state = self.state
-        while new_state == self.state:
-            new_state = [
-                self.design_space.sample(
-                    override_dict={'precision': self.accelerator_cfg.design_space['precision'][accelerator_idx]}
-                )
-                for accelerator_idx in range(self.num_accelerators)
-            ]
+
+        # If this is the first evaluation, use the loaded state as the first move of the annealing procedure
+        if self.step == 1 and getattr(self, 'loaded_state', None) is not None:
+            new_state = self.loaded_state
+        # Otherwise, generate a semi-random accelerator with static precision
+        # NOTE: This works for accelerators with the attribute 'precision'
+        else:
+            new_state = self.state
+            while new_state == self.state:
+                new_state = [
+                    self.design_space.sample(
+                        override_dict={'precision': self.accelerator_cfg.design_space['precision'][accelerator_idx]}
+                    )
+                    for accelerator_idx in range(self.num_accelerators)
+                ]
         self.state = new_state
 
         logger.info(f"=> Move #{int(self.step)} taken. New state:")
@@ -411,8 +380,8 @@ class AcceleratorOptimizer(Annealer):
         # check the area constraint
         self.latest_area = sum([self.area_dict[accelerator] for accelerator in self.state])
         if violated_area_constraint(self.latest_area):
-            self.latest_schedule = None
-            self.latest_energy = self.latest_latency = None
+            self.latest_schedule = self.latest_energy = self.latest_latency = None
+            logger.info("Violated area constraint")
             return self.WORST_ENERGY
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
@@ -447,6 +416,6 @@ class AcceleratorOptimizer(Annealer):
 
         # check deadline constraint
         if violated_deadline(schedule):
-            logger.info(f"Deadline constraint violated")
+            logger.info(f"Violated deadline constraint")
             return self.WORST_ENERGY
         return self.latest_energy

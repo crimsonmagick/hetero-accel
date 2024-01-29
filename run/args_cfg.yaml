@@ -17,7 +17,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Atest
+        workload_idx: ImageClassifiers
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -53,6 +53,6 @@ simanneal_args:
         simanneal_Tmax: 25000.0
         simanneal_Ttmin: 2.5
         simanneal_steps: 100
-        simanneal_updates: 0
+        simanneal_updates: 25
         simanneal_auto_schedule: False
 

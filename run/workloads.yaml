@@ -2,7 +2,7 @@
 # Setting workloads according to: https://arxiv.org/abs/2210.14657
 # and the MLPerf suite: https://github.com/mlcommons/inference
 workloads:
-  Atest:
+  ImageClassifiers:
     - arch: vgg11
       dataset: cifar10
       pretrained: true
@@ -33,7 +33,7 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-  Btest:
+  RestTasks:
     # image segmentation
     - arch: unet_3d
       dataset: voc_seg
