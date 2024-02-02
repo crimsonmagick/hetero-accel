@@ -28,6 +28,7 @@ workload_args:
         effective_valid_size: 0.5
         effective_test_size: 1
         model_verbose: False
+        optimizer_type: adam
 
 compression_args:
         pruning_group_type: rows
@@ -50,6 +51,7 @@ accel_args:
         area_constraint: 0.1
 
 simanneal_args:
+        simannel_state_delta: 0.2
         simanneal_Tmax: 25000.0
         simanneal_Ttmin: 2.5
         simanneal_steps: 100

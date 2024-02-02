@@ -149,6 +149,8 @@ def simanneal_args(parser):
     simanneal_args.add_argument('--simanneal-auto-schedule', dest='simanneal_auto_schedule', action='store_true',
                                 help='Set to produce automatic scheduling of simulated annealing parameters. '
                                      'Overrides the other simulated annealing-related arguments')
+    simanneal_args.add_argument('--simanneal-state-delta', dest='simanneal_state_delta', type=int, default=0.5,
+                                help='Percentage [0, 1] that the state of the SA will be altered by')
     return parser
 
 
@@ -201,8 +203,13 @@ def sota_args(parser):
 def check_args(args):
     """Check for logical errors in argument parsing
     """
+    assert args.effective_train_size is None or 0 <= args.effective_train_size <= 1
+    assert args.effective_valid_size is None or 0 <= args.effective_valid_size <= 1
+    assert args.effective_train_size is None or 0 <= args.effective_train_size <= 1
+    assert args.validation_split is None or 0 <= args.validation_split <= 1
     assert 0 <= args.pruning_low <= args.pruning_high <= 1
     assert 2 <= args.quant_low <= args.quant_high <= 8
+    assert args.simanneal_state_delta is None or 0 <= args.simanneal_state_delta <= 1
 
 
 

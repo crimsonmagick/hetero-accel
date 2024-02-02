@@ -66,6 +66,7 @@ class TorchNetworkWrapper:
                                load_serialized=args.load_serialized,
                                pretrained=args.pretrained,
                                resumed_checkpoint_path=args.resumed_checkpoint_path,
+                               optimizer_type=args.optimizer_type,
                                print_frequency=args.batch_print_frequency,
                                verbose=args.model_verbose,
                                logdir=args.logdir,

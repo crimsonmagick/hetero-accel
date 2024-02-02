@@ -1,7 +1,7 @@
 import logging
 import random
 import os.path
-import sys
+import math
 import pickle
 from types import SimpleNamespace
 from collections import OrderedDict
@@ -117,6 +117,8 @@ class AcceleratorOptimizer(Annealer):
 
         # setup scheduling parameters during annealing
         self.copy_strategy = 'deepcopy'
+        self.state_delta = args.simanneal_state_delta
+        self.state_delta = 1 if self.state_delta is None else self.state_delta
         if args is None or \
             getattr(args, 'simanneal_auto_schedule', False) or \
             any(getattr(args, arg, None) is None
@@ -261,15 +263,29 @@ class AcceleratorOptimizer(Annealer):
         # NOTE: This works for accelerators with the attribute 'precision'
         else:
             new_state = self.state
+
+            # change only a number of features from the previous state, according to delta
+            fields_to_change = random.choices(self.design_space._fields,
+                                              k=math.ceil(self.state_delta * len(self.design_space._fields)))
+
+            # make sure the new state is different
             while new_state == self.state:
-                new_state = [
-                    self.design_space.sample(
+                new_state = []
+                for accelerator_idx in range(self.num_accelerators):
+                    # generate a random architecture from the design space
+                    new_accelerator = self.design_space.sample(
                         override_dict={'precision': self.accelerator_cfg.design_space['precision'][accelerator_idx]}
                     )
-                    for accelerator_idx in range(self.num_accelerators)
-                ]
-        self.state = new_state
+                    # set the accelerator values as a combination from the new and old ones (previous state)
+                    values = [
+                        getattr(new_accelerator, field) if field in fields_to_change
+                        else getattr(self.state[accelerator_idx], field)
+                        for field in self.design_space._fields
+                    ]
+                    new_accelerator = self.design_space.extract(*values)
+                    new_state.append(new_accelerator)
 
+        self.state = new_state
         logger.info(f"=> Move #{int(self.step)} taken. New state:")
         for state in new_state:
             logger.info(f"\t{state}")
