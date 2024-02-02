@@ -43,7 +43,7 @@ compression_args:
         use_validation_set: False
         size_constraint: 50
         sparsity_constraint: null
- 
+
 accel_args:
         accelerator_arch_type: eyeriss
         deadline_constraint: null

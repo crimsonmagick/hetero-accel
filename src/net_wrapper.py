@@ -1,16 +1,16 @@
 import torch
 import logging
-import os
 import re
+import torchnet.meter as tnt
 from types import SimpleNamespace
-from copy import deepcopy
-from collections import OrderedDict
 from src import pretrained_checkpoint_paths
-from src.utils import weight_init, load_checkpoint, model_summary, transform_model, save_checkpoint
+from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
+from src.utils import ImageClassificationMeter, SegmentationMeter, ObjectDetectionMeter, TextClassificationMeter, TranslationMeter, VideoProcessingMeter
+from src.dataset_utils import YoloLoss
 from src.train_test import train, validate
-from src.dataset import load_data
-from src.models import create_model
+from src.models import create_model, DNNType
 from src.args import OptimizerType
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,34 @@ class TorchNetworkWrapper:
         if model is None:
             self.init_model()
         self.run_summary()
+
+        # loss function and accuracy meter
+        if self.model.task == DNNType.ImageClassification:
+            self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
+            self.accuracy_meter = ImageClassificationMeter()
+        elif self.model.task == DNNType.SemanticSegmantation:
+            self.criterion = YoloLoss().to(self.model.device)
+            self.accuracy_meter = SegmentationMeter()
+        elif self.model.task == DNNType.ObjectDetection:
+            self.criterion = ''
+            self.accuracy_meter = ObjectDetectionMeter()
+        elif self.model.task == DNNType.TextClassification:
+            self.criterion = ''
+            self.accuracy_meter = TextClassificationMeter()
+        elif self.model.task == DNNType.MachineTranslation:
+            self.criterion = ''
+            self.accuracy_meter = TranslationMeter()
+        elif self.model.task == DNNType.VideoProcessing:
+            self.criterion = ''
+            self.accuracy_meter = VideoProcessingMeter()
+
+        # optimizer
+        if args.optimizer_type == OptimizerType.Adam:
+            self.optimizer = torch.optim.Adam(self.model.parameters(),
+                                              lr=0.01, weight_decay=1e-4)
+        elif args.optimizer_type == OptimizerType.SGD:
+            self.optimizer = torch.optim.SGD(self.model.parameters(),
+                                             lr=0.01, weight_decay=1e-4)
 
     @classmethod
     def from_args(cls, args):
@@ -114,7 +142,7 @@ class TorchNetworkWrapper:
             if param.grad is not None:
                 tb_logger.add_histogram(name + '.grad', param.grad, 0)
 
-    def train(self, epochs, train_loader, criterion, optimizer, steps_per_epoch=None, profiler=None):
+    def train(self, epochs, train_loader, steps_per_epoch=None, profiler=None):
         """Run some training epochs on the model
         """
         train_metrics = []
@@ -122,28 +150,43 @@ class TorchNetworkWrapper:
             steps_per_epoch = len(train_loader)
 
         for epoch in range(epochs):
-            top1, top5, loss = train(train_loader, self.model, criterion, optimizer, profiler,
-                                     None, epoch, steps_per_epoch,
-                                     self.verbose, self.print_frequency)
+            top1, top5, loss = train(train_loader=train_loader,
+                                     model=self.model,
+                                     criterion=self.criterion,
+                                     optimizer=self.optimizer,
+                                     accuracy_meter=self.accuracy_meter,
+                                     profiler=profiler,
+                                     compression_scheduler=None,
+                                     epoch=epoch,
+                                     steps_per_epoch= steps_per_epoch,
+                                     verbose=self.verbose,
+                                     print_frequency=self.print_frequency)
             train_metrics.extend((top1, top5, loss))
         return train_metrics
 
-    def validate(self, valid_loader, criterion):
+    def validate(self, valid_loader):
         """Run inference on the validation set
         """
         logger.debug(f"Running inference on validation set")
-        top1, top5, loss = validate(valid_loader, self.model, criterion, 0,
-                                    self.verbose, self.print_frequency)
-        return top1, top5, loss
+        return self._run_inference(valid_loader)
 
-    def test(self, test_loader, criterion):
+    def test(self, test_loader):
         """Run inference on the test set
         """
         logger.debug(f"Running inference on test set")
-        top1, top5, loss = validate(test_loader, self.model, criterion, 0,
-                                    self.verbose, self.print_frequency)
-        return top1, top5, loss
+        return self._run_inference(test_loader)
 
+    def _run_inference(self, data_loader):
+        """Wrapper function for running inerence with a give data loader
+        """
+        top1, top5, loss = validate(valid_loader=data_loader,
+                                    model=self.model,
+                                    criterion=self.criterion,
+                                    accuracy_meter=self.accuracy_meter,
+                                    epoch=0,
+                                    verbose=self.verbose,
+                                    print_frequency=self.print_frequency)
+        return top1, top5, loss
 
     def save_model(self, name=None, episode=None, is_best=False, verbose=True):
         """Save the current version of the model

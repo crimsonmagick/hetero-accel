@@ -388,6 +388,9 @@ def get_sst2_dataset(data_dir, arch, load_train=True, load_test=True, batch_size
 def get_multi30k_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=5):
     """ Multi30k dataset for English to German translation
     """
+    def apply_prefix(task, x):
+        return f"{task}: " + x[0], x[1]
+
     language_pair = ("en", "de")
     task = "translate English to German"
 
@@ -453,64 +456,17 @@ if __name__ == "__main__":
     import torchtext
     from functools import partial
 
-    # def split_list(list_to_split, ratio, shuffle=False):
-    #     if shuffle:
-    #         np.random.shuffle(list_to_split)
-    #     split_idx = int(np.floor(ratio * len(list_to_split)))
-    #     return list_to_split[:split_idx], list_to_split[split_idx:]
 
-    # # load the datasets
-    # train_dataset, test_dataset = get_vocseg_dataset(dataset_dirs['voc_seg'], 'unet_3d', load_train=True, load_test=True)
 
-    # test_indices = list(range(len(test_dataset)))
-    # #test_sampler = SwitchingSubsetRandomSampler(test_indices, effective_test_size)
-    # test_sampler = torch.utils.data.RandomSampler(test_indices,
-    #                                               num_samples=int(0.1 * len(test_indices)))
+    model_name = 'fcn_resnet50'
+    dataset = 'voc_seg'
 
-    # test_loader = torch.utils.data.DataLoader(
-    #     test_dataset,
-    #     batch_size=1,
-    #     sampler=test_sampler,
-    #     num_workers=4,
-    #     worker_init_fn=worker_init_fn,
-    #     pin_memory=True,
-    #     drop_last=True
-    # )
-
-    # next(iter(test_loader))
-    # exit()
-
-    seg_model = create_model('unet_3d', 'voc_seg')
-    det_model = create_model('tinyyolov2', 'voc_det')
-
-    seg_train, seg_valid, seg_test = load_data(
-        'voc_seg', dataset_dirs['voc_seg'], 'unet_3d', 1, 4, 0, 0.1, 0.1, 0.1, False, True
+    model = create_model(model_name, dataset)
+    train, valid, test = load_data(
+        dataset, dataset_dirs[dataset], model_name,
+        batch_size=1, workers=4, validation_split=0,
+        train_size=0.1, valid_size=0.1, test_size=0.1,
+        test_only=False, verbose= True
     )
-    next(iter(seg_test))
-
-    det_train, det_valid, det_test = load_data(
-        'voc_det', dataset_dirs['voc_det'], 'tinyyolov2', 32, 4, 0, 0.1, 0.1, 0.1, False, True
-    )
-    next(iter(det_test))
-
-    det_out = det_model(det_test)
-    seg_out = seg_model(seg_test)
-    exit()
-
-    transform = torchtext.models.T5_BASE_GENERATION.transform()
-    model = torchtext.models.T5_BASE_GENERATION.get_model()
-
-    def apply_prefix(task, x):
-        return f"{task}: " + x[0], x[1]
-
-    multi_batch_size = 5
-    language_pair = ("en", "de")
-    multi_datapipe = torchtext.datasets.Multi30k(split="test", language_pair=language_pair)
-    task = "translate English to German"
-
-    multi_datapipe = multi_datapipe.map(partial(apply_prefix, task))
-    multi_datapipe = multi_datapipe.batch(multi_batch_size)
-    multi_datapipe = multi_datapipe.rows2columnar(["english", "german"])
-    multi_dataloader = torch.utils.data.DataLoader(multi_datapipe, batch_size=None)
-
-
+    data, target = next(iter(test))
+    out = model(data)

@@ -24,6 +24,8 @@ from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
 from time import time
+from torchnet.meter.meter import Meter
+from torchnet.meter import ClassErrorMeter
 from src import project_dir, template_timeloop_dir
 from src.args import app_args, workload_args, compression_args, accel_args, \
                      simanneal_args, check_args, baseline_args, sota_args
@@ -37,6 +39,8 @@ __all__ = [
     'force_quotes_on_str',
     'get_sparsity', 'compute_model_statistics', 'get_dummy_input', 'model_summary',
     'handle_model_subapps',
+    'ImageClassificationMeter', 'SegmentationMeter', 'ObjectDetectionMeter',
+    'TextClassificationMeter', 'TranslationMeter'
 ]
 
 logger = logging.getLogger(__name__)
@@ -714,11 +718,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
     elif args.train_model_mode:
         net_wrapper.args.verbose = True
         net_wrapper.args.print_frequency = args.batch_print_frequency
-        optimizer = torch.optim.Adam(net_wrapper.model.parameters(),
-                                     lr=0.01, weight_decay=1e-4)
-        net_wrapper.train(args.train_epochs, train_loader,
-                          torch.nn.CrossEnropyLoss().to(net_wrapper.model.device),
-                          optimizer)
+        net_wrapper.train(args.train_epochs, train_loader)
         do_exit = True
 
     elif args.model_summary_mode:
@@ -839,30 +839,103 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
     return do_exit
 
 
+## Accuracy meters
 
-if __name__ == "__main__":
+class ImageClassificationMeter(ClassErrorMeter):
+    def __init__(self):
+        metrics = ['top1', 'top5']
+        super().__init__(topk=[1, 5], accuracy=True)
 
-    config = {}
-    config['version'] = 0.4
-
-    level1 = {}
-    level1['name'] = 'system'
-    level1['local'] = [
-        {
-            'name': 'DRAM',
-            'class': 'DRAM',
-            'attributes': {
-                'type': 'LPDDR4',
-                'width': 64,
-                'block-size': 12,
-                'word-bits': 16
-            }
-        }
-    ]
-    config['subtree'] = [level1]
+    def value(self, metric=None):
+        assert metric in self.metrics + ['all']
+        if metric == 'all':
+            return tuple([super().value(k=_k) for _k in [1, 5]])
+        return super().value(k=int(metric.replace('top', '')))
 
 
+class SegmentationMeter(Meter):
+    """Accuracy meter for semantic/image segmantation
+    """
+    def __init__(self):
+        pass
+
+    def reset(self):
+        raise NotImplementedError
+    
+    def add(self, output, target):
+        raise NotImplementedError
+    
+    def value(self, metric=None):
+        raise NotImplementedError
+
+    def pixel_acc(self, pred, label):
+        _, preds = torch.max(pred, dim=1)
+        valid = (label >= 0).long()
+        acc_sum = torch.sum(valid * (preds == label).long())
+        pixel_sum = torch.sum(valid)
+        acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
+        return acc
 
 
-    with open('temp.yaml', 'w') as f:
-        f.write(yaml.dump(config, default_flow_style=False))
+class ObjectDetectionMeter(Meter):
+    """Accuracy meter for object detection
+    """
+    def __init__(self):
+        pass
+
+    def reset(self):
+        raise NotImplementedError
+    
+    def add(self, output, target):
+        raise NotImplementedError
+    
+    def value(self, metric=None):
+        raise NotImplementedError
+
+
+class TextClassificationMeter(Meter):
+    """Accuracy meter for text classification
+    """
+    def __init__(self):
+        pass
+
+    def reset(self):
+        raise NotImplementedError
+    
+    def add(self, output, target):
+        raise NotImplementedError
+    
+    def value(self, metric=None):
+        raise NotImplementedError
+    
+
+class TranslationMeter(Meter):
+    """Accuracy meter for machine translation
+    """
+    def __init__(self):
+        pass
+
+    def reset(self):
+        raise NotImplementedError
+    
+    def add(self, output, target):
+        raise NotImplementedError
+    
+    def value(self, metric=None):
+        raise NotImplementedError
+
+
+class VideoProcessingMeter(Meter):
+    """Accuracy meter for video processing
+    """
+    def __init__(self):
+        pass
+
+    def reset(self):
+        raise NotImplementedError
+    
+    def add(self, output, target):
+        raise NotImplementedError
+    
+    def value(self, metric=None):
+        raise NotImplementedError

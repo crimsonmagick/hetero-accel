@@ -31,7 +31,7 @@ def app_args(parser):
     parser.add_argument('--scheduler-type', type=scheduler_type_arg, default='ours',
                         help=f'Select scheduler type. Default is our scheduler.')
     parser.add_argument('--load-state-from', metavar='PATH',
-                        help='Load the state of the optimizer from the given file')
+                        help='Load the state of the SA optimization from the given file')
 
     dnn_op_mode = parser.add_argument_group("DNN execution mode arguments")
     dnn_op_mode_exc = dnn_op_mode.add_mutually_exclusive_group()
@@ -45,6 +45,10 @@ def app_args(parser):
                                  help='Specify the type of summary of the given DNNs')
     dnn_op_mode_exc.add_argument('--test-pruning-quantization', dest='test_pruning_quant_mode', action='store_true',
                                  help='Execute a test of the effect of pruning on energy consumption')
+    
+    optimizer_args = parser.add_argument_group('Optimizer arguments')
+    optimizer_args.add_argument('--optimizer-type', '--ot', type=optimizer_type_arg, default='adam',
+                                help='Choose optimizer type')
     return parser
 
 

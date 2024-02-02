@@ -39,13 +39,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
         self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type, tl_workdir)
 
-        if self.model.is_image_classifier:
-            self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
-        else:
-            raise NotImplementedError("Only CrossEntropyLoss is set for image classifiers. "
-                                      "Please add more criterions for other DNNs")
-        self.optimizer = torch.optim.Adam(self.model.parameters(),
-                                          lr=0.01, weight_decay=1e-4)
 
     @classmethod
     def from_args(cls, args, data_loaders, model=None):
@@ -143,11 +136,11 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         return total_area, total_latency, total_power, total_energy
 
     def train(self, epochs):
-        return super().train(epochs, self.train_loader, self.criterion, self.optimizer)
+        return super().train(epochs, self.train_loader)
 
     def validate(self):
-        return super().validate(self.valid_loader, self.criterion)
+        return super().validate(self.valid_loader)
 
     def test(self):
-        return super().test(self.test_loader, self.criterion)
+        return super().test(self.test_loader)
 

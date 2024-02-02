@@ -7,28 +7,27 @@ import torchnet.meter as tnt
 from collections import OrderedDict
 from src.utils import log_training_progress 
 
+
 logger = logging.getLogger(__name__)
 
 
-def train(train_loader, model, criterion, optimizer, profiler,
+def train(train_loader, model, criterion, optimizer, profiler, accuracy_meter,
           compression_scheduler, epoch, steps_per_epoch, verbose, print_frequency):
     """Training-with-compression loop for one epoch"""
     def _log_training_progress():
         stats_dict = OrderedDict()
-        stats_dict['Top1'] = classerr.value(1)
-        stats_dict['Top5'] = classerr.value(5)
+        for accuracy_metric in accuracy_meter.metrics:
+            stats_dict[accuracy_metric] = accuracy_meter.value(metric=accuracy_metric)
         for loss_name, meter in losses.items():
             stats_dict[loss_name] = meter.mean
         stats_dict['LR'] = optimizer.param_groups[0]['lr']
         stats_dict['Time'] = batch_time.mean
-
         log_training_progress(stats_dict, epoch, steps_completed, steps_per_epoch)
 
     losses = OrderedDict([('Overall Loss', tnt.AverageValueMeter()),
                           ('Objective Loss', tnt.AverageValueMeter())])
 
     device = model.device
-    classerr = tnt.ClassErrorMeter(accuracy=True, topk=(1, 5))
     batch_time = tnt.AverageValueMeter()
     data_time = tnt.AverageValueMeter()
 
@@ -48,7 +47,6 @@ def train(train_loader, model, criterion, optimizer, profiler,
     if verbose:
         logger.info(f'Training epoch {epoch}: {total_samples} samples ({batch_size} per mini-batch)')
     model.to(device)
-    acc_stats = []
     end = time.time()
 
     for train_step, (inputs, target) in enumerate(train_loader):
@@ -62,15 +60,14 @@ def train(train_loader, model, criterion, optimizer, profiler,
         output = model(inputs)
         loss = criterion(output, target)
 
-        # measure accuracy
-        if isinstance(output, tuple):
-            classerr.add(output[0].detach(), target)
-        else:
-            classerr.add(output.detach(), target)
-        acc_stats.append([classerr.value(1), classerr.value(5)])
-
         # record loss
         losses['Objective Loss'].add(loss.item())
+
+        # measure accuracy
+        if isinstance(output, tuple):
+            accuracy_meter.add(output[0].detach(), target)
+        else:
+            accuracy_meter.add(output.detach(), target)
 
         # aggregate loss from regularization terms
         if compression_scheduler is not None:
@@ -112,22 +109,22 @@ def train(train_loader, model, criterion, optimizer, profiler,
     if profiler is not None:
         profiler.stop()
 
-    return classerr.value(1), classerr.value(5), losses['Overall Loss']
+    return *accuracy_meter.value(metric='all'), losses['Overall Loss']
 
 
-def validate(valid_loader, model, criterion, epoch, verbose, print_frequency):
+def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, print_frequency):
     if verbose:
         logger.info(f'--- validate (epoch={epoch})-----------')
 
     def _log_validation_progress():
         stats_dict = OrderedDict([('Loss', losses['objective_loss'].mean),
-                                  ('Top1', classerr.value(1)),
-                                  ('Top5', classerr.value(5))])
+                                  ('Top1', accuracy_meter.value(k=1)),
+                                  ('Top5', accuracy_meter.value(k=5))])
         log_training_progress(stats_dict, epoch, steps_completed, total_steps)
 
     """Execute the validation/test loop."""
     losses = {'objective_loss': tnt.AverageValueMeter()}
-    classerr = tnt.ClassErrorMeter(accuracy=True, topk=(1, 5))
+    accuracy_meter = tnt.ClassErrorMeter(accuracy=True, topk=(1, 5))
 
     device = model.device
     batch_time = tnt.AverageValueMeter()
@@ -152,7 +149,7 @@ def validate(valid_loader, model, criterion, epoch, verbose, print_frequency):
             loss = criterion(output, target)
             # measure accuracy and record loss
             losses['objective_loss'].add(loss.item())
-            classerr.add(output.detach(), target)
+            accuracy_meter.add(output.detach(), target)
 
             # measure elapsed time
             batch_time.add(time.time() - end)
@@ -164,6 +161,7 @@ def validate(valid_loader, model, criterion, epoch, verbose, print_frequency):
 
     if verbose:
         logger.info('==> Top1: {:.3f}    Top5: {:.3f}    Loss: {:.3f}\n'.format(
-                       classerr.value(1), classerr.value(5), losses['objective_loss'].mean))
-    return classerr.value(1), classerr.value(5), losses['objective_loss'].mean
+                       accuracy_meter.value(k=1), accuracy_meter.value(k=5), losses['objective_loss'].mean))
+
+    return accuracy_meter.value(1), accuracy_meter.value(5), losses['objective_loss'].mean
 
