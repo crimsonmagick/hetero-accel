@@ -5,8 +5,8 @@ import torchnet.meter as tnt
 from types import SimpleNamespace
 from src import pretrained_checkpoint_paths
 from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
-from src.utils import ImageClassificationMeter, SegmentationMeter, ObjectDetectionMeter, TextClassificationMeter, TranslationMeter, VideoProcessingMeter
-from src.dataset_utils import YoloLoss
+from src.meter import *
+from src.loss import SegLoss, YoloLoss
 from src.train_test import train, validate
 from src.models import create_model, DNNType
 from src.args import OptimizerType
@@ -33,11 +33,11 @@ class TorchNetworkWrapper:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
             self.accuracy_meter = ImageClassificationMeter()
         elif self.model.task == DNNType.SemanticSegmantation:
-            self.criterion = YoloLoss().to(self.model.device)
+            self.criterion = SegLoss().to(self.model.device)
             self.accuracy_meter = SegmentationMeter()
         elif self.model.task == DNNType.ObjectDetection:
-            self.criterion = ''
-            self.accuracy_meter = ObjectDetectionMeter()
+            self.criterion = YoloLoss().to(self.model.device)
+            self.accuracy_meter = ObjectDetectionMeter(device=self.model.device)
         elif self.model.task == DNNType.TextClassification:
             self.criterion = ''
             self.accuracy_meter = TextClassificationMeter()

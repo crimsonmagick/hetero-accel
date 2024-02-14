@@ -24,8 +24,6 @@ from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
 from time import time
-from torchnet.meter.meter import Meter
-from torchnet.meter import ClassErrorMeter
 from src import project_dir, template_timeloop_dir
 from src.args import app_args, workload_args, compression_args, accel_args, \
                      simanneal_args, check_args, baseline_args, sota_args
@@ -39,8 +37,7 @@ __all__ = [
     'force_quotes_on_str',
     'get_sparsity', 'compute_model_statistics', 'get_dummy_input', 'model_summary',
     'handle_model_subapps',
-    'ImageClassificationMeter', 'SegmentationMeter', 'ObjectDetectionMeter',
-    'TextClassificationMeter', 'TranslationMeter'
+    'iou', 'iou_wh', 'nms'
 ]
 
 logger = logging.getLogger(__name__)
@@ -839,103 +836,50 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
     return do_exit
 
 
-## Accuracy meters
-
-class ImageClassificationMeter(ClassErrorMeter):
-    def __init__(self):
-        metrics = ['top1', 'top5']
-        super().__init__(topk=[1, 5], accuracy=True)
-
-    def value(self, metric=None):
-        assert metric in self.metrics + ['all']
-        if metric == 'all':
-            return tuple([super().value(k=_k) for _k in [1, 5]])
-        return super().value(k=int(metric.replace('top', '')))
-
-
-class SegmentationMeter(Meter):
-    """Accuracy meter for semantic/image segmantation
-    """
-    def __init__(self):
-        pass
-
-    def reset(self):
-        raise NotImplementedError
+def iou(bboxes1, bboxes2):
+    """ calculate iou between each bbox in `bboxes1` with each bbox in `bboxes2`"""
+    px, py, pw, ph = bboxes1[...,:4].reshape(-1, 4).split(1, -1)
+    lx, ly, lw, lh = bboxes2[...,:4].reshape(-1, 4).split(1, -1)
+    px1, py1, px2, py2 = px - 0.5 * pw, py - 0.5 * ph, px + 0.5 * pw, py + 0.5 * ph
+    lx1, ly1, lx2, ly2 = lx - 0.5 * lw, ly - 0.5 * lh, lx + 0.5 * lw, ly + 0.5 * lh
+    zero = torch.tensor(0.0, dtype=px1.dtype, device=px1.device)
+    dx = torch.max(torch.min(px2, lx2.T) - torch.max(px1, lx1.T), zero)
+    dy = torch.max(torch.min(py2, ly2.T) - torch.max(py1, ly1.T), zero)
+    intersections = dx * dy
+    pa = (px2 - px1) * (py2 - py1) # area
+    la = (lx2 - lx1) * (ly2 - ly1) # area
+    unions = (pa + la.T) - intersections
+    ious = (intersections/unions).reshape(*bboxes1.shape[:-1], *bboxes2.shape[:-1])
     
-    def add(self, output, target):
-        raise NotImplementedError
-    
-    def value(self, metric=None):
-        raise NotImplementedError
-
-    def pixel_acc(self, pred, label):
-        _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
-        acc_sum = torch.sum(valid * (preds == label).long())
-        pixel_sum = torch.sum(valid)
-        acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
-        return acc
+    return ious
 
 
-class ObjectDetectionMeter(Meter):
-    """Accuracy meter for object detection
-    """
-    def __init__(self):
-        pass
+def iou_wh(bboxes1, bboxes2):
+    """ calculate iou between each bbox in `bboxes1` with each bbox in `bboxes2`
+    The bboxes should be defined by their width and height and are centered around (0,0)
+    """ 
+    w1 = bboxes1[..., 0].view(-1)
+    h1 = bboxes1[..., 1].view(-1)
+    w2 = bboxes2[..., 0].view(-1)
+    h2 = bboxes2[..., 1].view(-1)
 
-    def reset(self):
-        raise NotImplementedError
-    
-    def add(self, output, target):
-        raise NotImplementedError
-    
-    def value(self, metric=None):
-        raise NotImplementedError
+    intersections = torch.min(w1[:,None],w2[None,:]) * torch.min(h1[:,None],h2[None,:])
+    unions = (w1 * h1)[:,None] + (w2 * h2)[None,:] - intersections
+    ious = (intersections / unions).reshape(*bboxes1.shape[:-1], *bboxes2.shape[:-1])
 
-
-class TextClassificationMeter(Meter):
-    """Accuracy meter for text classification
-    """
-    def __init__(self):
-        pass
-
-    def reset(self):
-        raise NotImplementedError
-    
-    def add(self, output, target):
-        raise NotImplementedError
-    
-    def value(self, metric=None):
-        raise NotImplementedError
-    
-
-class TranslationMeter(Meter):
-    """Accuracy meter for machine translation
-    """
-    def __init__(self):
-        pass
-
-    def reset(self):
-        raise NotImplementedError
-    
-    def add(self, output, target):
-        raise NotImplementedError
-    
-    def value(self, metric=None):
-        raise NotImplementedError
+    return ious
 
 
-class VideoProcessingMeter(Meter):
-    """Accuracy meter for video processing
-    """
-    def __init__(self):
-        pass
+def nms(filtered_tensor, threshold):
+    result = []
+    for x in filtered_tensor:
+        # Sort coordinates by descending confidence
+        scores, order = x[:, 4].sort(0, descending=True)
+        x = x[order]
+        ious = iou(x,x) # get ious between each bbox in x
 
-    def reset(self):
-        raise NotImplementedError
-    
-    def add(self, output, target):
-        raise NotImplementedError
-    
-    def value(self, metric=None):
-        raise NotImplementedError
+        # Filter based on iou
+        keep = (ious > threshold).long().triu(1).sum(0, keepdim=True).t().expand_as(x) == 0
+
+        result.append(x[keep].view(-1, 6).contiguous())
+    return result

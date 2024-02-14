@@ -55,5 +55,5 @@ def _unet_3d(n_channels, n_classes, pretrained=True):
     return UNet(n_channels, n_classes)
 
 
-unet_3d = partial(_unet_3d, 1, 1)
+unet_3d = partial(_unet_3d, 3, 1)
 

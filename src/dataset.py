@@ -455,10 +455,12 @@ if __name__ == "__main__":
     from src.models import create_model
     import torchtext
     from functools import partial
+    from src.utils import SegmentationMeter, ObjectDetectionMeter, TextClassificationMeter, TranslationMeter, VideoProcessingMeter
+    from src.dataset_utils import YoloLoss
 
 
 
-    model_name = 'fcn_resnet50'
+    model_name = 'fcn_resnet101'
     dataset = 'voc_seg'
 
     model = create_model(model_name, dataset)
@@ -470,3 +472,4 @@ if __name__ == "__main__":
     )
     data, target = next(iter(test))
     out = model(data)
+    exit()

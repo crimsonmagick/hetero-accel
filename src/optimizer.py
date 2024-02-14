@@ -246,7 +246,7 @@ class AcceleratorOptimizer(Annealer):
 
         elapsed = time() - self.start
         remain = (self.steps - step) * (elapsed / step)
-        logger.info("Update --> Temperature\tEnergy\t\tAccept\tImprove\tElapsed\tRemaining")
+        logger.info("Update --> Temperature\tEnergy\t\tAccept\tImprove\t\tElapsed\t\tRemaining")
         logger.info(f"Update --> {T:8.3e}\t{E:8.3e}\t"
                     f"{acceptance:6.2%}\t{improvement:6.2%}\t"
                     f"{time_string(elapsed)}\t{time_string(remain)}")
