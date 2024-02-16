@@ -118,7 +118,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             # modifying the architecture to adjust for quantization
             bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
             self.timeloop_wrapper.adjust_precision(bits)
-        
+
             # execute timeloop
             self.timeloop_wrapper.run(name)
             # gather results from simulation
@@ -127,12 +127,12 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                          f'GFLOPS={results.gflops}, Utilization={results.utilization}, Cycles={results.cycles}, '
                          f'Energy={results.energy}, EDP={results.edp}, Area={results.area}')
 
-            total_area += results.area
             total_latency += results.cycles
             total_energy += results.energy
 
             layer_idx += 1
-
+            
+        total_area = results.area
         return total_area, total_latency, total_power, total_energy
 
     def train(self, epochs):

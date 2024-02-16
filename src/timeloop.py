@@ -10,8 +10,7 @@ from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
 from types import SimpleNamespace
-from src import template_timeloop_dir
-from src import project_dir
+from src import template_timeloop_dir, project_dir
 from src.accelerator_cfg import AcceleratorType
 from src.utils import force_quotes_on_str
 

@@ -151,6 +151,10 @@ def simanneal_args(parser):
                                      'Overrides the other simulated annealing-related arguments')
     simanneal_args.add_argument('--simanneal-state-delta', dest='simanneal_state_delta', type=int, default=0.5,
                                 help='Percentage [0, 1] that the state of the SA will be altered by')
+    simanneal_args.add_argument('--simanneal-optimization-metric', type=metric_type_arg, default='energy',
+                                help='Select the optimization metric to minimize during simmulated annealing')
+    parser.add_argument('--skip-exploration', action='store_true',
+                        help='Skip the simmulated annealing entirely')
     return parser
 
 
@@ -289,3 +293,22 @@ def scheduler_type_arg(argstr):
         raise argparse.ArgumentTypeError(f"--scheduler-type argument must be one of the following: "
                                          f"{str_to_scheduler_type_map.keys()}. Invalid argument {argstr}")
 
+
+class MetricType(Enum):
+    Energy = 1
+    Latency = 2
+    EDP = 3
+    Area = 4
+
+
+def metric_type_arg(argstr):
+    str_to_metric_type_map = {'energy': MetricType.Energy,
+                              'latency': MetricType.Latency,
+                              'edp': MetricType.EDP,
+                              'area': MetricType.Area}
+
+    try:
+        return str_to_metric_type_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--metric-type argument must be one of the following: "
+                                         f"{str_to_metric_type_map.keys()}. Invalid argument {argstr}")

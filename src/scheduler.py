@@ -305,7 +305,7 @@ class Scheduler:
         ready_list = {bin: [] for bin in bins}
         response_time = {item: {bin: -1 for bin in bins} for item in items}
 
-        # populate the ready list of 
+        # populate the ready list
         while len(queue) > 0:
             next_item = queue.pop()
             # gather the available bins for that item: only those with positive weight

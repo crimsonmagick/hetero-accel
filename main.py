@@ -40,20 +40,19 @@ def main():
     # initialize the workload
     workload = setup_workload(args)
     # create a LUT of quantization profiles for each DNN-precision pairing
-    dnn_accuracy_lut = quant_exploration(args, workload)
+    dnn_accuracy_lut, compressors = quant_exploration(args, workload)
 
     if args.operation_mode == OperationMode.Ours:
         # perform a DSE to define the sub-accelerator architectures
-        accel, dense_mappings = accelerator_exploration(args, workload, dnn_accuracy_lut)
-        # prune the DNNs and include the mappings as options to the scheduler
-        mappings = include_pruned_mappings(args, workload, dnn_accuracy_lut, accel, dense_mappings)
-        # construct final schedule from all the mappings
-        schedule, metrics = final_schedule(accel, mappings)
+        accel, optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
+        # prune the DNNs to produce the final scheduler
+        schedule, metrics = pruned_schedule(args, dnn_accuracy_lut,
+                                            compressors, optimizer, accel)
 
     # evaluate a given baseline accelerator architecture
     elif args.operation_mode == OperationMode.Baseline:
         run_baseline(args, workload, dnn_accuracy_lut)
-    
+
     # execute the optimizations in the state-of-the-art
     elif args.operation_mode == OperationMode.SOTA:
         run_sota(args, workload, dnn_accuracy_lut)
@@ -195,7 +194,7 @@ def quant_exploration(args, workload):
             valid = 0
             if (args.top1_constraint is not None and top1 >= og_stats['top1'] - args.top1_constraint) or \
                (args.top5_constraint is not None and top5 >= og_stats['top5'] - args.top5_constraint) or \
-               (args.loss_constraint is not None and loss <= og_stats['loss'] - args.top5_constraint):
+               (args.loss_constraint is not None and loss <= og_stats['loss'] - args.loss_constraint):
                 valid = 1
 
             # save the statistics to the LUT
@@ -211,7 +210,7 @@ def quant_exploration(args, workload):
     # save LUT to .csv file
     df.to_csv(os.path.join(args.logdir, 'lut.csv'))
 
-    return df
+    return df, compressors
 
 
 def accelerator_exploration(args, workload, accuracy_lut):
@@ -264,31 +263,111 @@ def accelerator_exploration(args, workload, accuracy_lut):
                                      hw_constraints=SimpleNamespace(deadline=args.deadline_constraint,
                                                                     area=args.area_constraint)
                                      )
-    optimizer.run()
 
-    mappings = OrderedDict()
-    for key in optimizer.energy_dict:
-        assert key in optimizer.latency_dict
-        mappings[key] = SimpleNamespace(energy=optimizer.energy_dict[key],
-                                        latency=optimizer.latency_dict[key],
-                                        area=optimizer.area_dict[key[1]])  # area_dict is indexed by the accelerator only
-    return optimizer.best_state, mappings
+    if not args.skip_exploration:
+        optimizer.run()
+
+    return optimizer.best_state, optimizer
 
 
-def include_pruned_mappings(args, workload, dnn_accuracy_lut, accel, mappings):
-    """Prune the DNNs to increase the mappings options of the scheduler
+def pruned_schedule(args, dnn_accuracy_lut, compressors, optimizer, accel):
+    """Prune the DNNs according to the final heterogeneous accelerator architecture
     """
-    raise NotImplementedError
+    def lut_entry(arch, precision):
+        return dnn_accuracy_lut.loc[
+                (dnn_accuracy_lut['Network'] == arch) &
+                (dnn_accuracy_lut['QuantBits'] == precision)
+               ]
 
-    for key in mappings:
-        mappings[key].pruned_energy = ''
-        mappings[key].pruned_latency = ''
-        mappings[key].pruned_area = ''
-    return mappings
+    def is_valid(arch, accuracy_metric, accuracy_value):
+        accuracy_metric = accuracy_metric.lower()
+        og_metric = lut_entry(arch, 32)[accuracy_metric.capitalize()].iloc[0]
+        assert getattr(args, accuracy_metric + '_constraint', None) is not None
+        return accuracy_value >= og_metric - getattr(args, accuracy_metric + '_constraint')
 
 
-def final_schedule():
-    raise NotImplementedError
+    edp_dict = {key: optimizer.energy_dict[key] * optimizer.latency_dict[key]
+                for key in optimizer.energy_dict}
+
+    pruned_mappings = SimpleNamespace(energy=deepcopy(optimizer.energy_dict),
+                                      latency=deepcopy(optimizer.latency_dict),
+                                      edp=edp_dict,
+                                      area=deepcopy(optimizer.area_dict))
+
+    for single_accel in accel:
+        for arch, compressor in compressors.items():
+
+            entry = lut_entry(arch, single_accel.precision)
+            accuracy_satisfied = entry['Valid']
+            if accuracy_satisfied and not is_valid(arch, 'top1', entry['Top1']):
+                logger.warning(f"A solution was accepted but surpasses the given constraint")
+
+            prune_ratio = 0.0
+            while accuracy_satisfied:
+                prune_ratio += 0.05
+                
+                compressor.reset()
+                compressor.prune_and_quantize(prune_ratio, single_accel.precision)
+                # evaluate for accuracy and network statistics
+                top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+                # check constraint again
+                accuracy_satisfied = is_valid(arch, 'top1', top1)
+        
+            layer_stats = compressor.compute_model_statistics()
+            optimizer.timeloop_wrapper.adjust_architecture(single_accel)
+            
+            energy = latency = 0
+            for name in optimizer.timeloop_problems_per_dnn[arch]:
+                optimizer.timeloop_wrapper.adjust_problem_dimension(
+                    name, 'M', adjust_by=(1 - layer_stats[name]['sparsity_filters'])
+                )
+                optimizer.timeloop_wrapper.adjust_problem_dimension(
+                    name, 'C', adjust_by=(1 - layer_stats[name]['sparsity_channels'])
+                )
+                # run timeloop and get results
+                optimizer.timeloop_wrapper.run(name)
+                results = optimizer.timeloop_wrapper.get_results()
+                energy += results.energy
+                latency += results.cycles
+                
+            area = results.area
+            
+            pruned_mappings.energy[(arch, single_accel)] = energy
+            pruned_mappings.latency[(arch, single_accel)] = latency
+            pruned_mappings.edp[(arch, single_accel)] = energy * latency
+            pruned_mappings.area[single_accel] = area
+
+    logger.info("Completed pruned mapping evaluation")
+
+    total_area = sum([
+        pruned_mappings.area[single_accel] for single_accel in accel
+    ])
+
+    # execute final schedule
+    schedule = optimizer.scheduler.run(items=list(compressors.keys()),
+                                       bins=accel,
+                                       cost_dict=pruned_mappings.edp,
+                                       weight_dict=pruned_mappings.latency)
+    
+    # get results for energy and latency based on the final schedule
+    total_energy = sum([
+        pruned_mappings.energy[(entry.tag, entry.bin)] for entry in schedule.entries
+    ])
+    total_latency = max([
+        sum([
+            pruned_mappings.latency[(entry.tag, entry.bin)] for entry in entries
+        ]) for bin, entries in schedule.as_dict(main_key='bin').items()
+    ])
+
+    # log the results of the scheduling
+    schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
+    logger.info(f"Scheduler results:\n\t{schedule_str}")
+
+    metrics = SimpleNamespace(energy=total_energy,
+                              latency=total_latency,
+                              edp=total_energy * total_latency,
+                              area=total_area)
+    return schedule, metrics
 
 
 if __name__ == '__main__':

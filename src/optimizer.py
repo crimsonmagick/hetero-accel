@@ -6,11 +6,13 @@ import pickle
 from types import SimpleNamespace
 from collections import OrderedDict
 from time import time
+from enum import Enum
 from shutil import copy
 from simanneal import Annealer
 from src.scheduler import Scheduler
 from src.timeloop import TimeloopWrapper
 from src.utils import get_contents_table
+from src.args import MetricType
 
 
 __all__ = ['DesignSpace', 'AcceleratorOptimizer']
@@ -66,8 +68,6 @@ class DesignSpace(SimpleNamespace):
 class AcceleratorOptimizer(Annealer):
     """Wrapper for Simulated Annealing optimizer
     """
-    WORST_ENERGY = 1e10
-
     def __init__(self,
                  args,
                  num_accelerators,
@@ -87,6 +87,7 @@ class AcceleratorOptimizer(Annealer):
         self.step = 0
         self.state = None
         self.latest_energy = self.latest_latency = self.latest_area = None
+        self.metric = args.simanneal_optimization_metric
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
                                         **accelerator_cfg.design_space)
@@ -106,9 +107,11 @@ class AcceleratorOptimizer(Annealer):
 
         initial_state = self.get_initial_state()
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
+        self.best_state = self.copy_state(self.loaded_state)
 
         # get baseline measurements
-        assert self.energy(initial=True) < self.WORST_ENERGY, "Baseline produces negative energy"
+        initial_metric = self.energy(initial=True)
+        self.initial_metric = initial_metric
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
@@ -204,14 +207,14 @@ class AcceleratorOptimizer(Annealer):
         self.latest_energy = self.latest_latency = self.latest_area = None
         self.latest_schedule = None
 
-    def save_state(self, save_state_to=None):
-        """Save the latest state and results from energy/fitness calculation
+    def save_state(self, save_state_to=None, state_to_save=None):
+        """Save the state and results from fitness calculation
         """
         state_dict = {'energy': self.energy_dict,
                       'latency': self.latency_dict,
                       'area': self.area_dict,
                       'schedule': self.latest_schedule,
-                      'state': self.state,
+                      'state': self.state if state_to_save is None else state_to_save,
                       'constraints': getattr(self, 'hw_constraints', None),
                       'latest_energy': self.latest_energy,
                       'latest_latency': self.latest_latency,
@@ -227,7 +230,6 @@ class AcceleratorOptimizer(Annealer):
         """
         self.anneal()
         # save the best state
-        self.set_state(self.best_state)
         self.save_state(os.path.join(self.logdir, 'best_state.sa.pkl'))
 
     def update(self, step, T, E, acceptance, improvement):
@@ -246,7 +248,7 @@ class AcceleratorOptimizer(Annealer):
 
         elapsed = time() - self.start
         remain = (self.steps - step) * (elapsed / step)
-        logger.info("Update --> Temperature\tEnergy\t\tAccept\tImprove\t\tElapsed\t\tRemaining")
+        logger.info("Update --> Temperature\tEnergyMetric\tAccept\tImprove\tElapsed\tRemaining")
         logger.info(f"Update --> {T:8.3e}\t{E:8.3e}\t"
                     f"{acceptance:6.2%}\t{improvement:6.2%}\t"
                     f"{time_string(elapsed)}\t{time_string(remain)}")
@@ -291,14 +293,18 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"\t{state}")
 
     def energy(self, initial=False):
-        """Wrapper function for estimating the SA energy
+        """Wrapper function for estimating the SA energy metric
         """
         start = time()
-        logger.info(f"=> Beginning {'initial ' if initial else ''}energy evaluation")
-        energy = self._energy_evaluation()
-        logger.info(f"Completed energy evaluation in {time() - start:.3e}s")
+        logger.info(f"=> Beginning {'initial ' if initial else ''}state evaluation")
+        is_successful = self._evaluation()
+        logger.info(f"Completed state evaluation in {time() - start:.3e}s")
+
         # save the results
         self.save_state()
+        # save the best state
+        self.save_state(save_state_to=os.path.join(self.logdir, 'best_state.sa.pkl'),
+                        state_to_save=self.best_state)
 
         if self.latest_schedule is not None:
             logger.info(f"Evaluation results:\n"
@@ -306,13 +312,22 @@ class AcceleratorOptimizer(Annealer):
                         f"\tLatency={self.latest_latency:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
         elif initial:
-            raise ValueError("Initial energy calculation cannot be invalid")
+            raise ValueError("Initial metric calculation cannot be invalid")
+
+        # configure energy metric
+        energy_metric = {
+            MetricType.Energy: self.latest_energy,
+            MetricType.Latency: self.latest_latency,
+            MetricType.EDP: self.latest_energy * self.latest_latency,
+            MetricType.Area: self.latest_area
+        }.get(self.metric)
 
         logger.info("*--------------*")
-        return energy
+        return energy_metric if energy_metric is not None else math.inf
 
-    def _energy_evaluation(self):
+    def _evaluation(self):
         """Evaluate the fitness of the current state
+           Returns a boolean variable, indicating a successful/unsuccessful evaluation
         """
         def violated_deadline(schedule):
             deadline = getattr(getattr(self, 'hw_constraints', None), 'deadline', None)
@@ -398,7 +413,7 @@ class AcceleratorOptimizer(Annealer):
         if violated_area_constraint(self.latest_area):
             self.latest_schedule = self.latest_energy = self.latest_latency = None
             logger.info("Violated area constraint")
-            return self.WORST_ENERGY
+            return False
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         start = time()
@@ -414,7 +429,7 @@ class AcceleratorOptimizer(Annealer):
             # return in case of invalid schedule
             self.latest_energy = self.latest_latency = None
             logger.info(f"Could not find valid schedule")
-            return self.WORST_ENERGY
+            return False
 
         # get results for energy and latency based on the final schedule
         self.latest_energy = sum([
@@ -433,5 +448,6 @@ class AcceleratorOptimizer(Annealer):
         # check deadline constraint
         if violated_deadline(schedule):
             logger.info(f"Violated deadline constraint")
-            return self.WORST_ENERGY
-        return self.latest_energy
+            return False
+        
+        return True 
