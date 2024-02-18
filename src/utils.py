@@ -516,14 +516,14 @@ def get_sparsity(param):
     """
     with torch.no_grad():
         all_weights = param.numel()
-        nonzero_weights = param.eq(0).sum().item()
+        nonzero_weights = param.ne(0).sum().item()
         # columns
         param_2d = param.view(-1, np.prod(param.shape[1:]))
         all_columns = param_2d.shape[0]
-        nonzero_columns = torch.norm(param_2d, p=1, dim=1).gt(0).sum().item()
+        nonzero_columns = torch.norm(param_2d, p=1, dim=1).ne(0).sum().item()
         # rows
         all_rows = param_2d.shape[1]
-        nonzero_rows = torch.norm(param_2d, p=1, dim=0).eq(1).sum().item()
+        nonzero_rows = torch.norm(param_2d, p=1, dim=0).ne(0).sum().item()
         # channels
         if param.dim() != 4:
             all_channels = nonzero_channels = sparsity_channels = 0.0
@@ -531,7 +531,7 @@ def get_sparsity(param):
             channel_view = param.transpose(0, 1).contiguous()
             channels_norm = torch.norm(channel_view.view(-1, np.prod(channel_view.shape[1:])), p=1, dim=1)
             all_channels = param.shape[1]
-            nonzero_channels = channels_norm.gt(0).sum().item()
+            nonzero_channels = channels_norm.ne(0).sum().item()
             sparsity_channels = 1 - (nonzero_channels / all_channels)
         # filters
         if param.dim() != 4:
@@ -539,7 +539,7 @@ def get_sparsity(param):
         else:
             filters_norm = torch.norm(param.view(-1, np.prod(param.shape[1:])), p=1, dim=1)
             all_filters = param.shape[0]
-            nonzero_filters = filters_norm.gt(0).sum().item()
+            nonzero_filters = filters_norm.ne(0).sum().item()
             sparsity_filters = 1 - (nonzero_filters / all_filters)
 
     return {'all_weights': all_weights, 'nonzero_weights': nonzero_weights, 'weights': 1 - (nonzero_weights / all_weights),
@@ -552,16 +552,15 @@ def get_sparsity(param):
 def compute_model_statistics(model, layers_to_compress=[]):
     """Calculate statistics for each layer of a given model 
     """
-    # TODO: Something is wrong here w.r.t. size and sparsity (maybe we are getting the inverse)
     metrics = ['size', 'sparsity',
                'all_weights', 'nonzero_weights', 'sparsity_weights',
                'all_columns', 'nonzero_columns', 'sparsity_columns',
                'all_rows', 'nonzero_rows', 'sparsity_rows',
                'all_channels', 'nonzero_channels', 'sparsity_channels',
                'all_filters', 'nonzero_filters', 'sparsity_filters']
-
     total_stats = {metric: 0.0 for metric in metrics}
     per_layer_stats = {}
+
     for module_name, module in model.named_modules():
         if module_name not in layers_to_compress:
             continue
@@ -569,10 +568,12 @@ def compute_model_statistics(model, layers_to_compress=[]):
         # match the names of each sparsity-related metric
         sparsity_stats = get_sparsity(module.weight)
         per_layer_stats[module_name] = {metric: sparsity_stats[metric]
-                                        if 'all_' in metric or 'nonzero_' in metric
-                                        else sparsity_stats[metric.replace('sparsity_', '')]
+                                            if 'all_' in metric or 'nonzero_' in metric
+                                            else sparsity_stats[metric.replace('sparsity_', '')]
                                         for metric in metrics
-                                        if metric in sparsity_stats or metric.replace('sparsity_', '') in sparsity_stats}
+                                            if metric in sparsity_stats or 
+                                            metric.replace('sparsity_', '') in sparsity_stats
+                                        }
         per_layer_stats[module_name]['sparsity'] = per_layer_stats[module_name]['sparsity_weights']
         bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
         per_layer_stats[module_name]['size'] = (bits/8) * sparsity_stats['nonzero_weights']

@@ -46,7 +46,7 @@ def main():
         # perform a DSE to define the sub-accelerator architectures
         accel, optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
         # prune the DNNs to produce the final scheduler
-        schedule, metrics = pruned_schedule(args, dnn_accuracy_lut,
+        schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
                                             compressors, optimizer, accel)
 
     # evaluate a given baseline accelerator architecture
@@ -114,6 +114,28 @@ def setup_workload(args):
     return MultiDNNWorkload(dnns, datasets, print_frequency)
 
 
+
+def init_compressor(args, workload, arch, net_wrapper):
+    compression_args = SimpleNamespace(logdir=args.logdir,
+                                       pruning_high=args.pruning_high,
+                                       pruning_low=args.pruning_low,
+                                       quant_high=args.quant_high,
+                                       quant_low=args.quant_low,
+                                       layer_type_whitelist=args.layer_type_whitelist,
+                                       pruning_group_type=args.pruning_group_type,
+                                       accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
+                                       # DNN args for inheritance from TorchNetworkWrapper
+                                       optimizer_type=args.optimizer_type,
+                                       profile_model=False,
+                                       gpus=args.gpus,
+                                       cpu=args.cpu,
+                                       print_frequency=workload.print_frequency[arch],
+                                       verbose=args.model_verbose)
+    return PruningQuantizationCompressor(compression_args,
+                                         workload.datasets[net_wrapper.model.dataset],
+                                         net_wrapper.model)
+
+
 def quant_exploration(args, workload):
     """Exploration of possible quantization profiles
     """
@@ -135,25 +157,8 @@ def quant_exploration(args, workload):
             continue
 
         # initialize compressor
-        compression_args = SimpleNamespace(logdir=args.logdir,
-                                           pruning_high=args.pruning_high,
-                                           pruning_low=args.pruning_low,
-                                           quant_high=args.quant_high,
-                                           quant_low=args.quant_low,
-                                           layer_type_whitelist=args.layer_type_whitelist,
-                                           pruning_group_type=args.pruning_group_type,
-                                           accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
-                                           # DNN args for inheritance from TorchNetworkWrapper
-                                           profile_model=False,
-                                           gpus=args.gpus,
-                                           cpu=args.cpu,
-                                           print_frequency=workload.print_frequency[arch],
-                                           verbose=args.model_verbose)
-        compressor = PruningQuantizationCompressor(compression_args,
-                                                   workload.datasets[net_wrapper.model.dataset],
-                                                   net_wrapper.model)
+        compressor = init_compressor(args, workload, arch, net_wrapper)
         compressors[arch] = compressor
-
         logger.info(f'=> Beginning exhaustive exploration for {arch}')
 
         # compute original statistics
@@ -270,7 +275,7 @@ def accelerator_exploration(args, workload, accuracy_lut):
     return optimizer.best_state, optimizer
 
 
-def pruned_schedule(args, dnn_accuracy_lut, compressors, optimizer, accel):
+def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, hetero_accel):
     """Prune the DNNs according to the final heterogeneous accelerator architecture
     """
     def lut_entry(arch, precision):
@@ -280,74 +285,117 @@ def pruned_schedule(args, dnn_accuracy_lut, compressors, optimizer, accel):
                ]
 
     def is_valid(arch, accuracy_metric, accuracy_value):
+        if isinstance(accuracy_value, pd.Series):
+            accuracy_value = accuracy_value.iloc[0]
+
         accuracy_metric = accuracy_metric.lower()
         og_metric = lut_entry(arch, 32)[accuracy_metric.capitalize()].iloc[0]
         assert getattr(args, accuracy_metric + '_constraint', None) is not None
         return accuracy_value >= og_metric - getattr(args, accuracy_metric + '_constraint')
 
-
+    # create dictionaries to save measurements
     edp_dict = {key: optimizer.energy_dict[key] * optimizer.latency_dict[key]
                 for key in optimizer.energy_dict}
-
     pruned_mappings = SimpleNamespace(energy=deepcopy(optimizer.energy_dict),
                                       latency=deepcopy(optimizer.latency_dict),
                                       edp=edp_dict,
                                       area=deepcopy(optimizer.area_dict))
 
-    for single_accel in accel:
-        for arch, compressor in compressors.items():
+    # re-initialize compressors if they were not loaded
+    if len(compressors) == 0:
+        for arch, net_wrapper in workload.dnns.items():
+            compressors[arch] = init_compressor(args, workload, arch, net_wrapper)
 
-            entry = lut_entry(arch, single_accel.precision)
-            accuracy_satisfied = entry['Valid']
+    logger.info("=> Beginning accelerator-aware pruning")
+
+    # iterate over each accelerator
+    for accelerator in hetero_accel:
+        logger.info(f"\tEvaluating accelerator: {accelerator}")
+        # iterate over each DNN
+        for arch, compressor in compressors.items():
+            logger.info(f"\t\tCompressing DNN: {arch}")
+
+            # check the accuracy of the quantized DNN
+            entry = lut_entry(arch, accelerator.precision)
+            accuracy_satisfied = entry['Valid'].iloc[0]
+            if not accuracy_satisfied:
+                logger.info(f"\t\tSkipping pruning of quantized DNN: accuracy already violated")
+                # Invalid scheduling mappings are marked with negative weight (latency)
+                pruned_mappings.energy[(arch, accelerator)] = -1
+                pruned_mappings.latency[(arch, accelerator)] = -1
+                pruned_mappings.edp[(arch, accelerator)] = -1
+                continue
+
+            # check compliance with accuracy threshold, in case of mismatches from previous run
             if accuracy_satisfied and not is_valid(arch, 'top1', entry['Top1']):
                 logger.warning(f"A solution was accepted but surpasses the given constraint")
 
+            # increamentally prune the DNN until an accuracy violation
             prune_ratio = 0.0
+            top1 = entry['Top1']
+            top5 = entry['Top5']
+            loss = entry['Loss']
             while accuracy_satisfied:
                 prune_ratio += 0.05
-                
+
+                # execute quantization and pruning with new ratio
                 compressor.reset()
-                compressor.prune_and_quantize(prune_ratio, single_accel.precision)
+                compressor.prune_and_quantize(prune_ratio, accelerator.precision)
+
                 # evaluate for accuracy and network statistics
-                top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+                top1, _, _ = compressor.validate() if args.use_validation_set else compressor.test()
                 # check constraint again
                 accuracy_satisfied = is_valid(arch, 'top1', top1)
-        
-            layer_stats = compressor.compute_model_statistics()
-            optimizer.timeloop_wrapper.adjust_architecture(single_accel)
-            
+
+            # continue from lastly pruned model that satisfied the accuracy constraint
+            prune_ratio -= 0.05
+            compressor.reset()
+            compressor.prune_and_quantize(prune_ratio, accelerator.precision)
+
+            # evaluate the final pruned/quantized accuracy and sparsity statistics
+            top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+            total_stats, layer_stats = compressor.compute_model_statistics()
+            logger.info(f"\tCompleted pruning/quantization for {arch}: ratio={prune_ratio}, bits={accelerator.precision}")
+            logger.info(f"\tResults: top1={top1:.2f}\%, top5={top5:.2f}\%, loss={loss:.3e}")
+            logger.info(f"\tResults: sparsity={total_stats['sparsity']*100:.2f}\%")
+
+            # evaluate the DNN within timeloop
             energy = latency = 0
-            for name in optimizer.timeloop_problems_per_dnn[arch]:
+            optimizer.timeloop_wrapper.adjust_architecture(accelerator)
+            for problem_name in optimizer.timeloop_problems_per_dnn[arch]:
+                layer_name = optimizer.timeloop_problem_to_layer_name[arch][problem_name]
                 optimizer.timeloop_wrapper.adjust_problem_dimension(
-                    name, 'M', adjust_by=(1 - layer_stats[name]['sparsity_filters'])
+                    problem_name, 'M', adjust_by=(1 - layer_stats[layer_name]['sparsity_filters'])
                 )
                 optimizer.timeloop_wrapper.adjust_problem_dimension(
-                    name, 'C', adjust_by=(1 - layer_stats[name]['sparsity_channels'])
+                    problem_name, 'C', adjust_by=(1 - layer_stats[layer_name]['sparsity_channels'])
                 )
                 # run timeloop and get results
-                optimizer.timeloop_wrapper.run(name)
+                optimizer.timeloop_wrapper.run(problem_name)
                 results = optimizer.timeloop_wrapper.get_results()
                 energy += results.energy
                 latency += results.cycles
-                
-            area = results.area
-            
-            pruned_mappings.energy[(arch, single_accel)] = energy
-            pruned_mappings.latency[(arch, single_accel)] = latency
-            pruned_mappings.edp[(arch, single_accel)] = energy * latency
-            pruned_mappings.area[single_accel] = area
+
+            # save DNN results
+            pruned_mappings.energy[(arch, accelerator)] = energy
+            pruned_mappings.latency[(arch, accelerator)] = latency
+            pruned_mappings.edp[(arch, accelerator)] = energy * latency
+
+        if accelerator not in pruned_mappings.area:
+            pruned_mappings.area[accelerator] = getattr(results, 'area', 0.0)
 
     logger.info("Completed pruned mapping evaluation")
 
     total_area = sum([
-        pruned_mappings.area[single_accel] for single_accel in accel
+        pruned_mappings.area[single_accel] for single_accel in hetero_accel
     ])
 
     # execute final schedule
     schedule = optimizer.scheduler.run(items=list(compressors.keys()),
-                                       bins=accel,
+                                       bins=hetero_accel,
                                        cost_dict=pruned_mappings.edp,
                                        weight_dict=pruned_mappings.latency)
+    assert schedule is None, f"Could not find valid final schedule!"
     
     # get results for energy and latency based on the final schedule
     total_energy = sum([
@@ -362,11 +410,12 @@ def pruned_schedule(args, dnn_accuracy_lut, compressors, optimizer, accel):
     # log the results of the scheduling
     schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
     logger.info(f"Scheduler results:\n\t{schedule_str}")
-
     metrics = SimpleNamespace(energy=total_energy,
                               latency=total_latency,
                               edp=total_energy * total_latency,
                               area=total_area)
+    logger.info(f"=> Final schedule metrics: {vars(metrics)}")
+
     return schedule, metrics
 
 

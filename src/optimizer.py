@@ -144,8 +144,10 @@ class AcceleratorOptimizer(Annealer):
 
         # prepare each layer for timeloop simulations
         self.timeloop_problems_per_dnn = {}
+        self.timeloop_problem_to_layer_name = {}
         for arch, net_wrapper in self.workload.dnns.items():
             self.timeloop_problems_per_dnn[arch] = []
+            self.timeloop_problem_to_layer_name[arch] = {}
 
             layers_to_consider = [name for name, module in net_wrapper.model.named_modules()
                                   if isinstance(module, layer_type_whitelist)]
@@ -156,6 +158,8 @@ class AcceleratorOptimizer(Annealer):
 
                 problem_name = f'{arch}__layer{layer_idx}_{layer_name}'
                 self.timeloop_problems_per_dnn[arch].append(problem_name)
+                self.timeloop_problem_to_layer_name[arch][problem_name] = layer_name
+
                 problem_filepath = os.path.join(self.timeloop_wrapper.workload_dir, problem_name + '.yaml')
                 self.timeloop_wrapper.init_problem(problem_name,
                                                    layer_info.layer_type,
