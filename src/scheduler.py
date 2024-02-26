@@ -289,7 +289,7 @@ class Scheduler:
         """Static scheduling with homogeneous bins w.r.t. of values and weights per item
            This is an implementation of the Multiple Knapsack problem
         """
-        # TODO: This is a temporary implementation. We use the same GAP solver as ours,
+        # TODO: This is a temporary implementation for baseline. We use the same GAP solver as ours,
         #       but expect to have the same cost/weight values for all bins
         return self._run_ours(*args, **kwargs)
 

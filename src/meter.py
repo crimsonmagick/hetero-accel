@@ -4,6 +4,12 @@ from torchnet.meter import ClassErrorMeter
 from src.dataset_utils import VOC_CLASSES_MAP, REV_VOC_CLASSES_MAP
 
 
+# NOTE: Write first the most important accuracy metric, and the
+#       one returned FIRST by calling meter.value('all'). This is
+#       important when either train/validate are called from
+#       src/train_test.py.
+
+
 class ImageClassificationMeter(ClassErrorMeter):
     def __init__(self):
         self.metrics = ['top1', 'top5']
@@ -12,8 +18,8 @@ class ImageClassificationMeter(ClassErrorMeter):
     def value(self, metric=None):
         assert metric in self.metrics + ['all']
         if metric == 'all':
-            return tuple([super().value(k=_k) for _k in [1, 5]])
-        return super().value(k=int(metric.replace('top', '')))
+            return tuple([super(ImageClassificationMeter, self).value(k=_k) for _k in [1, 5]])
+        return super(ImageClassificationMeter, self).value(k=int(metric.replace('top', '')))
 
 
 class SegmentationMeter(Meter):
@@ -26,15 +32,15 @@ class SegmentationMeter(Meter):
     def reset(self):
         self.sum = 0
         self.num = 0
-    
+
     def add(self, output, target):
         acc = self.pixel_acc(output, target)
         self.sum += acc
         self.num += 1
-    
+
     def value(self, metric=None):
-        assert metric in self.metrics, f'Metric {metric} is not supported'
-        return self.sum / self.num
+        assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
+        return self.sum / self.num,
 
     def pixel_acc(self, pred, label):
         _, preds = torch.max(pred, dim=1)
@@ -65,7 +71,7 @@ class ObjectDetectionMeter(Meter):
         self.true_difficulties = []
         self.sum = 0
         self.num = 0
-    
+
     def add(self, output, target):
         det_boxes, det_labels, det_scores, true_boxes, true_labels, true_difficulties = \
             self.detect_objects(output, target)
@@ -76,7 +82,7 @@ class ObjectDetectionMeter(Meter):
         self.true_labels.extend(true_labels)
         self.true_difficulties.extend(true_difficulties)
         self.num += 1
-            
+
     def value(self, metric=None):
         """
         Taken from:

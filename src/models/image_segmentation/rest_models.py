@@ -15,3 +15,11 @@ def fcn_resnet101(pretrained=True):
     weights = seg.FCN_ResNet101_Weights.DEFAULT if pretrained else None
     model = seg.fcn_resnet101(weights=weights, progress=False)
     return model
+
+
+def deeplabv3(pretrained=True):
+    """Semantic segmentation with DeepLab V3
+    """
+    weights = seg.DeepLabV3_MobileNet_V3_Large_Weights.DEFAULT if pretrained else None
+    model = seg.deeplabv3_mobilenet_v3_large(weights=weights, progress=False)
+    return model

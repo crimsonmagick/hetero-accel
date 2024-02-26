@@ -45,9 +45,9 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
             'moving_mnist': (create_video_processing_model, DNNType.VideoProcessing, None),
             'kinetics': (create_video_processing_model, DNNType.VideoProcessing, None),
         }.get(dataset)
-    except ValueError:
+    except TypeError:
         raise ValueError(f"Dataset {dataset} is not supported")
-    
+
     # create the model
     model = create_model_f(arch, dataset, pretrained)
 

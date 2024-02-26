@@ -1,14 +1,11 @@
 import logging
 import traceback
 import os.path
-import wandb
-import torch
 import pickle
 import numpy as np
 import pandas as pd
 import yaml
 from copy import deepcopy
-from collections import OrderedDict
 from types import SimpleNamespace
 from src import dataset_dirs
 from src.workload import MultiDNNWorkload
@@ -149,7 +146,7 @@ def quant_exploration(args, workload):
         logger.info(f'=> Skipping exhaustive exploration: loaded LUT from {args.dnn_accuracy_lut_file}')
 
     # structure of the LUT
-    df = pd.DataFrame(columns=['Network', 'QuantBits', 'Top1', 'Top5', 'Loss', 'Sparsity', 'Size', 'Valid'])
+    df = pd.DataFrame(columns=['Network', 'QuantBits', 'Accuracy', 'Sparsity', 'Size', 'Valid'])
 
     compressors = {}
     for arch, net_wrapper in workload.dnns.items():
@@ -162,16 +159,21 @@ def quant_exploration(args, workload):
         logger.info(f'=> Beginning exhaustive exploration for {arch}')
 
         # compute original statistics
-        top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+        accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
         model_stats, _ = compressor.compute_model_statistics()
-        og_stats = {'top1': top1, 'top5': top5, 'loss': loss,
-                    'sparsity': model_stats['sparsity'], 'size': model_stats['size']}
+        og_stats = {
+            'accuracy': accuracy_stats[0], 
+            'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+            **{
+                metric: accuracy_stats for i, metric in enumerate(net_wrapper.accuracy_metrics)
+            }
+        }
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                      f'{metric.capitalize()}={value:.2e}'
                                      for metric, value in og_stats.items()])
         logger.info(f'{arch}: Original statistics: {og_stats_logstr}')
         # save the statistics to the LUT
-        df.loc[len(df.index)] = ([arch, 32, top1, top5, loss, model_stats['sparsity'], model_stats['size'], 1])
+        df.loc[len(df.index)] = ([arch, 32, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], 1])
 
         # iterate over quantization bits
         quant_bits_options = np.arange(args.quant_low, args.quant_high + 1, args.quant_incr)
@@ -186,10 +188,15 @@ def quant_exploration(args, workload):
             # execute the compression profile
             compressor.quantize(quant_bits)
             # evaluate for accuracy and network statistics
-            top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+            accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
             model_stats, _ = compressor.compute_model_statistics()
-            stats = {'top1': top1, 'top5': top5, 'loss': loss,
-                     'sparsity': model_stats['sparsity'], 'size': model_stats['size']}
+            stats = {
+                'accuracy': accuracy_stats[0],
+                'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+                **{
+                    metric: accuracy_stats for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                }
+            }
             stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                       f'{metric.capitalize()}={value:.2e}'
                                       for metric, value in stats.items()])
@@ -197,13 +204,15 @@ def quant_exploration(args, workload):
 
             # binary flag whether the accuracy constraints are satisfied
             valid = 0
-            if (args.top1_constraint is not None and top1 >= og_stats['top1'] - args.top1_constraint) or \
-               (args.top5_constraint is not None and top5 >= og_stats['top5'] - args.top5_constraint) or \
-               (args.loss_constraint is not None and loss <= og_stats['loss'] - args.loss_constraint):
+            if any(
+                getattr(args, f'{metric}_constraint', None) is not None and
+                accuracy_stats[i] >= og_stats[metric] - getattr(args, f'{metric}_constraint')
+                for i, metric in enumerate(net_wrapper.accuracy_metrics)
+            ):
                 valid = 1
 
             # save the statistics to the LUT
-            df.loc[len(df.index)] = ([arch, quant_bits, top1, top5, loss, model_stats['sparsity'], model_stats['size'], valid])
+            df.loc[len(df.index)] = ([arch, quant_bits, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], valid])
 
     if skip_exploration:
        df = preloaded_dnn_accuracy_lut
@@ -297,8 +306,8 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         if isinstance(accuracy_value, pd.Series):
             accuracy_value = accuracy_value.iloc[0]
 
+        og_metric = lut_entry(arch, 32)['Accuracy'].iloc[0]
         accuracy_metric = accuracy_metric.lower()
-        og_metric = lut_entry(arch, 32)[accuracy_metric.capitalize()].iloc[0]
         assert getattr(args, accuracy_metric + '_constraint', None) is not None
         return accuracy_value >= og_metric - getattr(args, accuracy_metric + '_constraint')
 
@@ -335,15 +344,15 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 pruned_mappings.edp[(arch, accelerator)] = -1
                 continue
 
+            accuracy_metric = compressor.accuracy_metrics[0]
+
             # check compliance with accuracy threshold, in case of mismatches from previous run
-            if accuracy_satisfied and not is_valid(arch, 'top1', entry['Top1']):
+            if accuracy_satisfied and not is_valid(arch, accuracy_metric, entry['Accuracy']):
                 logger.warning(f"A solution was accepted but surpasses the given constraint")
 
             # increamentally prune the DNN until an accuracy violation
             prune_ratio = 0.0
-            top1 = entry['Top1']
-            top5 = entry['Top5']
-            loss = entry['Loss']
+            accuracy = entry['Accuracy']
             while accuracy_satisfied:
                 prune_ratio += 0.05
 
@@ -352,9 +361,9 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 compressor.prune_and_quantize(prune_ratio, accelerator.precision)
 
                 # evaluate for accuracy and network statistics
-                top1, _, _ = compressor.validate() if args.use_validation_set else compressor.test()
+                accuracy, *_ = compressor.validate() if args.use_validation_set else compressor.test()
                 # check constraint again
-                accuracy_satisfied = is_valid(arch, 'top1', top1)
+                accuracy_satisfied = is_valid(arch, accuracy_metric, accuracy)
 
             # continue from lastly pruned model that satisfied the accuracy constraint
             prune_ratio -= 0.05
@@ -362,10 +371,13 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
             compressor.prune_and_quantize(prune_ratio, accelerator.precision)
 
             # evaluate the final pruned/quantized accuracy and sparsity statistics
-            top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
+            accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
             total_stats, layer_stats = compressor.compute_model_statistics()
             logger.info(f"\tCompleted pruning/quantization for {arch}: ratio={prune_ratio}, bits={accelerator.precision}")
-            logger.info(f"\tResults: top1={top1:.2f}%, top5={top5:.2f}%, loss={loss:.3e}")
+            logger.info("\tResults: " + ', '.join([
+                f'{metric}={accuracy_stats[i]:.3e}'
+                for i, metric in enumerate(compressor.accuracy_metrics)
+            ]))
             logger.info(f"\tResults: sparsity={total_stats['sparsity']*100:.2f}%")
 
             # evaluate the DNN within timeloop

@@ -3,6 +3,7 @@ import logging
 import re
 import torchnet.meter as tnt
 from types import SimpleNamespace
+from collections import OrderedDict
 from src import pretrained_checkpoint_paths
 from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
 from src.meter import *
@@ -38,13 +39,17 @@ class TorchNetworkWrapper:
         elif self.model.task == DNNType.ObjectDetection:
             self.criterion = YoloLoss().to(self.model.device)
             self.accuracy_meter = ObjectDetectionMeter(device=self.model.device)
+        # TODO: Fill the criterion/meter for the rest of the tasks
         elif self.model.task == DNNType.TextClassification:
+            raise NotImplementedError
             self.criterion = ''
             self.accuracy_meter = TextClassificationMeter()
         elif self.model.task == DNNType.MachineTranslation:
+            raise NotImplementedError
             self.criterion = ''
             self.accuracy_meter = TranslationMeter()
         elif self.model.task == DNNType.VideoProcessing:
+            raise NotImplementedError
             self.criterion = ''
             self.accuracy_meter = VideoProcessingMeter()
 
@@ -146,12 +151,13 @@ class TorchNetworkWrapper:
     def train(self, epochs, train_loader, steps_per_epoch=None, profiler=None):
         """Run some training epochs on the model
         """
+        self.accuracy_meter.reset()
         train_metrics = []
         if steps_per_epoch is None:
             steps_per_epoch = len(train_loader)
 
         for epoch in range(epochs):
-            top1, top5, loss = train(train_loader=train_loader,
+            accuracy_metrics = train(train_loader=train_loader,
                                      model=self.model,
                                      criterion=self.criterion,
                                      optimizer=self.optimizer,
@@ -162,32 +168,40 @@ class TorchNetworkWrapper:
                                      steps_per_epoch= steps_per_epoch,
                                      verbose=self.verbose,
                                      print_frequency=self.print_frequency)
-            train_metrics.extend((top1, top5, loss))
+            train_metrics.extend(accuracy_metrics)
         return train_metrics
+
+    @property
+    def accuracy_metrics(self):
+        """Gather accuracy metrics
+        """
+        return self.accuracy_meter.metrics 
 
     def validate(self, valid_loader):
         """Run inference on the validation set
         """
         logger.debug(f"Running inference on validation set")
+        self.accuracy_meter.reset()
         return self._run_inference(valid_loader)
 
     def test(self, test_loader):
         """Run inference on the test set
         """
         logger.debug(f"Running inference on test set")
+        self.accuracy_meter.reset()
         return self._run_inference(test_loader)
 
     def _run_inference(self, data_loader):
         """Wrapper function for running inerence with a give data loader
         """
-        top1, top5, loss = validate(valid_loader=data_loader,
+        accuracy_metrics = validate(valid_loader=data_loader,
                                     model=self.model,
                                     criterion=self.criterion,
                                     accuracy_meter=self.accuracy_meter,
                                     epoch=0,
                                     verbose=self.verbose,
                                     print_frequency=self.print_frequency)
-        return top1, top5, loss
+        return accuracy_metrics
 
     def save_model(self, name=None, episode=None, is_best=False, verbose=True):
         """Save the current version of the model

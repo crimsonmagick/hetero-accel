@@ -109,7 +109,7 @@ def train(train_loader, model, criterion, optimizer, profiler, accuracy_meter,
     if profiler is not None:
         profiler.stop()
 
-    return *accuracy_meter.value(metric='all'), losses['Overall Loss']
+    return *accuracy_meter.value(metric='all'), losses['Overall Loss'].mean
 
 
 def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, print_frequency):
@@ -117,14 +117,14 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
         logger.info(f'--- validate (epoch={epoch})-----------')
 
     def _log_validation_progress():
-        stats_dict = OrderedDict([('Loss', losses['objective_loss'].mean),
-                                  ('Top1', accuracy_meter.value(k=1)),
-                                  ('Top5', accuracy_meter.value(k=5))])
+        stats_dict = OrderedDict()
+        for accuracy_metric in accuracy_meter.metrics:
+            stats_dict[accuracy_metric] = accuracy_meter.value(metric=accuracy_metric)
+        stats_dict['Loss'] = losses['Objective Loss'].mean
         log_training_progress(stats_dict, epoch, steps_completed, total_steps)
 
     """Execute the validation/test loop."""
-    losses = {'objective_loss': tnt.AverageValueMeter()}
-    accuracy_meter = tnt.ClassErrorMeter(accuracy=True, topk=(1, 5))
+    losses = {'Objective Loss': tnt.AverageValueMeter()}
 
     device = model.device
     batch_time = tnt.AverageValueMeter()
@@ -148,7 +148,7 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
             # compute loss
             loss = criterion(output, target)
             # measure accuracy and record loss
-            losses['objective_loss'].add(loss.item())
+            losses['Objective Loss'].add(loss.item())
             accuracy_meter.add(output.detach(), target)
 
             # measure elapsed time
@@ -160,8 +160,11 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
                 _log_validation_progress()
 
     if verbose:
-        logger.info('==> Top1: {:.3f}    Top5: {:.3f}    Loss: {:.3f}\n'.format(
-                       accuracy_meter.value(k=1), accuracy_meter.value(k=5), losses['objective_loss'].mean))
+        logstr = '   '.join([
+            f'{accuracy_metric.capitalize()}: {accuracy_meter.value(metric=accuracy_metric):.3f}'
+            for accuracy_metric in accuracy_meter.metrics
+        ])
+        logger.info(f"==> {logstr}   Loss: {losses['Objective Loss'].mean:.3f}\n")
 
-    return accuracy_meter.value(1), accuracy_meter.value(5), losses['objective_loss'].mean
+    return *accuracy_meter.value(metric='all'), losses['Objective Loss'].mean
 

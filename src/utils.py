@@ -33,7 +33,7 @@ from src.args import ModelSummaryType
 __all__ = [
     'env_cfg', 'logging_cfg', 'cfg_from_yaml', 'set_deterministic',
     'load_checkpoint', 'save_checkpoint', 'weight_init', 'transform_model',
-    'log_training_progress', 'lut2csv', 'perfect_divisors', 'get_contents_table',
+    'log_training_progress', 'perfect_divisors', 'get_contents_table',
     'force_quotes_on_str',
     'get_sparsity', 'compute_model_statistics', 'get_dummy_input', 'model_summary',
     'handle_model_subapps',
@@ -415,37 +415,6 @@ def log_training_progress(stats_dict, epoch, completed, total):
     if wandb.run is not None:
         wandb.log(stats_dict)
     logger.info(log)
-
-
-def lut2csv(lut, savedir=None, filename=None):
-    """Write the contents of the DNN accuracy LUT to a csv file
-    """
-    savedir = logging.getLogger().logdir if savedir is None else savedir
-    filename = 'lut.csv' if filename is None else filename
-    filepath = os.path.join(savedir, filename)
-
-    with open(filepath, 'w') as f:
-        writer = csv.writer(f)
-        headers = ['Network', 'PruningRatio', 'QuantBits', 'Top1', 'Top5', 'Loss', 'Sparsity', 'Size']
-        writer.writerow(headers)
-
-        for network in lut:
-            og_stats = lut[network]['original_statistics']
-            row = [network, 0.0, 32, og_stats['top1'], og_stats['top5'], og_stats['loss'],
-                                     og_stats['sparsity'], og_stats['size']]
-            writer.writerow(row)
-
-            for pruning_ratio, quant_bits in lut[network]['compression_statistics']:
-                stats = lut[network]['compression_statistics'][(pruning_ratio, quant_bits)]
-                row = [network, pruning_ratio, quant_bits,
-                       stats['top1'], stats['top5'], stats['loss'],
-                       stats['sparsity'], stats['size']]
-                writer.writerow(row)
-
-    logger.info(f'Saved LUT to .csv file: {filepath}')
-    
-    # return the LUT into the format of a pandas DataFrame
-    return pd.read_csv(filepath)
 
 
 def perfect_divisors(numbers, include_one=False):
