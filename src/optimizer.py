@@ -98,15 +98,16 @@ class AcceleratorOptimizer(Annealer):
         self.scheduler = Scheduler(args.scheduler_type)
         self.latest_schedule = None
 
+        initial_state = self.get_initial_state()
+        super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
+        assert self.state == initial_state
+
         # load previous evaluations
         self.loaded_state = None
         if getattr(args, 'load_state_from', None) is not None and \
            os.path.exists(args.load_state_from):
             # later, use the loaded state as the first move of the annealing procedure
             self.loaded_state = self.load_state(args.load_state_from)
-
-        initial_state = self.get_initial_state()
-        super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
         self.best_state = self.copy_state(self.loaded_state)
 
         # get baseline measurements
@@ -115,8 +116,11 @@ class AcceleratorOptimizer(Annealer):
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
         self.initial_area = self.latest_area
-        logger.info(f"Initial results -> Energy={self.initial_energy:.3e}, "
-                     f"Latency={self.initial_latency:.3e}, Area={self.initial_area:.3e}")
+        logger.info("Initial results -> "
+                    f"Energy={self.initial_energy:.3e}, "
+                    f"Latency={self.initial_latency:.3e}, "
+                    f"EDP={self.initial_energy * self.initial_latency:.3e}"
+                    f"Area={self.initial_area:.3e}")
 
         # setup scheduling parameters during annealing
         self.copy_strategy = 'deepcopy'
@@ -261,7 +265,6 @@ class AcceleratorOptimizer(Annealer):
         """Alter the current state
         """
         self.step += 1
-
         # If this is the first evaluation, use the loaded state as the first move of the annealing procedure
         if self.step == 1 and getattr(self, 'loaded_state', None) is not None:
             new_state = self.loaded_state
@@ -314,6 +317,7 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"Evaluation results:\n"
                         f"\tEnergy={self.latest_energy:.3e}\n"
                         f"\tLatency={self.latest_latency:.3e}\n"
+                        f"\EDP={self.latest_energy * self.latest_latency:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
         elif initial:
             raise ValueError("Initial metric calculation cannot be invalid")
@@ -322,7 +326,9 @@ class AcceleratorOptimizer(Annealer):
         energy_metric = {
             MetricType.Energy: self.latest_energy,
             MetricType.Latency: self.latest_latency,
-            MetricType.EDP: self.latest_energy * self.latest_latency,
+            MetricType.EDP: self.latest_energy * self.latest_latency
+                            if self.latest_energy is not None
+                            else None,
             MetricType.Area: self.latest_area
         }.get(self.metric)
 

@@ -7,8 +7,9 @@ app_args:
         global_seed: 0
         dnn_accuracy_lut_file: data/lut.csv
         scheduler_type: ours
-        load_state_from: data/state.sa.pkl
-        skip_exploration: False
+        # load_state_from: data/state.sa.pkl
+        load_state_from: data/best_state.sa.pkl
+        skip_exploration: True
 
 dnn_op_mode_args:
         evaluate_model_mode: False

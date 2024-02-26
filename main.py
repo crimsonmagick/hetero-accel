@@ -272,6 +272,15 @@ def accelerator_exploration(args, workload, accuracy_lut):
     if not args.skip_exploration:
         optimizer.run()
 
+    logger.info("*------------------*")
+    comment = ''
+    if args.skip_exploration and getattr(args, 'load_state_from', None) is not None:
+        comment = f' (loaded from: {args.load_state_from}) ' 
+    logger.info(f"Final heterogeneous accelerator{comment}:")
+    for state in optimizer.best_state:
+        logger.info(f'\t{state}')
+    logger.info("*------------------*")
+
     return optimizer.best_state, optimizer
 
 
@@ -356,8 +365,8 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
             top1, top5, loss = compressor.validate() if args.use_validation_set else compressor.test()
             total_stats, layer_stats = compressor.compute_model_statistics()
             logger.info(f"\tCompleted pruning/quantization for {arch}: ratio={prune_ratio}, bits={accelerator.precision}")
-            logger.info(f"\tResults: top1={top1:.2f}\%, top5={top5:.2f}\%, loss={loss:.3e}")
-            logger.info(f"\tResults: sparsity={total_stats['sparsity']*100:.2f}\%")
+            logger.info(f"\tResults: top1={top1:.2f}%, top5={top5:.2f}%, loss={loss:.3e}")
+            logger.info(f"\tResults: sparsity={total_stats['sparsity']*100:.2f}%")
 
             # evaluate the DNN within timeloop
             energy = latency = 0
@@ -385,6 +394,10 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
             pruned_mappings.area[accelerator] = getattr(results, 'area', 0.0)
 
     logger.info("Completed pruned mapping evaluation")
+    savefile = os.path.join(optimizer.logdir, 'pruned_mappings.pkl')
+    with open(savefile, 'wb') as f:
+        pickle.dump(pruned_mappings, f)
+    logger.info(f"Saved pruned mappings in {savefile}")
 
     total_area = sum([
         pruned_mappings.area[single_accel] for single_accel in hetero_accel
@@ -396,7 +409,7 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                                        cost_dict=pruned_mappings.edp,
                                        weight_dict=pruned_mappings.latency)
     assert schedule is None, f"Could not find valid final schedule!"
-    
+
     # get results for energy and latency based on the final schedule
     total_energy = sum([
         pruned_mappings.energy[(entry.tag, entry.bin)] for entry in schedule.entries
@@ -414,7 +427,9 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                               latency=total_latency,
                               edp=total_energy * total_latency,
                               area=total_area)
-    logger.info(f"=> Final schedule metrics: {vars(metrics)}")
+    logger.info(f"=> Final schedule metrics:")
+    for metric, value in vars(metrics).items():
+        logger.info(f"\t{metric.capitalize()} = {metric:.3e}")
 
     return schedule, metrics
 
