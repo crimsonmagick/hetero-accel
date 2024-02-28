@@ -311,13 +311,23 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         assert getattr(args, accuracy_metric + '_constraint', None) is not None
         return accuracy_value >= og_metric - getattr(args, accuracy_metric + '_constraint')
 
-    # create dictionaries to save measurements
-    edp_dict = {key: optimizer.energy_dict[key] * optimizer.latency_dict[key]
-                for key in optimizer.energy_dict}
-    pruned_mappings = SimpleNamespace(energy=deepcopy(optimizer.energy_dict),
-                                      latency=deepcopy(optimizer.latency_dict),
-                                      edp=edp_dict,
-                                      area=deepcopy(optimizer.area_dict))
+    # load measurements
+    skip_mapping = False
+    if getattr(args, 'load_pruned_mappings_from', None) is not None and \
+       os.path.exists(args.load_pruned_mappings_from):
+        skip_mapping = True
+        with open(args.load_pruned_mappings_from, 'rb') as f:
+            pruned_mappings = pickle.load(f)
+        logger.info(f"=> Loaded pruned mappings from {args.load_pruned_mappings_from}")
+
+    else:
+        # create dictionaries to save measurements
+        edp_dict = {key: optimizer.energy_dict[key] * optimizer.latency_dict[key]
+                    for key in optimizer.energy_dict}
+        pruned_mappings = SimpleNamespace(energy=deepcopy(optimizer.energy_dict),
+                                            latency=deepcopy(optimizer.latency_dict),
+                                            edp=edp_dict,
+                                            area=deepcopy(optimizer.area_dict))
 
     # re-initialize compressors if they were not loaded
     if len(compressors) == 0:
@@ -328,6 +338,9 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
 
     # iterate over each accelerator
     for accelerator in hetero_accel:
+        if skip_mapping:
+            continue
+
         logger.info(f"\tEvaluating accelerator: {accelerator}")
         # iterate over each DNN
         for arch, compressor in compressors.items():
@@ -366,25 +379,44 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 accuracy_satisfied = is_valid(arch, accuracy_metric, accuracy)
 
             # continue from lastly pruned model that satisfied the accuracy constraint
-            prune_ratio -= 0.05
+            prune_ratio = max(0.0, prune_ratio - 0.05)
+
+            # if no pruning can be handled, then skip the evaluation, as the metrics from the
+            #  exact DNN-accelerator mapping are already stored
+            if prune_ratio == 0.0 and (arch, accelerator) in pruned_mappings.energy:
+                logger.info(f"\t\tSkipping pruning of quantizated DNN {arch}: accuracy would be violated")
+                continue
+
+            # execute pruning and quantization
             compressor.reset()
             compressor.prune_and_quantize(prune_ratio, accelerator.precision)
 
             # evaluate the final pruned/quantized accuracy and sparsity statistics
             accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
             total_stats, layer_stats = compressor.compute_model_statistics()
-            logger.info(f"\tCompleted pruning/quantization for {arch}: ratio={prune_ratio}, bits={accelerator.precision}")
-            logger.info("\tResults: " + ', '.join([
-                f'{metric}={accuracy_stats[i]:.3e}'
+            logger.info(f"\t\tCompleted pruning/quantization for {arch}: ratio={prune_ratio}, bits={accelerator.precision}")
+            logger.info("\t\tResults: " + ', '.join([
+                f'{metric}={accuracy_stats[i]:.2f}'
                 for i, metric in enumerate(compressor.accuracy_metrics)
             ]))
-            logger.info(f"\tResults: sparsity={total_stats['sparsity']*100:.2f}%")
+            logger.info(f"\t\tResults: sparsity={total_stats['sparsity']*100:.2f}%")
 
             # evaluate the DNN within timeloop
             energy = latency = 0
             optimizer.timeloop_wrapper.adjust_architecture(accelerator)
             for problem_name in optimizer.timeloop_problems_per_dnn[arch]:
                 layer_name = optimizer.timeloop_problem_to_layer_name[arch][problem_name]
+
+                # check extreme sparsity cases
+                filters = optimizer.timeloop_wrapper.workloads[problem_name].config['instance']['M']
+                channels = optimizer.timeloop_wrapper.workloads[problem_name].config['instance']['C']
+                if (filters * (1 - layer_stats[layer_name]['sparsity_filters']) <= 1 and filters > 1) or \
+                   (channels * (1 - layer_stats[layer_name]['sparsity_channels']) <= 1 and channels > 1):
+                    logger.warning(f"\t\t{arch} layer {layer_name}: Attempting to leave less than 1 filter/channel "
+                                   f"unpruned. Considering this layer completely pruned.")
+                    continue
+
+                # adjust for removed filters/channels
                 optimizer.timeloop_wrapper.adjust_problem_dimension(
                     problem_name, 'M', adjust_by=(1 - layer_stats[layer_name]['sparsity_filters'])
                 )
@@ -405,7 +437,7 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         if accelerator not in pruned_mappings.area:
             pruned_mappings.area[accelerator] = getattr(results, 'area', 0.0)
 
-    logger.info("Completed pruned mapping evaluation")
+    logger.info(f"{'Skipped' if skip_mapping else 'Completed'} pruned mapping evaluation")
     savefile = os.path.join(optimizer.logdir, 'pruned_mappings.pkl')
     with open(savefile, 'wb') as f:
         pickle.dump(pruned_mappings, f)
@@ -417,10 +449,11 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
 
     # execute final schedule
     schedule = optimizer.scheduler.run(items=list(compressors.keys()),
-                                       bins=hetero_accel,
-                                       cost_dict=pruned_mappings.edp,
-                                       weight_dict=pruned_mappings.latency)
-    assert schedule is None, f"Could not find valid final schedule!"
+                                    bins=hetero_accel,
+                                    cost_dict=pruned_mappings.edp,
+                                    weight_dict=pruned_mappings.latency,
+                                    solver_type=args.solver_type)
+    assert schedule is not None, f"Could not find valid final schedule!"
 
     # get results for energy and latency based on the final schedule
     total_energy = sum([
@@ -436,12 +469,12 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
     schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
     logger.info(f"Scheduler results:\n\t{schedule_str}")
     metrics = SimpleNamespace(energy=total_energy,
-                              latency=total_latency,
-                              edp=total_energy * total_latency,
-                              area=total_area)
+                                latency=total_latency,
+                                edp=total_energy * total_latency,
+                                area=total_area)
     logger.info(f"=> Final schedule metrics:")
     for metric, value in vars(metrics).items():
-        logger.info(f"\t{metric.capitalize()} = {metric:.3e}")
+        logger.info(f"\t{metric.capitalize()} = {value:.3e}")
 
     return schedule, metrics
 

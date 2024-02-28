@@ -274,7 +274,7 @@ class Scheduler:
             schedule.add(item, bin, weight_dict[(item, bin)])
         return schedule
 
-    def _run_random_scheduling(self, items, bins, cost_dict, weight_dict):
+    def _run_random_scheduling(self, items, bins, cost_dict, weight_dict, **kwargs):
         """Random assignment of items to bins
         """
         schedule = Schedule(bins)
@@ -293,7 +293,7 @@ class Scheduler:
         #       but expect to have the same cost/weight values for all bins
         return self._run_ours(*args, **kwargs)
 
-    def _run_sota(self, items, bins, cost_dict, weight_dict):
+    def _run_sota(self, items, bins, cost_dict, weight_dict, **kwargs):
         """Execute the scheduling described in: https://ieeexplore.ieee.org/document/9789220.
            We assume a queue of (randomly) shuffled items that are mapped to bins in the order
            of the queue.

@@ -88,6 +88,7 @@ class AcceleratorOptimizer(Annealer):
         self.state = None
         self.latest_energy = self.latest_latency = self.latest_area = None
         self.metric = args.simanneal_optimization_metric
+        self.solver_type = args.solver_type
         self.logdir = args.logdir
         self.design_space = DesignSpace(accelerator_cfg.state,
                                         **accelerator_cfg.design_space)
@@ -430,7 +431,8 @@ class AcceleratorOptimizer(Annealer):
         schedule = self.scheduler.run(items=list(self.workload.dnns.keys()),
                                       bins=self.state,
                                       cost_dict=self.energy_dict,
-                                      weight_dict=self.latency_dict)
+                                      weight_dict=self.latency_dict,
+                                      solver_type=self.solver_type)
         # save schedule of latest move
         self.latest_schedule = schedule
         logger.debug(f"Schedule created in {time() - start:.3e}s")

@@ -83,6 +83,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.create_accelerator(getattr(args, 'area_constraint', None))
         # restore the desired scheduler
         self.scheduler = Scheduler(args.scheduler_type)
+        self.solver_type = None
 
     def load_baseline_results(self, load_from):
         """Load the evaluation results of the baseline accelerator

@@ -8,6 +8,7 @@ app_args:
         dnn_accuracy_lut_file: data/lut.csv
         load_state_from: data/baseline.results.pkl
         scheduler_type: multiknapsack
+        solver_type: mthggreedy
 
 dnn_op_mode_args:
         evaluate_model_mode: False

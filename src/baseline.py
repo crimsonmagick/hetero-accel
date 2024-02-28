@@ -57,6 +57,7 @@ class BaselineEvaluator(AcceleratorOptimizer):
                            timeloop_workdir=os.path.join(self.logdir, 'timeloop_baseline'))
         # initialize scheduler
         self.scheduler = Scheduler(args.scheduler_type)
+        self.solver_type = args.solver_type
 
     def init_accelerator(self, args):
         """Create the multi-accelerator architecture

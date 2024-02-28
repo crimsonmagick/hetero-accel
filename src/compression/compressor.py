@@ -68,7 +68,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.prune_and_quantize(pruning_ratio, None)
 
     def prune_and_quantize(self, pruning_ratio=None, quant_bits=None):
-        if pruning_ratio is not None:
+        if pruning_ratio is not None and pruning_ratio != 0.0:
             assert self.pruning_low <= pruning_ratio <= self.pruning_high
             self.pruner.prune(self.model, pruning_ratio)
         if quant_bits is not None:

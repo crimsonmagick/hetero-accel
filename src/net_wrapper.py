@@ -33,12 +33,15 @@ class TorchNetworkWrapper:
         if self.model.task == DNNType.ImageClassification:
             self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
             self.accuracy_meter = ImageClassificationMeter()
+
         elif self.model.task == DNNType.SemanticSegmantation:
             self.criterion = SegLoss().to(self.model.device)
             self.accuracy_meter = SegmentationMeter()
+
         elif self.model.task == DNNType.ObjectDetection:
             self.criterion = YoloLoss().to(self.model.device)
             self.accuracy_meter = ObjectDetectionMeter(device=self.model.device)
+
         # TODO: Fill the criterion/meter for the rest of the tasks
         elif self.model.task == DNNType.TextClassification:
             raise NotImplementedError

@@ -3,7 +3,7 @@ import numpy as np
 from enum import Enum
 from src.accelerator_cfg import AcceleratorType
 from src.compression.pruning import PruningGroupType
-from src.scheduler import SchedulerType
+from src.scheduler import SchedulerType, SolverType
 
 
 def app_args(parser):
@@ -29,9 +29,13 @@ def app_args(parser):
                         help='Path where the DNN-accuracy LUT is saved. Should contain '
                              'statistics for each DNN, per quantization profile')
     parser.add_argument('--scheduler-type', type=scheduler_type_arg, default='ours',
-                        help=f'Select scheduler type. Default is our scheduler.')
+                        help='Select scheduler type. Default is our scheduler.')
+    parser.add_argument('--solver-type', type=solver_type_arg, default='mthggreedy',
+                        help='Select solver type for the scheduling algorithm. Default is MTHG-Greedy')
     parser.add_argument('--load-state-from', metavar='PATH',
                         help='Load the state of the SA optimization from the given file')
+    parser.add_argument('--load-pruned-mappings-from', metavar='PATH',
+                        help='Pickle file to load the pruned DNN-to-accelerator mappings')
 
     dnn_op_mode = parser.add_argument_group("DNN execution mode arguments")
     dnn_op_mode_exc = dnn_op_mode.add_mutually_exclusive_group()
@@ -292,6 +296,15 @@ def scheduler_type_arg(argstr):
     except KeyError:
         raise argparse.ArgumentTypeError(f"--scheduler-type argument must be one of the following: "
                                          f"{str_to_scheduler_type_map.keys()}. Invalid argument {argstr}")
+
+
+def solver_type_arg(argstr):
+    str_to_solver_type_map = {str(entry.name).lower(): entry for entry in SolverType}
+    try:
+        return str_to_solver_type_map[argstr.lower()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f"--solver-type argument must be one of the following: "
+                                         f"{str_to_solver_type_map.keys()}. Invalid argument {argstr}")
 
 
 class MetricType(Enum):
