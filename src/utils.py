@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from glob import glob
 from tabulate import tabulate
 from time import time
-from src import project_dir, template_timeloop_dir
+from src import project_dir, eyeriss_timeloop_dir
 from src.args import app_args, workload_args, compression_args, accel_args, \
                      simanneal_args, check_args, baseline_args, sota_args
 from src.args import ModelSummaryType
@@ -755,7 +755,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
     elif args.test_timeloop_accelergy_mode:
         # test accelergy
-        accelergy_dir = os.path.join(os.path.dirname(template_timeloop_dir), 'accelergy')
+        accelergy_dir = os.path.join(os.path.dirname(eyeriss_timeloop_dir), 'accelergy')
         inputs_dir = os.path.join(accelergy_dir, '04_eyeriss_like', 'input')
         positional_args = f'{inputs_dir}/*.yaml {inputs_dir}/components/*.yaml'
         # correct accelergy version on files in the exercise
@@ -778,7 +778,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         logger.info(f'Executed accelergy command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
         # test timeloop model
-        inputs_dir = os.path.join(template_timeloop_dir, '04-model-conv1d+oc-3levelspatial')
+        inputs_dir = os.path.join(eyeriss_timeloop_dir, '04-model-conv1d+oc-3levelspatial')
         command = f'timeloop-model '\
                   f'{inputs_dir}/arch/*.yaml '\
                   f'{inputs_dir}/map/conv1d+oc+ic-3levelspatial-cp-ws.map.yaml '\
@@ -790,7 +790,7 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
         logger.info(f'Executed timeloop-model command (exitcode: {p.returncode}) in {time() - start:.3e}s')
 
         # test timeloop mapper
-        inputs_dir = os.path.join(os.path.dirname(template_timeloop_dir), 'timeloop+accelergy')
+        inputs_dir = os.path.join(os.path.dirname(eyeriss_timeloop_dir), 'timeloop+accelergy')
         command = f'timeloop-mapper '\
                   f'{inputs_dir}/arch/eyeriss_like-int16.yaml '\
                   f'{inputs_dir}/arch/components/*.yaml '\

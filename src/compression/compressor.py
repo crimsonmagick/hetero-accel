@@ -31,13 +31,13 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
 
         # pruner and quantizer for compression
         self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,
-                             eridanus_window_w=self.accelerator_profile.pe_array_x,
-                             eridanus_window_h=self.accelerator_profile.pe_array_y)
+                             eridanus_window_w=self.accelerator_cfg.pe_array_x,
+                             eridanus_window_h=self.accelerator_cfg.pe_array_y)
         self.quantizer = Quantizer(self.layers_to_compress)
 
         # timeloop wrapper to execute mapping searches and energy/area estimation
         tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_profile.type, tl_workdir)
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
 
     @classmethod
@@ -49,7 +49,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                            quant_low=args.quant_low,
                                            layer_type_whitelist=(torch.nn.Conv2d,),
                                            pruning_group_type=args.pruning_group_type,
-                                           accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
+                                           accelerator_cfg=AcceleratorProfile(args.accelerator_arch_type),
                                            # DNN args for inheritance from TorchNetworkWrapper
                                            gpus=args.gpus,
                                            cpu=args.cpu,

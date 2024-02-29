@@ -10,7 +10,7 @@ from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
 from types import SimpleNamespace
-from src import template_timeloop_dir, project_dir
+from src import eyeriss_timeloop_dir, simba_timeloop_dir, project_dir
 from src.accelerator_cfg import AcceleratorType
 from src.utils import force_quotes_on_str
 
@@ -50,9 +50,8 @@ class TimeloopWrapper:
         output_dir = os.path.join(self.workdir, 'output')
         os.makedirs(output_dir, exist_ok=True)
         self.output_dir = output_dir
-
         # copy constraint files to the created directory
-        for constraint_file in self.template.constraint:
+        for constraint_file in self.template.constraint_files:
             shutil.copy2(constraint_file, constraint_dir)
 
     def init_problem(self, problem_name, problem_type, dimensions, problem_filepath=None):
@@ -70,22 +69,14 @@ class TimeloopWrapper:
     def init_arch(self, accelerator_type):
         """Initialize the accelerator architecture description
         """
-        arch_dir = os.path.join(self.workdir, 'arch')
-        os.makedirs(arch_dir, exist_ok=True)
-        for arch_file in self.template.arch:
-            shutil.copy2(arch_file, arch_dir)
-
-        arch_file = os.path.join(arch_dir, os.path.basename(self.template.arch[0]))
-        component_files = [os.path.join(arch_dir, os.path.basename(compfile))
-                           for compfile in self.template.arch[1:]]
-        self.arch = TimeloopArch(accelerator_type, arch_dir, arch_file, component_files)
+        self.arch = TimeloopArch(accelerator_type=accelerator_type,
+                                 arch_dir=os.path.join(self.workdir, 'arch'),
+                                 component_files=self.template.arch_components)
  
     def init_mapper(self):
         """Initialize the mapper object for the mapping optimization
         """
-        mapper_file = os.path.join(self.workdir, 'mapper.yaml')
-        shutil.copyfile(self.template.mapper, mapper_file)
-        self.mapper = TimeloopMapper(mapper_file)
+        self.mapper = TimeloopMapper(mapper_file=os.path.join(self.workdir, 'mapper.yaml'))
 
     def run(self, problem_name):
         """Execute the Timeloop+Accelergy infrastructure via command-line
@@ -189,13 +180,16 @@ class TimeloopTemplate:
     """
     def __init__(self, accelerator_type):
         if accelerator_type == AcceleratorType.Eyeriss:
-            self.mapper = os.path.join(template_timeloop_dir, 'mapper', 'mapper.yaml')
-            self.arch = [os.path.join(template_timeloop_dir, 'arch', 'eyeriss_like.yaml')]
-            self.arch += glob(os.path.join(template_timeloop_dir, 'arch', 'components', '*.yaml'))
-            self.constraint = glob(os.path.join(template_timeloop_dir, 'constraints', '*.yaml'))
+            self.arch_components = glob(os.path.join(eyeriss_timeloop_dir, 'arch', 'components', '*.yaml'))
+            self.constraint_files = glob(os.path.join(eyeriss_timeloop_dir, 'constraints', '*.yaml'))
+
+        elif accelerator_type == AcceleratorType.Simba:
+            self.arch_components = [os.path.join(simba_timeloop_dir, 'components.yaml')]
+            self.constraint_files = [os.path.join(simba_timeloop_dir, 'architecture_constraints.yaml'),
+                                     os.path.join(simba_timeloop_dir, 'mapspace_constraints.yaml')]
 
         else:
-            raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
+            raise NotImplementedError(f"Accelerator type {accelerator_type} is not supported")
 
 
 class TimeloopProblem:
@@ -325,21 +319,31 @@ class TimeloopArch:
     """Utility class to handle the architectural parameters of the accelerator
        when using timeloop
     """
-    def __init__(self, accelerator_type, workdir, arch_file, component_files):
-        self.workdir = workdir
-        self.arch_filepath = arch_file
-        self.component_files = component_files 
+    def __init__(self, accelerator_type, workdir, component_files):
         self.name = self.__class__.__name__
+        self.workdir = workdir
+        os.makedirs(workdir, exist_ok=True)
+        for component_file in component_files:
+            shutil.copy2(component_file, workdir)
+        self.component_files = [os.path.join(workdir, os.path.basename(component_file))
+                                for component_file in component_files]
+        self.arch_filepath = os.path.join(workdir, 'architecture.yaml')
 
         # functions for specific accelerator types
         if accelerator_type == AcceleratorType.Eyeriss:
-            self.adjust = self._adjust_eyeriss
-            self.adjust_precision = self._adjust_precision_eyeriss
             self.get_default_params = self._get_default_params_eyeriss
             self.get_config = self._get_config_eyeriss
+            self.adjust = self._adjust_eyeriss
+            self.adjust_precision = self._adjust_precision_eyeriss
 
+        elif accelerator_type == AcceleratorType.Simba:
+            self.get_default_params = self._get_default_params_simba
+            self.get_config = self._get_config_simba
+            self.adjust = self._adjust_simba
+            self.adjust_precision = self._adjust_precision_simba
+            
         else:
-            raise NotImplementedError("Accelerator types other than Eyeriss-like are not supported")
+            raise NotImplementedError(f"Accelerator type {accelerator_type} is not supported")
 
         # initialize dict with parameters
         self.get_default_params()
@@ -396,7 +400,7 @@ class TimeloopArch:
             f.write(yaml.dump({'architecture': self.config},
                               default_flow_style=use_default_flow_style))
 
-    ### Accelerator-specific functions ###
+    ### Accelerator-specific functions: Eyeriss ###
 
     def _adjust_eyeriss(self, accelerator_instance):
         """Adjust the parameter of the architecture based on the
@@ -661,6 +665,228 @@ class TimeloopArch:
 
         self.config = config
 
+    ### Accelerator-specific functions: Simba ###
+    
+    def _adjust_simba(self, accelerator_instance):
+        """Adjust the parameters of the Simba-like architecture based on the
+           given accelerator instance
+        """
+        # NOTE: VERY important to change the PE array dimensions first,
+        #       such that the memory width can adjust to the new dimensions
+        #       and the change in precision
+        self._adjust_pe_array_simba(accelerator_instance.pe_array_x,
+                                    accelerator_instance.pe_array_y)
+        self._adjust_memories_simba(accelerator_instance.input_buffer_size,
+                                    accelerator_instance.weight_buffer_size,
+                                    accelerator_instance.accum_buffer_size)
+        self.adjust_precision(accelerator_instance.precision)
+        raise NotImplementedError
+
+    def _adjust_pe_array_simba(self, pe_x, pe_y):
+        """Adjust the dimensions of the PE array
+        """
+        if self.params.pe_array_x == pe_x and \
+           self.params.pe_array_y == pe_y:
+            return
+
+        params = {'pe_array_x': pe_x,
+                  'pe_array_y': pe_y}
+        self.adjust_params(params)
+    
+    def _adjust_memories_simba(self, input_buffer_size, weight_buffer_size, accum_buffer_size):
+        """Adjust the size of the Simba-related memory buffers
+        """
+        params = {
+            'input_buffer_depth': input_buffer_size,
+            'weight_buffer_depth': weight_buffer_size,
+            'accum_buffer_depth': accum_buffer_size
+        }
+        self.adjust_params(params)
+    
+    def _adjust_precision_simba(self, precision):
+        """Adjust the precision of a Simba-like architecture
+        """
+        def _adjust_mem_width(word_bits, block_size, num_clusters=1):
+            # see `_adjust_precision_eyeriss()`
+            width = num_clusters * word_bits * block_size
+            return width
+
+        if precision == self.params.mac_precision:
+            return
+
+        params = {
+            'mac_precision': precision,
+            'system_precision': precision,
+            'dram_word_bits': precision,
+            'sram_word_bits': precision,
+            'input_buffer_word_bits': precision,
+            'weight_buffer_word_bits': precision,
+            'accum_buffer_word_bits': precision,
+            'weight_reg_word_bits': precision,
+            # adjust the width of the memories
+            'dram_width': _adjust_mem_width(precision,
+                                            self.params.dram_block_size),
+            'sram_width': _adjust_mem_width(precision,
+                                            self.params.sram_block_size),
+            'input_biffer_width': _adjust_mem_width(precision,
+                                                    self.params.input_buffer_block_size),
+            'weight_buffer_width': _adjust_mem_width(precision,
+                                                     self.params.weight_buffer_block_size),
+            # 'weight_reg_sth': # TODO: not sure what to do here
+        }
+        self.adjust_params(params)
+
+    def _get_default_params_simba(self):
+        """Get the default parameters for all levels of a Simba-like architecture
+        """
+        self.params = SimpleNamespace()
+        # system parameters
+        self.params.system_precision = 8
+        self.params.technology = '45nm'
+        # DRAM
+        self.params.dram_width = 64
+        self.params.dram_block_size = 8
+        self.params.dram_word_bits = 8
+        # SRAM
+        self.params.sram_depth = 2048
+        self.params.sram_width = 256
+        self.params.sram_word_bits = 8
+        self.params.sram_block_size = 32
+        self.params.sram_n_banks = 4
+        self.params.sram_n_ports = 2
+        # PE array
+        self.params.pe_array_x = 4
+        self.params.pe_array_y = 4
+        # Internal buffers (inputs, weights, partial sums)
+        self.params.input_buffer_depth = 128
+        self.params.input_buffer_width = 64
+        self.params.input_buffer_word_bits = 8
+        self.params.input_buffer_block_size = 8
+        self.params.weight_buffer_depth = 4096
+        self.params.weight_buffer_word_bits = 8
+        self.params.weight_buffer_block_size = 8
+        self.params.weight_buffer_n_banks = 8
+        self.params.accum_buffer_depth = 128
+        self.params.accum_buffer_precision = 24
+        # weight registers
+        self.params.weight_reg_depth = 1
+        self.params.weight_reg_word_bits = 8
+        self.params.weight_reg_cluster_size = 64
+        self.params.weight_reg_num_ports = 2
+        # MAC
+        self.params.mac_subclass = 'lmac'
+        self.params.mac_precision = 8
+
+    def _get_config_simba(self):
+        """Write the architectural description of a Simba-like architecture in a dict format
+        """
+        config = {}
+        config['version'] = TIMELOOP_ACCELERGY_VERSION
+
+        level1 = {}
+        level1['name'] = 'system'
+        level1['attributes'] = {
+            'datawidth': self.params.system_precision,
+            'word-bits': self.params.system_precision,
+            'technology': self.params.technology,
+        }
+        level1['local'] = [
+            {
+                'name': 'DRAM',
+                'class': 'DRAM',
+                'attributes': {
+                    'type': 'LPDDR4',
+                    'width': self.params.dram_width,
+                    'block-size': self.params.dram_block_size,
+                    'word-bits': self.params.dram_word_bits
+                }
+            }
+        ]
+        
+        level2 = {}
+        level2['name'] = 'simba' # 'ws' in template file
+        level2['local'] = {
+            'name': 'GlobalBuffer',
+            'class': 'storage',
+            'subclass': 'smartbuffer_SRAM',
+            'attributes': {
+                'memory_depth': self.params.sram_depth,
+                'memory_width': self.params.sram_width,
+                'word-bits': self.params.sram_word_bits,
+                'block-size': self.params.sram_block_size,
+                'n_banks': self.params.sram_n_banks,
+                'nports': self.params.sram_n_ports,
+                'meshX': 1  # Could this be removed?
+            }
+        }
+
+        level3 = {}
+        level3['name'] = f'PE[0..{self.params.pe_array_x * self.params.pe_array_y - 1}]'
+        level3['local'] = [
+            {
+                'name': 'PEInputBuffer',
+                'class': 'storage',
+                'subclass': 'smartbuffer_RF',
+                'attributes': {
+                    'memory_depth': self.params.input_buffer_depth,
+                    'memory_width': self.params.input_buffer_width,
+                    'word-bits': self.params.input_buffer_word_bits,
+                    'block-size': self.params.input_buffer_block_size,
+                    'meshX': self.params.pe_array_x * self.params.pe_array_y
+                }
+            },
+            {
+                'name': f'PEWeightBuffer[0..{self.params.pe_array_x - 1}]',
+                'class': 'storage',
+                'subclass': 'smartbuffer_RF',
+                'attributes': {
+                    'memory_depth': self.params.weight_buffer_depth,
+                    'word-bits': self.params.weight_buffer_word_bits,
+                    'meshX': self.params.pe_array_x * self.params.pe_array_y,
+                    'block-size': self.params.weight_buffer_block_size,
+                    'n_banks': self.params.weight_buffer_n_banks
+                }
+            },
+            {
+                'name': f'PEAccuBuffer[0..{self.params.pe_array_x - 1}]',
+                'class': 'storage',
+                'subclass': 'smartbuffer_RF',
+                'attributes': {
+                    'memory_depth': self.params.accum_buffer_depth,
+                    'word-bits': self.params.accum_buffer_precision,
+                    'datawidth': self.params.accum_buffer_precision,
+                    'meshX': self.params.pe_array_x * self.params.pe_array_y,
+                }
+            },
+            {
+                'name': f'PEWeightRegs[0..{self.params.pe_array_x * self.params.pe_array_y - 1}]',
+                'class': 'storage',
+                'subclass': 'reg_storage',
+                'attributes': {
+                    'memory_depth': self.params.weight_reg_depth,
+                    'word-bits': self.params.weight_reg_word_bits,
+                    'cluster-size': self.params.weight_reg_cluster_size,
+                    'num-ports': self.params.weight_reg_num_ports,
+                    'meshX': self.params.pe_array_x * self.params.pe_array_y,
+                }
+            },
+            {
+                'name': f'LMAC[0..{self.params.pe_array_x * self.params.pe_array_y - 1}]',
+                'class': 'compute',
+                'subclass': self.params.mac_subclass,
+                'attributes': {
+                    'datawidth': self.params.mac_precision,
+                    'meshX': self.params.pe_array_x * self.params.pe_array_y
+                }
+            }
+        ]
+
+        level2['subtree'] = [level3]
+        level1['subtree'] = [level2]
+        config['subtree'] = [level1]
+
+        self.config = config
+
 
 class TimeloopMapper:
     """Utility wrapper class fot the mapping optimizer
@@ -675,7 +901,7 @@ class TimeloopMapper:
         """Collect the default configuration parameters of the mapper 
         """
         self.params = SimpleNamespace()
-        self.params.optimization_metrics = ['delay', 'energy']
+        self.params.optimization_metrics = ['edp']
         self.params.live_status = False
         self.params.num_threads = 8
         self.params.timeout = 15000
@@ -717,8 +943,9 @@ class TimeloopMapper:
 
 
 if __name__ == "__main__":
-    tw = TimeloopWrapper(AcceleratorType.Eyeriss,
-                         project_dir + '/test_tl')
+    accel_type = AcceleratorType.Simba
+    
+    tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
 
     prob_name = 'resnet18__layer0_conv1'
     # prob_name = 'vgg11__layer0_features.0'
@@ -732,12 +959,9 @@ if __name__ == "__main__":
     from src.accelerator_cfg import AcceleratorProfile
     accel_cfg = AcceleratorProfile(AcceleratorType.Eyeriss)
 
-    pe_x = pe_y = 20
-    precision = accel_cfg.precision_weights
-    precision = 8
-    accel = accel_cfg.state(pe_array_x=pe_x,
-                            pe_array_y=pe_y,
-                            precision=precision,
+    accel = accel_cfg.state(pe_array_x=20,
+                            pe_array_y=20,
+                            precision=8,
                             sram_size=accel_cfg.sram_size,
                             ifmap_spad_size=accel_cfg.ifmap_spad_size,
                             weights_spad_size=accel_cfg.weights_spad_size,
