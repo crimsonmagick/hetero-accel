@@ -26,34 +26,58 @@ class ImageClassificationMeter(ClassErrorMeter):
 
 class SegmentationMeter(Meter):
     """Accuracy meter for semantic/image segmantation
+    metrics:
+        Pixel accuaracy 
+        mIOU: mean IOU for classes 
     """
-    def __init__(self):
-        self.metrics = ['iou', 'pixel_acc']
+    def __init__(self, num_classes = 21):
+        self.metrics = ['pixel_acc', 'mIOU']
+        self.num_classes = num_classes
         self.reset()
 
     def reset(self):
         self.pixel_acc_sum = 0
+        self.conf_mat = None
         self.num = 0
 
     def add(self, output, target):
         acc = self.pixel_acc(output, target)
         self.pixel_acc_sum += acc
+        self.iou(output, target)
         self.num += 1
 
     def value(self, metric=None):
         assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
+        
+        # get iou for every class  
+        iu = torch.diag(self.conf_mat) / (self.conf_mat.sum(1) + self.conf_mat.sum(0) - torch.diag(self.conf_mat))
+
         if metric == 'all':
-            return self.pixel_acc_sum / self.num,
+            return self.pixel_acc_sum / self.num, iu.mean()
         elif metric == 'pixel_acc':
             return self.pixel_acc_sum / self.num,
+
+        elif metric == 'mIOU':
+            return iu.mean(),
     
     def pixel_acc(self, pred, label):
         _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
+        valid = ((label >= 0) & (label < self.num_classes)).long()
         acc_sum = torch.sum(valid * (preds == label).long())
         pixel_sum = torch.sum(valid)
         acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
         return acc
+    
+    def iou(self, pred, label):
+        _, pred = torch.max(pred, dim=1)
+        n = self.num_classes
+        if self.conf_mat is None:
+            self.conf_mat = torch.zeros((n, n), dtype=torch.int64, device=pred.device)
+        with torch.inference_mode():
+            pred, label = pred.flatten(), label.flatten()
+            k = (label >= 0) & (label < n)
+            inds = n * label[k].to(torch.int64) + pred[k]
+            self.conf_mat += torch.bincount(inds, minlength=n**2).reshape(n, n)
 
 
 class ObjectDetectionMeter(Meter):
