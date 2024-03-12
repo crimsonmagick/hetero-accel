@@ -34,6 +34,14 @@ workloads:
       resumed_checkpoint_path: null
       batch_print_frequency: 100
 
+  Test:
+    - arch: fcn_resnet50
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+
   RestTasks:
     # image segmentation
     - arch: unet_3d

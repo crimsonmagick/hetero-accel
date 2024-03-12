@@ -28,7 +28,6 @@ def main():
        our optimization, or others for comparisons
     """
     args = env_cfg()
-    print(args.operation_mode)
     args.logdir = logging.getLogger().logdir
     # save arguments as pkl, for reproducibility
     with open(os.path.join(args.logdir, 'args.pkl'), 'wb') as f:
@@ -109,7 +108,6 @@ def setup_workload(args):
             exit(0)
 
     return MultiDNNWorkload(dnns, datasets, print_frequency)
-
 
 
 def init_compressor(args, workload, arch, net_wrapper):
@@ -449,10 +447,10 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
 
     # execute final schedule
     schedule = optimizer.scheduler.run(items=list(compressors.keys()),
-                                    bins=hetero_accel,
-                                    cost_dict=pruned_mappings.edp,
-                                    weight_dict=pruned_mappings.latency,
-                                    solver_type=args.solver_type)
+                                       bins=hetero_accel,
+                                       cost_dict=pruned_mappings.edp,
+                                       weight_dict=pruned_mappings.latency,
+                                       solver_type=args.solver_type)
     assert schedule is not None, f"Could not find valid final schedule!"
 
     # get results for energy and latency based on the final schedule

@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torchnet.meter as tnt
 from collections import OrderedDict
 from src.utils import log_training_progress 
+from src.models import DNNType
 
 
 logger = logging.getLogger(__name__)
@@ -96,12 +97,11 @@ def train(train_loader, model, criterion, optimizer, profiler, accuracy_meter,
 
         # measure elapsed time
         batch_time.add(time.time() - end)
+        end = time.time()
         steps_completed = train_step + 1
 
         if steps_completed % print_frequency == 0:
             _log_training_progress()
-
-        end = time.time()
 
     if compression_scheduler is not None:
         compression_scheduler.on_epoch_end(epoch)
@@ -121,6 +121,7 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
         for accuracy_metric in accuracy_meter.metrics:
             stats_dict[accuracy_metric] = accuracy_meter.value(metric=accuracy_metric)
         stats_dict['Loss'] = losses['Objective Loss'].mean
+        stats_dict['Time'] = batch_time.mean
         log_training_progress(stats_dict, epoch, steps_completed, total_steps)
 
     """Execute the validation/test loop."""
@@ -144,6 +145,10 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
             inputs, target = inputs.to(device), target.to(device)
             # compute output from model
             output = model(inputs)
+
+            if model.task == DNNType.SemanticSegmantation:
+                output = output['out']#.squeeze(0)
+                target = target.squeeze(0).long()
 
             # compute loss
             loss = criterion(output, target)

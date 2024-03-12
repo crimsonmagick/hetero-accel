@@ -14,7 +14,7 @@ dataset_dirs = {
         'cifar100': os.path.join(os.path.dirname(project_dir), 'data', 'cifar100'),
         'imagenet': os.path.join(os.path.dirname(project_dir), 'data', 'Imagenet'),
         'voc_det': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
-        'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
+        'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocseg'),
         }
 
 cifar10_pretrained_paths = {
@@ -43,9 +43,13 @@ cifar100_pretrained_paths = {
         'efficientnet_cifar100': os.path.join(os.path.dirname(project_dir), 'chkpts', 'cifar100', 'efficientnet_cifar100.pth'),
         }
 
+vocseg_pretrained_paths = {
+        'fcn_resnet50_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet50_Weights.pth')
+}
 
 pretrained_checkpoint_paths = {
         **cifar10_pretrained_paths,
         **cifar100_pretrained_paths,
+        **vocseg_pretrained_paths,
         }
 

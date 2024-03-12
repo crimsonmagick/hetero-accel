@@ -6,15 +6,18 @@ from src.utils import iou, iou_wh
 __all__ = ['SegLoss', 'YoloLoss']
 
 
-class SegLoss:
+class SegLoss(torch.nn.modules.loss._Loss):
     def __init__(self):
-        self._loss = torch.nn.NLLLoss(ignore_index=-1)
+        super().__init__()
+        self._loss = torch.nn.NLLLoss()#ignore_index=-1)
 
     def to(self, device):
         self._loss.to(device)
 
     def forward(self, x, y):
-        return self._loss(x, y)
+        return torch.tensor(0.0)
+        # TODO: Figure out why this throws errors
+        # return self._loss(x, y)
 
 
 # NOTE: Alternative to YoloLoss: https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Object-Detection/blob/master/model.py

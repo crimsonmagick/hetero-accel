@@ -35,7 +35,7 @@ class TorchNetworkWrapper:
             self.accuracy_meter = ImageClassificationMeter()
 
         elif self.model.task == DNNType.SemanticSegmantation:
-            self.criterion = SegLoss().to(self.model.device)
+            self.criterion = SegLoss()
             self.accuracy_meter = SegmentationMeter()
 
         elif self.model.task == DNNType.ObjectDetection:
@@ -80,7 +80,7 @@ class TorchNetworkWrapper:
                                logdir=args.logdir,
                                )
         return cls(args)
-         
+
     def config_compute_device(self):
         if self.cpu or not torch.cuda.is_available():
             # Set GPU index to -1 if using CPU
@@ -105,7 +105,8 @@ class TorchNetworkWrapper:
     def init_model(self):
         """Initialize the DNN architecture with the option of pretrained weights
         """
-        assert not (self.pretrained and self.resumed_checkpoint_path is not None)
+        assert not (self.pretrained and self.resumed_checkpoint_path is not None), "Only pretrained models are needed! " \
+            "Specify either the '--pretrained' or '--resumed-checkpoint-path' arguments"
         if self.pretrained and self.arch + '_' + self.dataset in pretrained_checkpoint_paths:
             self.pretrained = False
             self.resumed_checkpoint_path = pretrained_checkpoint_paths[self.arch + '_' + self.dataset]

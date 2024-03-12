@@ -10,9 +10,7 @@ import numpy as np
 import pandas as pd
 import torch
 import random
-import wandb
 import subprocess as sp
-import csv
 from numbers import Number
 from enum import Enum
 from datetime import datetime
@@ -412,8 +410,6 @@ def log_training_progress(stats_dict, epoch, completed, total):
         else:
             log = log + '{name} {val:.6f}    '.format(name=name, val=val)
 
-    if wandb.run is not None:
-        wandb.log(stats_dict)
     logger.info(log)
 
 
@@ -675,10 +671,11 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
     # perform inference on the registered DNN model
     if args.evaluate_model_mode:
-        net_wrapper.args.verbose = True
-        net_wrapper.args.print_frequency = args.batch_print_frequency
+        net_wrapper.model_verbose = net_wrapper.verbose = True
+        # net_wrapper.print_frequency = args.batch_print_frequency
         logger.info(f"Evaluating {net_wrapper.model.arch} model\n{net_wrapper.model}")
-        net_wrapper.test(test_loader, torch.nn.CrossEntropyLoss().to(net_wrapper.model.device))
+        accuracy_metrics = net_wrapper.test(test_loader)
+        logger.info(f"Accuracy metrics: {accuracy_metrics}")
         do_exit = True
 
     # perform training on DNN model

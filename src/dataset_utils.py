@@ -33,17 +33,17 @@ REV_VOC_CLASSES_MAP = {v: k for k, v in VOC_CLASSES_MAP.items()}  # Inverse mapp
 
 
 def class_to_num(class_str):
-    for idx, string in enumerate(CLASSES):
+    for idx, string in enumerate(VOC_CLASSES):
         if string == class_str: return idx
 
 
 def num_to_class(number):
-    for idx, string in enumerate(CLASSES):
+    for idx, string in enumerate(VOC_CLASSES):
         if idx == number: return string
     return 'none'
 
 
-class VOCTransform:
+class VOCDetTransform:
     def __init__(self):
         pass
 
@@ -91,6 +91,17 @@ class VOCTransform:
             target_vectors = target_vectors[:num_bboxes]
 
         return transforms.functional.to_tensor(image), target_vectors
+
+
+def get_voc_seg_transform(weights):
+    weight_transforms = weights.transforms()
+    def preprocessing(img, target):
+        img = weight_transforms(img)
+        size = transforms.functional.get_dimensions(img)[1:]
+        target = transforms.functional.resize(target, size, interpolation=transforms.InterpolationMode.NEAREST)
+        target = transforms.functional.pil_to_tensor(target)
+        return img, target
+    return preprocessing
 
 
 def save_image(image, file_path='image.png'):

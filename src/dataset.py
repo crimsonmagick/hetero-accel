@@ -3,14 +3,14 @@ import os.path
 import shutil
 import numpy as np
 import PIL.Image
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 import torch.utils.data
-from torchvision.transforms import v2
 from torch.utils.data.backward_compatibility import worker_init_fn
+import torchvision.transforms as transforms
+from torchvision.models.segmentation import FCN_ResNet50_Weights, FCN_ResNet101_Weights, DeepLabV3_MobileNet_V3_Large_Weights
+import torchvision.datasets as datasets
 from collections import defaultdict
 from functools import partial
-from src.dataset_utils import VOCTransform
+from src.dataset_utils import VOCDetTransform, get_voc_seg_transform
 
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,11 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     test_sampler = torch.utils.data.RandomSampler(test_indices,
                                                   num_samples=int(effective_test_size * len(test_indices)))
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size, sampler=test_sampler,
-        num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
+        test_dataset, batch_size=batch_size,
+        # sampler=test_sampler,
+        # num_workers=workers,
+        # #   worker_init_fn=worker_init_fn,
+        #     pin_memory=True, drop_last=True
     )
     if test_only:
         return None, None, test_loader
@@ -297,21 +300,29 @@ def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
     """Get the Pascal VOC image segmentation dataset from PyTorch
     """
     traindata = testdata = None
+
+    weights = None
+    if arch == 'fcn_resnet50':
+        weights = FCN_ResNet50_Weights.DEFAULT
+    elif arch == 'fcn_resnet101':
+        weights = FCN_ResNet101_Weights
+    elif arch == 'deeplabv3':
+        weights = DeepLabV3_MobileNet_V3_Large_Weights
+    transforms_both = transforms.ToTensor() if weights is None else get_voc_seg_transform(weights)
+
     if load_train:
         traindata = datasets.VOCSegmentation(data_dir,
                                              year="2012",
                                              image_set="train",
                                              download=False,
-                                             transform=transforms.ToTensor(),
-                                             target_transform=transforms.ToTensor())
+                                             transforms=transforms_both)
 
     if load_test:
         testdata = datasets.VOCSegmentation(data_dir,
                                             year='2012',
                                             image_set="val",
                                             download=False,
-                                            transform=transforms.ToTensor(),
-                                            target_transform=transforms.ToTensor())
+                                            transforms=transforms_both)
     return traindata, testdata
 
 
@@ -323,13 +334,13 @@ def get_vocdet_dataset(data_dir, arch, load_train=True, load_test=True):
         traindata = datasets.VOCDetection(data_dir, year="2012",
                                           image_set="train",
                                           download=False,
-                                          transforms=VOCTransform())
+                                          transforms=VOCDetTransform())
 
     if load_test:
         testdata = datasets.VOCDetection(data_dir, year='2012',
                                         image_set="val",
                                         download=False,
-                                        transforms=VOCTransform())
+                                        transforms=VOCDetTransform())
         
     return traindata, testdata
 

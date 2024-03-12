@@ -9,7 +9,7 @@ from src.dataset_utils import VOC_CLASSES_MAP, REV_VOC_CLASSES_MAP
 #       important when either train/validate are called from
 #       src/train_test.py.
 
-# NOTE: Remember that the value() method should always return a tuple
+# NOTE: Remember that value(metric='all') should always return a tuple
 
 
 class ImageClassificationMeter(ClassErrorMeter):
@@ -31,7 +31,7 @@ class SegmentationMeter(Meter):
         mIOU: mean IOU for classes 
     """
     def __init__(self, num_classes = 21):
-        self.metrics = ['pixel_acc', 'mIOU']
+        self.metrics = ['mIOU', 'AvgPixelAcc']
         self.num_classes = num_classes
         self.reset()
 
@@ -49,17 +49,19 @@ class SegmentationMeter(Meter):
     def value(self, metric=None):
         assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
         
-        # get iou for every class  
-        iu = torch.diag(self.conf_mat) / (self.conf_mat.sum(1) + self.conf_mat.sum(0) - torch.diag(self.conf_mat))
+        avg_pixel_acc = self.pixel_acc_sum.item() / self.num
+        if metric == 'pixel_acc':
+            return avg_pixel_acc
 
-        if metric == 'all':
-            return self.pixel_acc_sum / self.num, iu.mean()
-        elif metric == 'pixel_acc':
-            return self.pixel_acc_sum / self.num,
+        # get iou for every class
+        iou = torch.diag(self.conf_mat) / (self.conf_mat.sum(1) + self.conf_mat.sum(0) - torch.diag(self.conf_mat))
+        m_iou = iou.mean().item()
+        if metric == 'mIOU':
+            return m_iou
 
-        elif metric == 'mIOU':
-            return iu.mean(),
-    
+        elif metric == 'all':
+            return m_iou, avg_pixel_acc
+
     def pixel_acc(self, pred, label):
         _, preds = torch.max(pred, dim=1)
         valid = ((label >= 0) & (label < self.num_classes)).long()
@@ -78,7 +80,6 @@ class SegmentationMeter(Meter):
             k = (label >= 0) & (label < n)
             inds = n * label[k].to(torch.int64) + pred[k]
             self.conf_mat += torch.bincount(inds, minlength=n**2).reshape(n, n)
-
 
 class ObjectDetectionMeter(Meter):
     """Accuracy meter for object detection
