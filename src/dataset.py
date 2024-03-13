@@ -83,10 +83,10 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
                                                   num_samples=int(effective_test_size * len(test_indices)))
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=batch_size,
-        # sampler=test_sampler,
-        # num_workers=workers,
-        # #   worker_init_fn=worker_init_fn,
-        #     pin_memory=True, drop_last=True
+        sampler=test_sampler,
+        num_workers=workers,
+        #   worker_init_fn=worker_init_fn,
+            pin_memory=True, drop_last=True
     )
     if test_only:
         return None, None, test_loader

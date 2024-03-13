@@ -70,7 +70,7 @@ class TimeloopWrapper:
         """Initialize the accelerator architecture description
         """
         self.arch = TimeloopArch(accelerator_type=accelerator_type,
-                                 arch_dir=os.path.join(self.workdir, 'arch'),
+                                 workdir=os.path.join(self.workdir, 'arch'),
                                  component_files=self.template.arch_components)
  
     def init_mapper(self):
@@ -152,11 +152,11 @@ class TimeloopWrapper:
         for file in glob(os.path.join(outdir, 'timeloop-mapper*')):
             os.remove(file)
 
-    def adjust_architecture(self, accelerator_instance):
+    def adjust_architecture(self, accelerator_instance, adjust_components=False):
         """Adjust the architectural parameters of the accelerator
         """
         self.arch.adjust(accelerator_instance)
-        self.arch.to_yaml()
+        self.arch.to_yaml(do_components=adjust_components)
 
     def adjust_precision(self, precision):
         """Adjust only the precision of the architecture
@@ -322,6 +322,7 @@ class TimeloopArch:
     def __init__(self, accelerator_type, workdir, component_files):
         self.name = self.__class__.__name__
         self.workdir = workdir
+        self.type = accelerator_type
         os.makedirs(workdir, exist_ok=True)
         for component_file in component_files:
             shutil.copy2(component_file, workdir)
@@ -376,7 +377,7 @@ class TimeloopArch:
         # update the configuration with new parameters
         self.get_config()
 
-    def to_yaml(self, filepath=None):
+    def to_yaml(self, filepath=None, do_components=False):
         """Write the configuration of the architecture to a yaml file
         """
         use_default_flow_style = True
@@ -391,6 +392,19 @@ class TimeloopArch:
                                       default_flow_style=use_default_flow_style))
                 raise
             use_default_flow_style = False
+
+            # reload the component files with minor changes (quoting string values in yaml)
+            if do_components:
+                # use quotes only on 'nm' and 'ns' strings
+                filter_fn = None if self.type != AcceleratorType.Simba else \
+                            lambda entry: isinstance(entry, str) and ('ns' in entry or 'nm' in entry)
+
+                for component_file in self.component_files:
+                    with open(component_file, 'r') as stream:
+                        comp_cfg = yaml.safe_load(stream)
+                    force_quotes_on_str(comp_cfg, filter_fn=filter_fn)
+                    with open(component_file, 'w') as f:
+                        f.write(yaml.dump(comp_cfg, default_flow_style=False))
 
         if filepath is None:
             assert self.arch_filepath is not None
@@ -680,7 +694,6 @@ class TimeloopArch:
                                     accelerator_instance.weight_buffer_size,
                                     accelerator_instance.accum_buffer_size)
         self.adjust_precision(accelerator_instance.precision)
-        raise NotImplementedError
 
     def _adjust_pe_array_simba(self, pe_x, pe_y):
         """Adjust the dimensions of the PE array
@@ -692,7 +705,7 @@ class TimeloopArch:
         params = {'pe_array_x': pe_x,
                   'pe_array_y': pe_y}
         self.adjust_params(params)
-    
+
     def _adjust_memories_simba(self, input_buffer_size, weight_buffer_size, accum_buffer_size):
         """Adjust the size of the Simba-related memory buffers
         """
@@ -721,17 +734,17 @@ class TimeloopArch:
             'sram_word_bits': precision,
             'input_buffer_word_bits': precision,
             'weight_buffer_word_bits': precision,
-            'accum_buffer_word_bits': precision,
+            'accum_buffer_precision': precision,
             'weight_reg_word_bits': precision,
             # adjust the width of the memories
             'dram_width': _adjust_mem_width(precision,
                                             self.params.dram_block_size),
             'sram_width': _adjust_mem_width(precision,
                                             self.params.sram_block_size),
-            'input_biffer_width': _adjust_mem_width(precision,
+            'input_buffer_width': _adjust_mem_width(precision,
                                                     self.params.input_buffer_block_size),
-            'weight_buffer_width': _adjust_mem_width(precision,
-                                                     self.params.weight_buffer_block_size),
+            # 'weight_buffer_width': _adjust_mem_width(precision,
+            #                                          self.params.weight_buffer_block_size),
             # 'weight_reg_sth': # TODO: not sure what to do here
         }
         self.adjust_params(params)
@@ -805,20 +818,22 @@ class TimeloopArch:
         
         level2 = {}
         level2['name'] = 'simba' # 'ws' in template file
-        level2['local'] = {
-            'name': 'GlobalBuffer',
-            'class': 'storage',
-            'subclass': 'smartbuffer_SRAM',
-            'attributes': {
-                'memory_depth': self.params.sram_depth,
-                'memory_width': self.params.sram_width,
-                'word-bits': self.params.sram_word_bits,
-                'block-size': self.params.sram_block_size,
-                'n_banks': self.params.sram_n_banks,
-                'nports': self.params.sram_n_ports,
-                'meshX': 1  # Could this be removed?
+        level2['local'] = [
+            {
+                'name': 'GlobalBuffer',
+                'class': 'storage',
+                'subclass': 'smartbuffer_SRAM',
+                'attributes': {
+                    'memory_depth': self.params.sram_depth,
+                    'memory_width': self.params.sram_width,
+                    'word-bits': self.params.sram_word_bits,
+                    'block-size': self.params.sram_block_size,
+                    'n_banks': self.params.sram_n_banks,
+                    'nports': self.params.sram_n_ports,
+                    'meshX': 1  # Could this be removed?
+                }
             }
-        }
+        ]
 
         level3 = {}
         level3['name'] = f'PE[0..{self.params.pe_array_x * self.params.pe_array_y - 1}]'
@@ -944,6 +959,7 @@ class TimeloopMapper:
 
 if __name__ == "__main__":
     accel_type = AcceleratorType.Simba
+    DO_EXPLORATION = True
     
     tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
 
@@ -957,17 +973,49 @@ if __name__ == "__main__":
     tw.workloads[prob_name].problem_filepath = prob_fp
 
     from src.accelerator_cfg import AcceleratorProfile
-    accel_cfg = AcceleratorProfile(AcceleratorType.Eyeriss)
+    accel_cfg = AcceleratorProfile(accel_type)
 
-    accel = accel_cfg.state(pe_array_x=20,
-                            pe_array_y=20,
-                            precision=8,
-                            sram_size=accel_cfg.sram_size,
-                            ifmap_spad_size=accel_cfg.ifmap_spad_size,
-                            weights_spad_size=accel_cfg.weights_spad_size,
-                            psum_spad_size=accel_cfg.psum_spad_size)
+    if accel_type == AcceleratorType.Eyeriss:
+        accel = accel_cfg.state(pe_array_x=accel_cfg.pe_array_x,
+                                pe_array_y=accel_cfg.pe_array_y,
+                                precision=accel_cfg.precision_weights,
+                                sram_size=accel_cfg.sram_size,
+                                ifmap_spad_size=accel_cfg.ifmap_spad_size,
+                                weights_spad_size=accel_cfg.weights_spad_size,
+                                psum_spad_size=accel_cfg.psum_spad_size)
+    elif accel_type == AcceleratorType.Simba:
+        accel = accel_cfg.state(pe_array_x=accel_cfg.pe_array_y,
+                                pe_array_y=accel_cfg.pe_array_x,
+                                precision=accel_cfg.precision_weights,
+                                sram_size=accel_cfg.sram_size,
+                                input_buffer_size=accel_cfg.input_buffer_size,
+                                weight_buffer_size=accel_cfg.weight_buffer_size,
+                                accum_buffer_size=accel_cfg.accum_buffer_size)
 
-    tw.adjust_architecture(accel)
+    tw.adjust_architecture(accel, adjust_components=True)
     p = tw.run(prob_name)
     results = tw.get_results()
     print(results._asdict())
+
+    if DO_EXPLORATION and accel_type == AcceleratorType.Simba:
+        from random import choices
+        to_sample = 2
+        for pex in choices(accel_cfg.design_space['pe_array_x'], k=to_sample):
+            for pey in choices(accel_cfg.design_space['pe_array_y'], k=to_sample):
+                for precision in choices(accel_cfg.design_space['precision'], k=to_sample):
+                    for sram_size in choices(accel_cfg.design_space['sram_size'], k=to_sample):
+                        for inpbuf in choices(accel_cfg.design_space['input_buffer_size'], k=to_sample):
+                            for wbuf in choices(accel_cfg.design_space['weight_buffer_size'], k=to_sample):
+                                for accumbuf in choices(accel_cfg.design_space['accum_buffer_size'], k=to_sample):
+                                    accel = accel_cfg.state(pe_array_x=pex,
+                                                            pe_array_y=pey,
+                                                            precision=precision,
+                                                            sram_size=sram_size,
+                                                            input_buffer_size=inpbuf,
+                                                            weight_buffer_size=wbuf,
+                                                            accum_buffer_size=accumbuf)
+
+                                    tw.adjust_architecture(accel, adjust_components=True)
+                                    p = tw.run(prob_name)
+                                    results = tw.get_results()
+                                    print(results._asdict())

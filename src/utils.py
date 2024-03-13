@@ -451,7 +451,7 @@ def get_contents_table(content_dict):
     return tabulate(contents, headers=["Key", "Type", "Value"], tablefmt="psql")
 
 
-def force_quotes_on_str(nested_dict):
+def force_quotes_on_str(nested_dict, filter_fn=None):
     """Add quotes to each str located within a nested dict
     """
     class quoted(str):
@@ -461,11 +461,14 @@ def force_quotes_on_str(nested_dict):
         return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
     yaml.add_representer(quoted, quoted_presenter)
 
+    if filter_fn is None:
+        filter_fn = lambda entry: isinstance(entry, str)
+
     def recursion_f(this_dict):
         for key, value in this_dict.items():
             if isinstance(value, dict):
                 recursion_f(this_dict[key])
-            elif isinstance(value, str):
+            elif filter_fn(value):
                 this_dict[key] = quoted(value)
             elif isinstance(value, (list, tuple)):
                 for v in value:
