@@ -135,7 +135,7 @@ class TorchNetworkWrapper:
         if data_loader is None and getattr(self.model, 'input_shape', None) is None:
             self.summary = self.num_layers = None
         else:
-            dummy_input = next(iter(data_loader))[0].shape if data_loader else None
+            dummy_input = next(iter(data_loader))[0] if data_loader else None
             self.summary = model_summary(self.model, dummy_input)
             self.num_layers = len(self.summary)
 

@@ -44,7 +44,9 @@ cifar100_pretrained_paths = {
         }
 
 vocseg_pretrained_paths = {
-        'fcn_resnet50_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet50_Weights.pth')
+        'fcn_resnet50_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet50_Weights.pth'),
+        # 'fcn_resnet101_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet101_Weights.pth'),
+        'deeplabv3_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'DeepLabV3_MobileNet_V3_Large_Weights.pth'),
 }
 
 pretrained_checkpoint_paths = {

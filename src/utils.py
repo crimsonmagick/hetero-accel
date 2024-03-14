@@ -592,6 +592,8 @@ def model_summary(model, dummy_input=None):
                 ifm = input[0].size()
             except AttributeError:
                 ifm = input[0][0].size()
+            if isinstance(output, dict) and 'out' in output:
+                output = output['out']
             ofm = output.size()
  
             if isinstance(module, torch.nn.Conv2d):

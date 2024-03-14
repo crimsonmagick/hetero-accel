@@ -39,7 +39,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
         self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
-
     @classmethod
     def from_args(cls, args, data_loaders, model=None):
         compression_args = SimpleNamespace(logdir=args.logdir,

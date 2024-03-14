@@ -82,7 +82,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     test_sampler = torch.utils.data.RandomSampler(test_indices,
                                                   num_samples=int(effective_test_size * len(test_indices)))
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size,
+        test_dataset,
+        batch_size=batch_size,
         sampler=test_sampler,
         num_workers=workers,
         #   worker_init_fn=worker_init_fn,
@@ -98,8 +99,12 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     train_sampler = torch.utils.data.RandomSampler(train_indices,
                                                    num_samples=int(effective_train_size * len(train_indices)))
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, sampler=train_sampler,
-        num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
+        train_dataset,
+        batch_size=batch_size,
+        sampler=train_sampler,
+        num_workers=workers,
+        # worker_init_fn=worker_init_fn,
+        pin_memory=True, drop_last=True
     )
 
     valid_loader = None
@@ -108,8 +113,12 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
         valid_sampler = torch.utils.data.RandomSampler(valid_indices,
                                                        num_samples=int(effective_valid_size * len(valid_indices)))
         valid_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=batch_size, sampler=valid_sampler,
-            num_workers=workers, worker_init_fn=worker_init_fn, pin_memory=True, drop_last=True
+            train_dataset,
+            batch_size=batch_size,
+            sampler=valid_sampler,
+            num_workers=workers,
+            # worker_init_fn=worker_init_fn,
+            pin_memory=True, drop_last=True
         )
 
     return train_loader, valid_loader or test_loader, test_loader

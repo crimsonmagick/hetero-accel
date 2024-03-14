@@ -118,7 +118,7 @@ def init_compressor(args, workload, arch, net_wrapper):
                                        quant_low=args.quant_low,
                                        layer_type_whitelist=args.layer_type_whitelist,
                                        pruning_group_type=args.pruning_group_type,
-                                       accelerator_profile=AcceleratorProfile(args.accelerator_arch_type),
+                                       accelerator_cfg=AcceleratorProfile(args.accelerator_arch_type),
                                        # DNN args for inheritance from TorchNetworkWrapper
                                        optimizer_type=args.optimizer_type,
                                        profile_model=False,
@@ -140,7 +140,7 @@ def quant_exploration(args, workload):
         skip_exploration = True
         preloaded_dnn_accuracy_lut = pd.read_csv(args.dnn_accuracy_lut_file)
         assert all(arch in preloaded_dnn_accuracy_lut['Network'].unique() for arch in workload.dnns), \
-            f"All DNNs {list(workload.dnns.keys())} must be included in the preloaded accuracy LUT"
+            f"All DNNs {list(workload.dnns.keys())} must be included in the preloaded accuracy LUT: {args.dnn_accuracy_lut_file}"
         logger.info(f'=> Skipping exhaustive exploration: loaded LUT from {args.dnn_accuracy_lut_file}')
 
     # structure of the LUT
@@ -163,7 +163,7 @@ def quant_exploration(args, workload):
             'accuracy': accuracy_stats[0], 
             'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
             **{
-                metric: accuracy_stats for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
             }
         }
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
@@ -192,7 +192,7 @@ def quant_exploration(args, workload):
                 'accuracy': accuracy_stats[0],
                 'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
                 **{
-                    metric: accuracy_stats for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                    metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
                 }
             }
             stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else

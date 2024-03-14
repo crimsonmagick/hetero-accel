@@ -41,6 +41,18 @@ workloads:
       batch_size: 1
       resumed_checkpoint_path: null
       batch_print_frequency: 100
+    - arch: deeplabv3
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: fcn_resnet101
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
 
   RestTasks:
     # image segmentation

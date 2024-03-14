@@ -14,7 +14,7 @@ app_args:
         load_pruned_mappings_from: data/pruned_mappings.pkl
 
 dnn_op_mode_args:
-        evaluate_model_mode: True
+        evaluate_model_mode: False
         train_model_mode: False
         test_timeloop_accelergy_mode: False
         test_pruning_quant_mode: False
