@@ -43,10 +43,13 @@ compression_args:
         quant_high: 8
         quant_low: 4
         quant_incr: 1
+        use_validation_set: False
+        # constraints
         top1_constraint: 5
         top5_constraint: null
         loss_constraint: null
-        use_validation_set: False
+        mIOU_constraint: 5
+        AvgPixelAcc_constraint: null
         size_constraint: 50
         sparsity_constraint: null
 

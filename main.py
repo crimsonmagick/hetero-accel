@@ -150,6 +150,12 @@ def quant_exploration(args, workload):
     for arch, net_wrapper in workload.dnns.items():
         if skip_exploration:
             continue
+        
+        # check if there is at least one accuracy constraint set
+        assert any(
+            getattr(args, f'{metric}_constraint', None) is not None for metric in net_wrapper.accuracy_metrics
+        ), f"No accuracy constraint was set! Define at least one of the following in {args.yaml_cfg_file}: " \
+           f"{' | '.join([f'{metric}_constraint'] for metric in net_wrapper.accuracy_metrics)}"
 
         # initialize compressor
         compressor = init_compressor(args, workload, arch, net_wrapper)
@@ -200,10 +206,10 @@ def quant_exploration(args, workload):
                                       for metric, value in stats.items()])
             logger.info(f'{arch}: Compressed statistics: {stats_logstr}')
 
-            # binary flag whether the accuracy constraints are satisfied
+            # binary flag whether at least one of the accuracy constraints are satisfied
             valid = 0
-            if any(
-                getattr(args, f'{metric}_constraint', None) is not None and
+            if all(
+                getattr(args, f'{metric}_constraint', None) is None or
                 accuracy_stats[i] >= og_stats[metric] - getattr(args, f'{metric}_constraint')
                 for i, metric in enumerate(net_wrapper.accuracy_metrics)
             ):

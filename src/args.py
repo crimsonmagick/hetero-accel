@@ -111,12 +111,17 @@ def compression_args(parser):
                                   help='Lowest bound for weight quantization')
     compression_args.add_argument('--quantization-increment', '--quant-incr', dest='quant_incr', type=int, default=2,
                                   help='Increment step for quantization exploration')
+    # Constraints
     compression_args.add_argument('--top1-constraint', type=float, default=1,
-                                  help='Top1 accuracy loss constraint (default is 1\%)')
+                                  help='Top1 accuracy loss constraint for image classification (default is 1\%)')
     compression_args.add_argument('--top5-constraint', type=float,
-                                  help='Top5 accuracy loss constraint')
+                                  help='Top5 accuracy loss constraint for image classification')
     compression_args.add_argument('--loss-constraint', type=float,
-                                  help='Objective loss constraint')
+                                  help='Objective loss constraint for image classification')
+    compression_args.add_argument('--miou-constraint', type=float, dest='mIOU_constraint', default=1,
+                                  help='Mean intersect-over-union constraint for segmentation')
+    compression_args.add_argument('--pixel-acc-constraint', type=float, dest='AvgPixelAcc_constraint',
+                                  help='Average pixel accuracy constraint for segmentation')
 
     return parser
 
