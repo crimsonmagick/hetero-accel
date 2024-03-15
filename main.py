@@ -150,7 +150,7 @@ def quant_exploration(args, workload):
     for arch, net_wrapper in workload.dnns.items():
         if skip_exploration:
             continue
-        
+
         # check if there is at least one accuracy constraint set
         assert any(
             getattr(args, f'{metric}_constraint', None) is not None for metric in net_wrapper.accuracy_metrics

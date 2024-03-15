@@ -94,6 +94,8 @@ class VOCDetTransform:
 
 
 def get_voc_seg_transform(weights):
+    """Weight and activation transformations for the Pascal VOC sementation dataset
+    """
     weight_transforms = weights.transforms()
     def preprocessing(img, target):
         img = weight_transforms(img)
@@ -102,6 +104,13 @@ def get_voc_seg_transform(weights):
         target = transforms.functional.pil_to_tensor(target)
         return img, target
     return preprocessing
+
+
+def get_coco_transform(weights):
+    """Weight and activation transformations for the Pascal VOC sementation dataset
+    """
+    weights_transforms = weights.transforms()
+    return lambda img, target: (weights_transforms(img), target)
 
 
 def save_image(image, file_path='image.png'):

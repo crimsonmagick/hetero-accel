@@ -3,7 +3,19 @@ import numpy as np
 from src.utils import iou, iou_wh
 
 
-__all__ = ['SegLoss', 'YoloLoss']
+__all__ = ['DummyLoss', 'SegLoss', 'YoloLoss']
+
+
+
+class DummyLoss(torch.nn.modules.loss._Loss):
+    def __init__(self):
+        super().__init__()
+
+    def to(self, device):
+        pass
+
+    def forward(self, x, y):
+        return torch.tensor(0.0)
 
 
 class SegLoss(torch.nn.modules.loss._Loss):

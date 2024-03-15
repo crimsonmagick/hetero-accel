@@ -142,20 +142,22 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
     end = time.time()
     with torch.no_grad():
         for validation_step, (inputs, target) in enumerate(valid_loader):
-            inputs, target = inputs.to(device), target.to(device)
+
+            # cast to device
+            if isinstance(inputs, torch.Tensor):
+                inputs = inputs.to(device)
+            if isinstance(target, torch.Tensor):
+                target = target.to(device)
+
             # compute output from model
             output = model(inputs)
-
-            if model.task == DNNType.SemanticSegmantation:
-                output = output['out']#.squeeze(0)
-                target = target.squeeze(0).long()
 
             # compute loss
             loss = criterion(output, target)
             # measure accuracy and record loss
             losses['Objective Loss'].add(loss.item())
-            accuracy_meter.add(output.detach(), target)
-
+            accuracy_meter.add(output, target)
+            
             # measure elapsed time
             batch_time.add(time.time() - end)
             end = time.time()

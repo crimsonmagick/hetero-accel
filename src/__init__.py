@@ -15,6 +15,7 @@ dataset_dirs = {
         'imagenet': os.path.join(os.path.dirname(project_dir), 'data', 'Imagenet'),
         'voc_det': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
         'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocseg'),
+        'coco': os.path.join(os.path.dirname(project_dir), 'data', 'mscoco'),
         }
 
 cifar10_pretrained_paths = {
@@ -44,14 +45,21 @@ cifar100_pretrained_paths = {
         }
 
 vocseg_pretrained_paths = {
-        'fcn_resnet50_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet50_Weights.pth'),
-        # 'fcn_resnet101_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'FCN_ResNet101_Weights.pth'),
-        'deeplabv3_voc_seg': os.path.join(project_dir, 'dnn_workloads', 'segmentation_models', 'DeepLabV3_MobileNet_V3_Large_Weights.pth'),
-}
+        'fcn_resnet50_voc_seg': os.path.join(os.path.dirname(project_dir), 'chkpts', 'pascalvoc', 'FCN_ResNet50_Weights.pth'),
+        'fcn_resnet101_voc_seg': os.path.join(os.path.dirname(project_dir), 'chkpts', 'pascalvoc', 'FCN_ResNet101_Weights.pth'),
+        'deeplabv3_voc_seg': os.path.join(os.path.dirname(project_dir), 'chkpts', 'pascalvoc', 'DeepLabV3_MobileNet_V3_Large_Weights.pth'),
+        }
+
+mscoco_pretrained_paths = {
+        'ssd300_vgg16_coco': os.path.join(os.path.dirname(project_dir), 'chkpts', 'mscoco', 'SSD300_VGG16_Weights_COCO.pth'),
+        'retinanet_resnet50_coco': os.path.join(os.path.dirname(project_dir), 'chkpts', 'mscoco', 'retinanet_resnet50_fpn_COCO.pth'),
+        'fasterrcnn_resnet50_coco': os.path.join(os.path.dirname(project_dir), 'chkpts', 'mscoco', 'FasterRCNN_ResNet50_FPN_Weights_COCO.pth'),
+        }
 
 pretrained_checkpoint_paths = {
         **cifar10_pretrained_paths,
         **cifar100_pretrained_paths,
         **vocseg_pretrained_paths,
+        **mscoco_pretrained_paths,
         }
 

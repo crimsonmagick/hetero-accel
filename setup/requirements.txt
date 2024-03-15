@@ -154,6 +154,7 @@ tinycss2==1.2.1
 tomli==2.0.1
 --find-links https://download.pytorch.org/whl/torch_stable.html
 torch==2.0.0+cu117
+torchtext==0.15.0
 torchaudio==2.0.1+cu117
 torchnet==0.0.4
 torchvision==0.15.1+cu117

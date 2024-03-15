@@ -5,7 +5,7 @@ app_args:
         name: baseline
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/lut.csv
+        dnn_accuracy_lut_file: data/image_classifiers.lut.csv
         load_state_from: data/baseline.results.pkl
         scheduler_type: multiknapsack
         solver_type: mthggreedy
@@ -18,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Atest
+        workload_idx: ImageClassifiers
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -52,11 +52,11 @@ accel_args:
 
 baseline_args:
         baseline_num_accelerators: 4
-        baseline_homogeneous: True
-        baseline_pe_array_x: null
-        baseline_pe_array_y: null
-        baseline_precision: 16
-        baseline_sram_size: null
-        baseline_ifmap_spad_size: null
-        baseline_weights_spad_size: null
-        baseline_psum_spad_size: null
+        baseline_homogeneous: False
+        baseline_pe_array_x: [16, 25, 16, 25]
+        baseline_pe_array_y: [10, 12, 25, 8]
+        baseline_precision: [5, 6, 7, 8]
+        baseline_sram_size: [108000, 108000, 108000, 108000]
+        baseline_ifmap_spad_size: [32, 64, 24, 64]
+        baseline_weights_spad_size: [512, 256, 320, 384]
+        baseline_psum_spad_size: [80, 32, 32, 48]

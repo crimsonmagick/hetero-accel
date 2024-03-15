@@ -2,15 +2,13 @@ import logging
 import os.path
 import shutil
 import numpy as np
-import PIL.Image
 import torch.utils.data
-from torch.utils.data.backward_compatibility import worker_init_fn
 import torchvision.transforms as transforms
-from torchvision.models.segmentation import FCN_ResNet50_Weights, FCN_ResNet101_Weights, DeepLabV3_MobileNet_V3_Large_Weights
+from torchvision.models import segmentation as seg
+from torchvision.models import detection as det
 import torchvision.datasets as datasets
-from collections import defaultdict
 from functools import partial
-from src.dataset_utils import VOCDetTransform, get_voc_seg_transform
+from src.dataset_utils import VOCDetTransform, get_voc_seg_transform, get_coco_transform
 
 
 logger = logging.getLogger(__name__)
@@ -48,14 +46,14 @@ def __dataset_factory(dataset, batch_size):
             'voc_seg': get_vocseg_dataset,
             # object detection
             'voc_det': get_vocdet_dataset,
-            'coco_2017': get_coco_dataset,
+            'coco': get_coco_dataset,
             # language processing,
             'sst2': partial(get_sst2_dataset, batch_size=batch_size),
             'multi30k': get_multi30k_dataset, 
             # video processing
             'moving_mnist': get_moving_mnist_dataset,
             'kinetics': get_kinetics_dataset,
-        }.get(dataset.lower(), None)
+        }[dataset.lower()]
     except KeyError:
         raise ValueError('Dataset {} not supported'.format(dataset))
 
@@ -312,11 +310,13 @@ def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
 
     weights = None
     if arch == 'fcn_resnet50':
-        weights = FCN_ResNet50_Weights.DEFAULT
+        weights = seg.FCN_ResNet50_Weights.DEFAULT
     elif arch == 'fcn_resnet101':
-        weights = FCN_ResNet101_Weights
+        weights = seg.FCN_ResNet101_Weights.DEFAULT
     elif arch == 'deeplabv3':
-        weights = DeepLabV3_MobileNet_V3_Large_Weights
+        weights = seg.DeepLabV3_MobileNet_V3_Large_Weights.DEFAULT
+    elif arch == 'lraspp':
+        weights = seg.LRASPP_MobileNet_V3_Large_Weights.DEFAULT
     transforms_both = transforms.ToTensor() if weights is None else get_voc_seg_transform(weights)
 
     if load_train:
@@ -354,30 +354,42 @@ def get_vocdet_dataset(data_dir, arch, load_train=True, load_test=True):
     return traindata, testdata
 
 
+class CocoDetection(datasets.CocoDetection):
+    def __init__(self, img_folder, ann_file, transforms):
+        super().__init__(img_folder, ann_file)
+        self._transforms = transforms
+
+    def __getitem__(self, idx):
+        img, target = super().__getitem__(idx)
+        image_id = self.ids[idx]
+        target = dict(image_id=image_id, annotations=target)
+        if self._transforms is not None:
+            img, target = self._transforms(img, target)
+        return img, target
+
+
 def get_coco_dataset(data_dir, arch, load_train=True, load_test=True):
     """Get the MS Coco object detection dataset from PyTorch
     """
-    assert load_test is False, "The COCO dataset is not split into train/test annotations yet"
-    transforms = transforms.Compose(
-        [
-            transforms.RandomPhotometricDistort(),
-            transforms.RandomZoomOut(
-                fill=defaultdict(lambda: 0, {PIL.Image.Image: (123, 117, 104)})
-            ),
-            transforms.RandomIoUCrop(),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToImageTensor(),
-            transforms.ConvertImageDtype(torch.float32),
-            transforms.SanitizeBoundingBox(),
-        ]
-    )
+    traindata = testdata = None
 
-    annFile = os.path.join(data_dir, 'annotations.json')
-    assert os.path.exists(annFile)
-    dataset = datasets.CocoDetection(root=data_dir, annFile=annFile, transforms=transforms)
-    dataset = datasets.wrap_dataset_for_transforms_v2(dataset, target_keys=("boxes", "labels", "masks"))
+    weights = None
+    if arch == 'ssd300_vgg16':
+        weights = det.SSD300_VGG16_Weights.DEFAULT
+    elif arch == 'retinanet_resnet50':
+        weights = det.RetinaNet_ResNet50_FPN_Weights.DEFAULT
+    elif arch == 'fasterrcnn_resnet50':
+        weights = det.FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+    transforms_both = transforms.ToTensor() if weights is None else get_coco_transform(weights)
 
-    return dataset
+    if load_train:
+        logger.warning('Training data are currently unavailable for the MS COCO dataset')
+
+    if load_test:
+        testdata = CocoDetection(img_folder=os.path.join(data_dir, "val2017"),
+                                 ann_file=os.path.join(data_dir, 'annotations', "instances_val2017.json"),
+                                 transforms=transforms_both)
+    return traindata, testdata
 
 
 def get_sst2_dataset(data_dir, arch, load_train=True, load_test=True, batch_size=16):

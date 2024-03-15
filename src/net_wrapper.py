@@ -1,13 +1,13 @@
 import torch
 import logging
 import re
-import torchnet.meter as tnt
+import os.path
 from types import SimpleNamespace
-from collections import OrderedDict
-from src import pretrained_checkpoint_paths
+from pycocotools.coco import COCO
+from src import pretrained_checkpoint_paths, dataset_dirs
 from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
 from src.meter import *
-from src.loss import SegLoss, YoloLoss
+from src.loss import *
 from src.train_test import train, validate
 from src.models import create_model, DNNType
 from src.args import OptimizerType
@@ -39,8 +39,17 @@ class TorchNetworkWrapper:
             self.accuracy_meter = SegmentationMeter()
 
         elif self.model.task == DNNType.ObjectDetection:
-            self.criterion = YoloLoss().to(self.model.device)
-            self.accuracy_meter = ObjectDetectionMeter(device=self.model.device)
+            if 'yolo' in self.model.arch:
+                self.criterion = YoloLoss().to(self.model.device)
+            else:
+                self.criterion = DummyLoss()
+            if 'coco' in self.model.dataset.lower():
+                # TODO: This is hard coded
+                annot_file = os.path.join(dataset_dirs['coco'], 'annotations', "instances_val2017.json")
+                coco_gt = COCO(annotation_file=annot_file)
+                self.accuracy_meter = COCOMeter(coco_gt, iou_type="bbox")
+            else:
+                self.accuracy_meter = ObjectDetectionMeter()
 
         # TODO: Fill the criterion/meter for the rest of the tasks
         elif self.model.task == DNNType.TextClassification:

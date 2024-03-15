@@ -1,8 +1,13 @@
 import torch
+import copy
+import io
+from contextlib import redirect_stdout
+import numpy as np
 from torchnet.meter.meter import Meter
 from torchnet.meter import ClassErrorMeter
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
 from src.dataset_utils import VOC_CLASSES_MAP, REV_VOC_CLASSES_MAP
-
 
 # NOTE: Write first the most important accuracy metric, and the
 #       one returned FIRST by calling meter.value('all'). This is
@@ -16,6 +21,9 @@ class ImageClassificationMeter(ClassErrorMeter):
     def __init__(self):
         self.metrics = ['top1', 'top5']
         super().__init__(topk=[1, 5], accuracy=True)
+
+    def add(self, output, target):
+        super().add(output.detach(), target)
 
     def value(self, metric=None):
         assert metric in self.metrics + ['all']
@@ -41,6 +49,9 @@ class SegmentationMeter(Meter):
         self.num = 0
 
     def add(self, output, target):
+        output = output['out'].detach()#.squeeze(0)
+        target = target.squeeze(0).long()
+
         acc = self.pixel_acc(output, target)
         self.pixel_acc_sum += acc
         self.iou(output, target)
@@ -50,7 +61,7 @@ class SegmentationMeter(Meter):
         assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
         
         avg_pixel_acc = self.pixel_acc_sum.item() / self.num
-        if metric == 'pixel_acc':
+        if metric == 'AvgPixelAcc':
             return avg_pixel_acc
 
         # get iou for every class
@@ -86,3 +97,104 @@ class ObjectDetectionMeter(Meter):
     """
     def __init__(self):
         raise NotImplementedError
+
+
+class COCOMeter(Meter):
+    """Accuracy meter for COCO detection
+    metrics:
+        mAP[IoU=0.50:0.95]
+        mAP[IOU=0.5]
+        mAP[IOU=0.75]
+    """
+    def __init__(self, coco_gt, iou_type="bbox"):
+        self.metrics = ['mAP[IoU=0.50:0.95]', 'mAP[IOU=0.5]', 'mAP[IOU=0.75]']
+
+        coco_gt = copy.deepcopy(coco_gt)
+        self.coco_gt = coco_gt
+        self.iou_type = iou_type        
+        self.reset()
+
+    def reset(self):
+        self.coco_eval = {}
+        self.coco_eval[self.iou_type] = COCOeval(self.coco_gt, iouType=self.iou_type)
+
+        self.img_ids = []
+        self.eval_imgs = {self.iou_type: []}
+
+    def add(self, output, target):
+        outputs = [{k: v.to("cpu") for k, v in t.items()} for t in output]
+        predictions = {int(target['image_id']): outputs[0]}
+
+        img_ids = list(np.unique(list(predictions.keys())))
+        self.img_ids.extend(img_ids)
+
+        results = self.prepare_for_coco_detection(predictions)
+        with redirect_stdout(io.StringIO()):
+            coco_dt = COCO.loadRes(self.coco_gt, results) if results else COCO()
+        coco_eval = self.coco_eval[self.iou_type]
+
+        coco_eval.cocoDt = coco_dt
+        coco_eval.params.imgIds = list(img_ids)
+        img_ids, eval_imgs = self.evaluate(coco_eval)
+
+        self.eval_imgs[self.iou_type].append(eval_imgs)
+
+
+    def value(self, metric=None):
+        assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
+        
+        self.accumulate()
+        self.summarize()
+
+        mAP_05_09, mAP_05, mAP_075 = self.coco_eval["bbox"].stats[:3]
+        
+        if metric == 'all':
+            return mAP_05_09, mAP_05, mAP_075
+        elif metric == 'mAP[IoU=0.50:0.95]':
+            return mAP_05_09
+
+        elif metric == 'mAP[IOU=0.5]':
+            return mAP_05
+
+        elif metric == 'mAP[IOU=0.75]':
+            return mAP_075
+        
+    def prepare_for_coco_detection(self, predictions):
+        coco_results = []
+        for original_id, prediction in predictions.items():
+            if len(prediction) == 0:
+                continue
+            boxes = prediction["boxes"]
+            boxes = self.convert_to_xywh(boxes).tolist()
+            scores = prediction["scores"].tolist()
+            labels = prediction["labels"].tolist()
+
+            coco_results.extend(
+                [
+                    {
+                        "image_id": original_id,
+                        "category_id": labels[k],
+                        "bbox": box,
+                        "score": scores[k],
+                    }
+                    for k, box in enumerate(boxes)
+                ]
+            )
+        return coco_results
+
+    def convert_to_xywh(self, boxes):
+        xmin, ymin, xmax, ymax = boxes.unbind(1)
+        return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=1)
+
+
+    def evaluate(self, imgs):
+        with redirect_stdout(io.StringIO()):
+            imgs.evaluate()
+        return imgs.params.imgIds, np.asarray(imgs.evalImgs).reshape(-1, len(imgs.params.areaRng), len(imgs.params.imgIds))
+
+    def accumulate(self):
+        self.coco_eval[self.iou_type].accumulate()
+
+    def summarize(self):
+        with redirect_stdout(io.StringIO()):
+            self.coco_eval[self.iou_type].summarize()

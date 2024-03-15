@@ -5,7 +5,7 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/lut.csv
+        dnn_accuracy_lut_file: data/workload1.lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
         # load_state_from: data/state.sa.pkl
@@ -21,8 +21,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        # workload_idx: ImageClassifiers
-        workload_idx: Test
+        workload_idx: Segmentation
         workers: 15
         batch_size: 128
         load_serialized: False
