@@ -1,7 +1,111 @@
 ---
 # Setting workloads according to: https://arxiv.org/abs/2210.14657
 # and the MLPerf suite: https://github.com/mlcommons/inference
+
 workloads:
+  A:
+    - arch: vgg13
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenet
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: efficientnet
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: wide_resnet101_2
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: fcn_resnet50
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+    - arch: retinanet_resnet50
+      dataset: coco
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+
+  B:
+    - arch: resnet34
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: vgg16
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: squeezenet
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: deeplabv3
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+    - arch: fasterrcnn_resnet50
+      dataset: coco
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+
+  C:
+    - arch: vgg11
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet18
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenetv2
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: googlenet
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: fcn_resnet101
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+    - arch: ssd300_vgg16
+      dataset: coco
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+
+
   ImageClassifiers:
     - arch: vgg11
       dataset: cifar10
@@ -87,7 +191,7 @@ workloads:
       batch_size: 1
       resumed_checkpoint_path: null
       batch_print_frequency: 200
-  
+
   Detection:
     - arch: fasterrcnn_resnet50
       dataset: coco

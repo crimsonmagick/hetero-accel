@@ -21,16 +21,16 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Segmentation
+        workload_idx: A
         workers: 15
         batch_size: 128
         load_serialized: False
         gpus: 0
         cpu: False
-        validation_split: 0.3
+        validation_split: 0.0
         effective_train_size: 0.5
         effective_valid_size: 0.5
-        effective_test_size: 1
+        effective_test_size: 0.5
         model_verbose: False
         optimizer_type: adam
 

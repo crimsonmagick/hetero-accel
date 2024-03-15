@@ -90,6 +90,9 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     if test_only:
         return None, None, test_loader
 
+    if train_dataset is None:
+        return None, test_loader, test_loader
+
     train_indices, valid_indices = split_list(list(range(len(train_dataset))), 1 - validation_split, shuffle=True)
     train_indices, valid_indices = list(train_indices), list(valid_indices)
 
