@@ -3,6 +3,13 @@
 # and the MLPerf suite: https://github.com/mlcommons/inference
 
 workloads:
+  Test:
+    - arch: resnet18
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 5
+
   A:
     - arch: vgg13
       dataset: cifar10
@@ -53,7 +60,7 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-    - arch: squeezenet
+    - arch: squeezenet1_0
       dataset: imagenet
       pretrained: true
       resumed_checkpoint_path: null

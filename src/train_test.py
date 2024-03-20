@@ -157,7 +157,7 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
             # measure accuracy and record loss
             losses['Objective Loss'].add(loss.item())
             accuracy_meter.add(output, target)
-            
+
             # measure elapsed time
             batch_time.add(time.time() - end)
             end = time.time()

@@ -127,7 +127,9 @@ class TorchNetworkWrapper:
                                   parallel=not self.load_serialized,
                                   device_ids=self.gpus,)
                                   #verbose=self.verbose)
-        self.model.apply(weight_init)
+
+        if not self.pretrained:
+            self.model.apply(weight_init)
 
         if self.resumed_checkpoint_path is not None:
             self.model, _ = load_checkpoint(

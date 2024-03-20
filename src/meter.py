@@ -62,16 +62,16 @@ class SegmentationMeter(Meter):
         
         avg_pixel_acc = self.pixel_acc_sum.item() / self.num
         if metric == 'AvgPixelAcc':
-            return avg_pixel_acc
+            return 100 * avg_pixel_acc
 
         # get iou for every class
         iou = torch.diag(self.conf_mat) / (self.conf_mat.sum(1) + self.conf_mat.sum(0) - torch.diag(self.conf_mat))
         m_iou = iou.mean().item()
         if metric == 'mIOU':
-            return m_iou
+            return 100 * m_iou
 
         elif metric == 'all':
-            return m_iou, avg_pixel_acc
+            return 100 * m_iou, 100 * avg_pixel_acc
 
     def pixel_acc(self, pred, label):
         _, preds = torch.max(pred, dim=1)
@@ -91,6 +91,7 @@ class SegmentationMeter(Meter):
             k = (label >= 0) & (label < n)
             inds = n * label[k].to(torch.int64) + pred[k]
             self.conf_mat += torch.bincount(inds, minlength=n**2).reshape(n, n)
+
 
 class ObjectDetectionMeter(Meter):
     """Accuracy meter for object detection
@@ -139,7 +140,6 @@ class COCOMeter(Meter):
 
         self.eval_imgs[self.iou_type].append(eval_imgs)
 
-
     def value(self, metric=None):
         assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
         
@@ -149,16 +149,16 @@ class COCOMeter(Meter):
         mAP_05_09, mAP_05, mAP_075 = self.coco_eval["bbox"].stats[:3]
         
         if metric == 'all':
-            return mAP_05_09, mAP_05, mAP_075
+            return 100 * mAP_05_09, 100 * mAP_05, 100 * mAP_075
         elif metric == 'mAP[IoU=0.50:0.95]':
-            return mAP_05_09
+            return 100 * mAP_05_09
 
         elif metric == 'mAP[IOU=0.5]':
-            return mAP_05
+            return 100 * mAP_05
 
         elif metric == 'mAP[IOU=0.75]':
-            return mAP_075
-        
+            return 100 * mAP_075
+
     def prepare_for_coco_detection(self, predictions):
         coco_results = []
         for original_id, prediction in predictions.items():

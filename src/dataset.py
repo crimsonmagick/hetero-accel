@@ -3,9 +3,10 @@ import os.path
 import shutil
 import numpy as np
 import torch.utils.data
-import torchvision.transforms as transforms
+from torchvision import transforms
 from torchvision.models import segmentation as seg
 from torchvision.models import detection as det
+from torchvision.models import Wide_ResNet101_2_Weights, SqueezeNet1_0_Weights, GoogLeNet_Weights
 import torchvision.datasets as datasets
 from functools import partial
 from src.dataset_utils import VOCDetTransform, get_voc_seg_transform, get_coco_transform
@@ -27,7 +28,9 @@ def load_data(dataset, dataset_path, arch, batch_size, workers,
             logger.info('Dataset sizes:\n\ttest={}'.format(len(test_loader.sampler)))
         else:
             logger.info('Dataset sizes:\n\ttraining={}\n\tvalidation={}\n\ttest={}'.format(
-                    len(train_loader.sampler), len(valid_loader.sampler), len(test_loader.sampler)
+                    len(train_loader.sampler) if train_loader is not None else 0,
+                    len(valid_loader.sampler) if valid_loader is not None else 0,
+                    len(test_loader.sampler)
                 )
             )
     return train_loader, valid_loader, test_loader
@@ -82,10 +85,11 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
-        sampler=test_sampler,
+        # sampler=test_sampler,
         num_workers=workers,
         #   worker_init_fn=worker_init_fn,
-            pin_memory=True, drop_last=True
+        pin_memory=True,
+        # drop_last=True
     )
     if test_only:
         return None, None, test_loader
@@ -105,7 +109,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
         sampler=train_sampler,
         num_workers=workers,
         # worker_init_fn=worker_init_fn,
-        pin_memory=True, drop_last=True
+        pin_memory=True,
+        drop_last=True
     )
 
     valid_loader = None
@@ -119,7 +124,8 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
             sampler=valid_sampler,
             num_workers=workers,
             # worker_init_fn=worker_init_fn,
-            pin_memory=True, drop_last=True
+            pin_memory=True, 
+            drop_last=True
         )
 
     return train_loader, valid_loader or test_loader, test_loader
@@ -186,18 +192,20 @@ def get_cifar100_dataset(cifar100_path, arch, load_train, load_test):
 
 
 def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
-    """Load the ImageNet dataset
+    """Load the ImageNet dataset according to:
+       https://github.com/pytorch/examples/blob/main/imagenet/main.py
     """
     if 'inception' in arch.lower():
         resize, crop = 336, 299
     else:
         resize, crop = 256, 224
+
     if 'googlenet' in arch.lower():
-        normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                         std=[0.5, 0.5, 0.5])
+        mean=[0.5, 0.5, 0.5]
+        std=[0.5, 0.5, 0.5]
     else:
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
+        mean=[0.485, 0.456, 0.406]
+        std=[0.229, 0.224, 0.225]
 
     train_dir = os.path.join(data_dir, 'train')
     test_dir = os.path.join(data_dir, 'val')
@@ -208,9 +216,8 @@ def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
             transforms.RandomResizedCrop(crop),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            normalize,
+             transforms.Normalize(mean, std),
         ])
-
         train_dataset = datasets.ImageFolder(train_dir, train_transform)
 
     test_dataset = None
@@ -219,9 +226,8 @@ def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
             transforms.Resize(resize),
             transforms.CenterCrop(crop),
             transforms.ToTensor(),
-            normalize,
+            transforms.Normalize(mean, std),
         ])
-
         test_dataset = datasets.ImageFolder(test_dir, test_transform)
 
     return train_dataset, test_dataset
