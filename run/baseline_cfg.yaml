@@ -5,7 +5,7 @@ app_args:
         name: baseline
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/image_classifiers.lut.csv
+        dnn_accuracy_lut_file: data/workload1.lut.csv
         load_state_from: data/baseline.results.pkl
         scheduler_type: multiknapsack
         solver_type: mthggreedy
@@ -18,16 +18,16 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: ImageClassifiers
+        workload_idx: A
         workers: 15
         batch_size: 128
         load_serialized: False
         gpus: 0
         cpu: False
-        validation_split: 0.3
+        validation_split: 0.0
         effective_train_size: 0.5
         effective_valid_size: 0.5
-        effective_test_size: 1
+        effective_test_size: 0.5
         model_verbose: False
 
 compression_args:
@@ -38,10 +38,16 @@ compression_args:
         quant_high: 8
         quant_low: 4
         quant_incr: 1
-        top1_constraint: 5
+        use_validation_set: False
+        # constraints
+        top1_constraint: 2
         top5_constraint: null
         loss_constraint: null
-        use_validation_set: False
+        mIOU_constraint: 2
+        AvgPixelAcc_constraint: null
+        mAP[IoU=0.50:0.95]_constraint: 2
+        mAP[IOU=0.5]_constraint: null
+        mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
  
@@ -52,11 +58,11 @@ accel_args:
 
 baseline_args:
         baseline_num_accelerators: 4
-        baseline_homogeneous: False
-        baseline_pe_array_x: [16, 25, 16, 25]
-        baseline_pe_array_y: [10, 12, 25, 8]
-        baseline_precision: [5, 6, 7, 8]
-        baseline_sram_size: [108000, 108000, 108000, 108000]
-        baseline_ifmap_spad_size: [32, 64, 24, 64]
-        baseline_weights_spad_size: [512, 256, 320, 384]
-        baseline_psum_spad_size: [80, 32, 32, 48]
+        baseline_homogeneous: True
+        baseline_pe_array_x: null
+        baseline_pe_array_y: null
+        baseline_precision: 16
+        baseline_sram_size: null
+        baseline_ifmap_spad_size: null
+        baseline_weights_spad_size: null
+        baseline_psum_spad_size: null

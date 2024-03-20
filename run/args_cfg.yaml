@@ -29,7 +29,7 @@ workload_args:
         validation_split: 0.0
         effective_train_size: 0.5
         effective_valid_size: 0.5
-        effective_test_size: 0.25
+        effective_test_size: 0.5
         model_verbose: False
         optimizer_type: adam
 

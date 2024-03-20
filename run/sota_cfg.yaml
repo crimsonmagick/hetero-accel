@@ -5,7 +5,7 @@ app_args:
         name: sota
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/lut.csv
+        dnn_accuracy_lut_file: data/sota.lut.csv
         scheduler_type: sota
         load_state_from: data/sota.results.pkl
 
@@ -23,10 +23,10 @@ workload_args:
         load_serialized: False
         gpus: 0
         cpu: False
-        validation_split: 0.3
+        validation_split: 0.0
         effective_train_size: 0.5
         effective_valid_size: 0.5
-        effective_test_size: 1
+        effective_test_size: 0.5
         model_verbose: False
 
 compression_args:
@@ -37,10 +37,16 @@ compression_args:
         quant_high: 8
         quant_low: 4
         quant_incr: 1
-        top1_constraint: 5
+        use_validation_set: False
+        # constraints
+        top1_constraint: 2
         top5_constraint: null
         loss_constraint: null
-        use_validation_set: False
+        mIOU_constraint: 2
+        AvgPixelAcc_constraint: null
+        mAP[IoU=0.50:0.95]_constraint: 2
+        mAP[IOU=0.5]_constraint: null
+        mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
 
