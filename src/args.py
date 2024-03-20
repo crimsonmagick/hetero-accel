@@ -122,7 +122,12 @@ def compression_args(parser):
                                   help='Mean intersect-over-union constraint for segmentation')
     compression_args.add_argument('--pixel-acc-constraint', type=float, dest='AvgPixelAcc_constraint',
                                   help='Average pixel accuracy constraint for segmentation')
-
+    compression_args.add_argument('--map-50t95-constraint', type=float, dest='mAP[IoU=0.50:0.95]_constraint', default=1,
+                                  help='Mean average precision ([IoU=0.50:0.95]) constraint for detection')
+    compression_args.add_argument('--map-50-constraint', type=float, dest='mAP[IOU=0.5]_constraint',
+                                  help='Mean average precision ([IoU=0.5]) constraint for detection')
+    compression_args.add_argument('----map-75-constraint', type=float, dest='mAP[IOU=0.75]_constraint',
+                                  help='Mean average precision ([IoU=0.75]) constraint for detection')
     return parser
 
 

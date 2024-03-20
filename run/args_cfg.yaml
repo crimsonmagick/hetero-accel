@@ -43,11 +43,14 @@ compression_args:
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 5
+        top1_constraint: 2
         top5_constraint: null
         loss_constraint: null
-        mIOU_constraint: 5
+        mIOU_constraint: 2
         AvgPixelAcc_constraint: null
+        mAP[IoU=0.50:0.95]_constraint: 2
+        mAP[IOU=0.5]_constraint: null
+        mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
 
