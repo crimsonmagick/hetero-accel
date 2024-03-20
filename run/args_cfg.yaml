@@ -8,10 +8,9 @@ app_args:
         dnn_accuracy_lut_file: data/workload1.lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
-        # load_state_from: data/state.sa.pkl
-        load_state_from: data/best_state.sa.pkl
+        load_state_from: data/workload1.state.sa.pkl
         skip_exploration: True
-        load_pruned_mappings_from: data/pruned_mappings.pkl
+        load_pruned_mappings_from: data/workload1.pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
