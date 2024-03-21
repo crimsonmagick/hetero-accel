@@ -142,14 +142,20 @@ def quant_exploration(args, workload):
         assert all(arch in preloaded_dnn_accuracy_lut['Network'].unique() for arch in workload.dnns), \
             f"All DNNs {list(workload.dnns.keys())} must be included in the preloaded accuracy LUT: {args.dnn_accuracy_lut_file}"
         logger.info(f'=> Skipping exhaustive exploration: loaded LUT from {args.dnn_accuracy_lut_file}')
+        
+    # LUT structure
+    columns = ['Network', 'QuantBits', 'Accuracy', 'Sparsity', 'Size', 'Valid']
 
-    # structure of the LUT
-    df = pd.DataFrame(columns=['Network', 'QuantBits', 'Accuracy', 'Sparsity', 'Size', 'Valid'])
+    # initialize LUT
+    if skip_exploration:
+       df = preloaded_dnn_accuracy_lut
+    else:
+        df = pd.DataFrame(columns=columns)
 
     compressors = {}
     for arch, net_wrapper in workload.dnns.items():
-        if skip_exploration:
-            continue
+        # if skip_exploration:
+        #     continue
 
         # check if there is at least one accuracy constraint set
         assert any(
@@ -157,27 +163,36 @@ def quant_exploration(args, workload):
         ), f"No accuracy constraint was set! Define at least one of the following in {args.yaml_cfg_file}: " \
            f"{' | '.join([f'{metric}_constraint'] for metric in net_wrapper.accuracy_metrics)}"
 
-        # initialize compressor
-        compressor = init_compressor(args, workload, arch, net_wrapper)
-        compressors[arch] = compressor
-        logger.info(f'=> Beginning exhaustive exploration for {arch}')
+        if not skip_exploration:
+            # initialize compressor
+            compressor = init_compressor(args, workload, arch, net_wrapper)
+            compressors[arch] = compressor
+            logger.info(f'=> Beginning exhaustive exploration for {arch}')
 
-        # compute original statistics
-        accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
-        model_stats, _ = compressor.compute_model_statistics()
-        og_stats = {
-            'accuracy': accuracy_stats[0], 
-            'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
-            **{
-                metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
+            # compute original statistics
+            accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
+            model_stats, _ = compressor.compute_model_statistics()
+            og_stats = {
+                'accuracy': accuracy_stats[0], 
+                'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+                **{
+                    metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                }
             }
-        }
+            # save the statistics to the LUT
+            df.loc[len(df.index)] = ([arch, 32, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], 1])
+
+        else:
+            og_stats = df.loc[(df['Network'] == arch) & (df['QuantBits'] == 32)].iloc[0].to_dict()
+            og_stats.pop('Network')
+            og_stats.pop('Unnamed: 0', None)
+            # NOTE: workaround to reload only the first accuracy metric
+            og_stats[net_wrapper.accuracy_metrics[0]] = og_stats['Accuracy']
+
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
-                                     f'{metric.capitalize()}={value:.2e}'
-                                     for metric, value in og_stats.items()])
+                                    f'{metric.capitalize()}={value:.2e}'
+                                    for metric, value in og_stats.items()])
         logger.info(f'{arch}: Original statistics: {og_stats_logstr}')
-        # save the statistics to the LUT
-        df.loc[len(df.index)] = ([arch, 32, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], 1])
 
         # iterate over quantization bits
         quant_bits_options = np.arange(args.quant_low, args.quant_high + 1, args.quant_incr)
@@ -185,22 +200,33 @@ def quant_exploration(args, workload):
             quant_bits_options = np.append(quant_bits_options, 16)
 
         for quant_bits in quant_bits_options:
-            logger.info(f'{arch}: Testing quantization of {quant_bits} bits')
 
-            # reset the previous state of the network
-            compressor.reset()
-            # execute the compression profile
-            compressor.quantize(quant_bits)
-            # evaluate for accuracy and network statistics
-            accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
-            model_stats, _ = compressor.compute_model_statistics()
-            stats = {
-                'accuracy': accuracy_stats[0],
-                'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
-                **{
-                    metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
-                }
-            }
+            if not skip_exploration:
+                logger.info(f'{arch}: Testing quantization of {quant_bits} bits')
+                # reset the previous state of the network
+                compressor.reset()
+                # execute the compression profile
+                compressor.quantize(quant_bits)
+                # evaluate for accuracy and network statistics
+                accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
+                model_stats, _ = compressor.compute_model_statistics()
+                stats = {
+                    'accuracy': accuracy_stats[0],
+                    'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+                    **{
+                        metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                    }
+                }                
+                # save the statistics to the LUT, except of the 'valid' flag
+                df.loc[len(df.index)] = ([arch, quant_bits, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], 0])
+
+            else:
+                stats = df.loc[(df['Network'] == arch) & (df['QuantBits'] == quant_bits)].iloc[0].to_dict()
+                stats.pop('Network')
+                stats.pop('Unnamed: 0', None)
+                # NOTE: workaround to reload only the first accuracy metric
+                stats[net_wrapper.accuracy_metrics[0]] = stats['Accuracy']
+
             stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                       f'{metric.capitalize()}={value:.2e}'
                                       for metric, value in stats.items()])
@@ -210,16 +236,14 @@ def quant_exploration(args, workload):
             valid = 0
             if all(
                 getattr(args, f'{metric}_constraint', None) is None or
-                accuracy_stats[i] >= og_stats[metric] - getattr(args, f'{metric}_constraint')
-                for i, metric in enumerate(net_wrapper.accuracy_metrics)
+                stats[metric] >= og_stats[metric] - getattr(args, f'{metric}_constraint')
+                for metric in net_wrapper.accuracy_metrics
             ):
                 valid = 1
 
-            # save the statistics to the LUT
-            df.loc[len(df.index)] = ([arch, quant_bits, accuracy_stats[0], model_stats['sparsity'], model_stats['size'], valid])
-
-    if skip_exploration:
-       df = preloaded_dnn_accuracy_lut
+            # save the binary flag
+            df.loc[(df['Network'] == arch) & (df['QuantBits'] == quant_bits), 'Valid'] = valid
+            logger.info(f"Is quantization valid? -> {bool(valid)}")
 
     # check if any valid solutions were found
     assert df['Valid'].sum() > 1, "No valid solutions were found, consider changing the compression settings or " \
