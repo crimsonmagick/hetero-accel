@@ -103,12 +103,12 @@ class ObjectDetectionMeter(Meter):
 class COCOMeter(Meter):
     """Accuracy meter for COCO detection
     metrics:
-        mAP[IoU=0.50:0.95]
         mAP[IOU=0.5]
+        mAP[IoU=0.50:0.95]
         mAP[IOU=0.75]
     """
     def __init__(self, coco_gt, iou_type="bbox"):
-        self.metrics = ['mAP[IoU=0.50:0.95]', 'mAP[IOU=0.5]', 'mAP[IOU=0.75]']
+        self.metrics = ['mAP[IOU=0.5]', 'mAP[IoU=0.50:0.95]', 'mAP[IOU=0.75]']
 
         coco_gt = copy.deepcopy(coco_gt)
         self.coco_gt = coco_gt

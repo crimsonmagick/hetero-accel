@@ -5,12 +5,12 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/workload1.lut.csv
+        dnn_accuracy_lut_file: data/workloadA.lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
-        load_state_from: data/workload1.state.sa.pkl
+        load_state_from: data/workloadA.state.sa.pkl
         skip_exploration: True
-        load_pruned_mappings_from: data/workload1.pruned_mappings.pkl
+        load_pruned_mappings_from: data/workloadA.pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -48,8 +48,8 @@ compression_args:
         loss_constraint: null
         mIOU_constraint: 2
         AvgPixelAcc_constraint: null
-        mAP[IoU=0.50:0.95]_constraint: 2
-        mAP[IOU=0.5]_constraint: null
+        mAP[IOU=0.5]_constraint: 5
+        mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null

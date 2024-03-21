@@ -332,14 +332,14 @@ def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
         traindata = datasets.VOCSegmentation(data_dir,
                                              year="2012",
                                              image_set="train",
-                                             download=False,
+                                             download=True,
                                              transforms=transforms_both)
 
     if load_test:
         testdata = datasets.VOCSegmentation(data_dir,
                                             year='2012',
                                             image_set="val",
-                                            download=False,
+                                            download=True,
                                             transforms=transforms_both)
     return traindata, testdata
 

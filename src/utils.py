@@ -587,14 +587,15 @@ def model_summary(model, dummy_input=None):
             info = SimpleNamespace()
             dimensions = OrderedDict()
 
-            # input and output tensor sizes
-            try:
-                ifm = input[0].size()
-            except AttributeError:
-                ifm = input[0][0].size()
-            if isinstance(output, dict) and 'out' in output:
-                output = output['out']
-            ofm = output.size()
+            if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
+                # input and output tensor sizes
+                try:
+                    ifm = input[0].size()
+                except AttributeError:
+                    ifm = input[0][0].size()
+                if isinstance(output, dict) and 'out' in output:
+                    output = output['out']
+                ofm = output.size()
  
             if isinstance(module, torch.nn.Conv2d):
                 # input shape of (batch_size, nfm, fm_h, fm_w)
