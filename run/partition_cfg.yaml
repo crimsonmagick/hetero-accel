@@ -1,0 +1,76 @@
+---
+app_args:
+        operation_mode: partition
+        output_dir: 'logs'
+        name: partition
+        deterministic: True
+        global_seed: 0
+        dnn_accuracy_lut_file: data/motiv_example/lut.csv
+        load_state_from: data/motiv_example/eyeriss/baseline.results.pkl
+        scheduler_type: layerwise
+        solver_type: mthggreedy
+
+dnn_op_mode_args:
+        evaluate_model_mode: False
+        train_model_mode: False
+        test_timeloop_accelergy_mode: False
+        test_pruning_quant_mode: False
+        model_summary_mode: null
+
+workload_args:
+        workload_idx: MotivExample
+        workers: 15
+        batch_size: 128
+        load_serialized: False
+        gpus: 0
+        cpu: False
+        validation_split: 0.0
+        effective_train_size: 0.5
+        effective_valid_size: 0.5
+        effective_test_size: 0.5
+        model_verbose: False
+
+compression_args:
+        pruning_group_type: rows
+        pruning_high: 1.0
+        pruning_low: 0.0
+        pruning_incr: 0.05
+        quant_high: 8
+        quant_low: 4
+        quant_incr: 1
+        use_validation_set: False
+        # constraints
+        top1_constraint: 2
+        top5_constraint: null
+        loss_constraint: null
+        mIOU_constraint: 2
+        AvgPixelAcc_constraint: null
+        mAP[IOU=0.5]_constraint: 5
+        mAP[IoU=0.50:0.95]_constraint: null
+        mAP[IOU=0.75]_constraint: null
+        size_constraint: 50
+        sparsity_constraint: null
+ 
+accel_args:
+        accelerator_arch_type: eyeriss
+        deadline_constraint: null
+        area_constraint: null
+
+baseline_args:
+        baseline_num_accelerators: 4
+        baseline_homogeneous: True
+        baseline_pe_array_x: null
+        baseline_pe_array_y: null
+        baseline_precision: 16
+        baseline_sram_size: null
+        # Eyeriss-specific
+        baseline_ifmap_spad_size: null
+        baseline_weights_spad_size: null
+        baseline_psum_spad_size: null
+        # Simba-specific
+        baseline_input_buffer_size: null
+        baseline_weight_buffer_size: null
+        baseline_accum_buffer_size: null
+
+partition_args:
+        partition_results_path: data/cnn-parted

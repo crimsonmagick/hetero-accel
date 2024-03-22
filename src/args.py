@@ -218,6 +218,15 @@ def sota_args(parser):
     return parser
 
 
+def partition_args(parser):
+    """Arguments related to the partition-aware compared technique
+    """
+    partition_args = parser.add_argument_group('Partition-related arguments')
+    partition_args.add_argument('--partition-results-path', metavar='PATH',
+                                help='Directory where partitioning results from CNN-Parted are located')
+    return parser
+
+
 def check_args(args):
     """Check for logical errors in argument parsing
     """
@@ -237,11 +246,13 @@ class OperationMode(Enum):
     Ours = 1
     Baseline = 2
     SOTA = 3
+    Partition = 4
 
 def operation_mode_arg(argstr):
     str_to_operation_mode_map = {'ours': OperationMode.Ours,
                                  'baseline': OperationMode.Baseline,
-                                 'sota': OperationMode.SOTA}
+                                 'sota': OperationMode.SOTA,
+                                 'partition': OperationMode.Partition}
     try:
         return str_to_operation_mode_map[argstr.lower()]
     except KeyError:
@@ -300,7 +311,8 @@ def scheduler_type_arg(argstr):
     str_to_scheduler_type_map = {'ours': SchedulerType.Ours,
                                  'random': SchedulerType.Random,
                                  'multiknapsack': SchedulerType.MultiKnapsack,
-                                 'sota': SchedulerType.SOTA}
+                                 'sota': SchedulerType.SOTA,
+                                 'layerwise': SchedulerType.LayerWise}
     try:
         return str_to_scheduler_type_map[argstr.lower()]
     except KeyError:

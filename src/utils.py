@@ -24,7 +24,7 @@ from tabulate import tabulate
 from time import time
 from src import project_dir, eyeriss_timeloop_dir
 from src.args import app_args, workload_args, compression_args, accel_args, \
-                     simanneal_args, check_args, baseline_args, sota_args
+                     simanneal_args, check_args, baseline_args, sota_args, partition_args
 from src.args import ModelSummaryType
 
 
@@ -51,6 +51,7 @@ def env_cfg():
     parser = simanneal_args(parser)
     parser = baseline_args(parser)
     parser = sota_args(parser)
+    parser = partition_args(parser)
     # parse command arguments 
     args = parser.parse_args()
     # NOTE: adding the layer whitelist here, maybe somewhere else would be a better place

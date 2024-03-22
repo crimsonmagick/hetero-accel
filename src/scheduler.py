@@ -28,6 +28,7 @@ class SchedulerType(Enum):
     Random = 2
     MultiKnapsack = 3
     SOTA = 4
+    LayerWise = 5
 
 
 ScheduleEntry = namedtuple('ScheduleEntry',
@@ -171,7 +172,8 @@ class Scheduler:
             SchedulerType.Ours: self._run_ours,
             SchedulerType.Random: self._run_random_scheduling,
             SchedulerType.MultiKnapsack: self._run_with_identical_bins,
-            SchedulerType.SOTA: self._run_sota
+            SchedulerType.SOTA: self._run_sota,
+            SchedulerType.LayerWise: self._run_layer_wise
         }.get(scheduler_type)
 
     def run(self, *args, **kwargs):
@@ -337,6 +339,11 @@ class Scheduler:
             schedule.add(next_item, selected_bin, weight_dict[(next_item, selected_bin)])
 
         return schedule
+
+    def _run_layer_wise(self,):
+        """
+        """
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
