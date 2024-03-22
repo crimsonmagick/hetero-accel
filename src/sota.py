@@ -51,6 +51,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.workload = workload
         self.accuracy_lut = accuracy_lut
         self.state = None
+        self.solver_type = args.solver_type
         self.scheduler = None
         self.logdir = args.logdir
 
@@ -170,7 +171,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
     def evaluate(self):
         super().energy()
 
-    def save_state(self):
+    def save_state(self, **kwargs):
         """Save the baseline measurements
         """
         savefile = os.path.join(self.logdir, 'sota.results.pkl')

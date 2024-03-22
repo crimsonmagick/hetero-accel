@@ -147,9 +147,9 @@ class COCOMeter(Meter):
         self.summarize()
 
         mAP_05_09, mAP_05, mAP_075 = self.coco_eval["bbox"].stats[:3]
-        
+
         if metric == 'all':
-            return 100 * mAP_05_09, 100 * mAP_05, 100 * mAP_075
+            return 100 * mAP_05, 100 * mAP_05_09, 100 * mAP_075
         elif metric == 'mAP[IoU=0.50:0.95]':
             return 100 * mAP_05_09
 

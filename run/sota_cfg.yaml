@@ -5,9 +5,10 @@ app_args:
         name: sota
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/sota.lut.csv
+        dnn_accuracy_lut_file: data/workloadC.lut.csv
         scheduler_type: sota
-        load_state_from: data/sota.results.pkl
+        solver_type: mthggreedyregret
+        load_state_from: data/eyeriss.workloadC.sota.results.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -17,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Atest
+        workload_idx: C
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -44,8 +45,8 @@ compression_args:
         loss_constraint: null
         mIOU_constraint: 2
         AvgPixelAcc_constraint: null
-        mAP[IoU=0.50:0.95]_constraint: 2
-        mAP[IOU=0.5]_constraint: null
+        mAP[IOU=0.5]_constraint: 5
+        mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
@@ -56,4 +57,4 @@ accel_args:
         area_constraint: 0.1
 
 sota_args:
-        sota_load_baseline_results: data/baseline.results.pkl
+        sota_load_baseline_results: data/eyeriss.workloadC.baseline.single.results.pkl
