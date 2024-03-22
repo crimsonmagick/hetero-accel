@@ -6,6 +6,7 @@ from shutil import copy
 from src.accelerator_cfg import AcceleratorProfile
 from src.scheduler import Scheduler, SchedulerType
 from src.optimizer import AcceleratorOptimizer
+from src.args import MetricType
 
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
         self.accuracy_lut = accuracy_lut
         self.state = None
         self.solver_type = args.solver_type
+        self.metric = MetricType.EDP
         self.scheduler = None
         self.logdir = args.logdir
 

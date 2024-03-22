@@ -5,8 +5,8 @@ app_args:
         name: baseline
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/workloadC.lut.csv
-        load_state_from: data/eyeriss.workloadC.baseline.results.pkl
+        dnn_accuracy_lut_file: data/classifiersB/lut.csv
+        load_state_from: data/classifiersB/eyeriss/baseline.results.pkl
         scheduler_type: multiknapsack
         solver_type: mthggreedy
 
@@ -18,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: C
+        workload_idx: ClassifiersB
         workers: 15
         batch_size: 128
         load_serialized: False

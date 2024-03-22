@@ -113,7 +113,7 @@ workloads:
       batch_print_frequency: 200
 
 
-  ImageClassifiers:
+  ClassifiersA:
     - arch: vgg11
       dataset: cifar10
       pretrained: true
@@ -144,6 +144,71 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
+
+  ClassifiersB:
+    - arch: vgg13
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet34
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: vgg19
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenet
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: googlenet
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+
+  ClassifiersC:
+    - arch: vgg11
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet18
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: efficientnet
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenetv2
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: vgg16
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: squeezenet1_0
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+
 
   MotivExample:
     - arch: vgg13
@@ -218,30 +283,3 @@ workloads:
       batch_size: 1
       resumed_checkpoint_path: null
       batch_print_frequency: 200
-
-  RestTasks:
-    # image segmentation
-    - arch: unet_3d
-      dataset: voc_seg
-      pretrained: true
-      batch_size: 1
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    # language processing
-    - arch: t5
-      dataset: multi30k
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    # object detection
-    - arch: tinyyolov2
-      dataset: voc_det
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    # recommendation
-    # - arch: dlrm_v2
-    #   dataset: criteo
-    #   pretrained: true
-    #   resumed_checkpoint_path: null
-    #   batch_print_frequency: 100

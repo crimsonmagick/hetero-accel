@@ -5,12 +5,12 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/workloadA.lut.csv
+        dnn_accuracy_lut_file: data/classifiersB/lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
-        load_state_from: data/workloadA.state.sa.pkl
-        skip_exploration: True
-        load_pruned_mappings_from: data/workloadA.pruned_mappings.pkl
+        load_state_from: data/classifiersB/eyeriss/state.sa.pkl
+        skip_exploration: False
+        load_pruned_mappings_from: data/classifiersB/eyeriss/pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -20,7 +20,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: A
+        workload_idx: ClassifiersB
         workers: 15
         batch_size: 128
         load_serialized: False
