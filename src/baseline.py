@@ -5,6 +5,7 @@ from collections import OrderedDict
 from src.accelerator_cfg import AcceleratorProfile
 from src.scheduler import Scheduler
 from src.optimizer import AcceleratorOptimizer
+from src.args import MetricType
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class BaselineEvaluator(AcceleratorOptimizer):
         self.accuracy_lut = accuracy_lut
         self.num_accelerators = args.baseline_num_accelerators
         self.logdir = args.logdir
+        self.metric = MetricType.EDP
         self.energy_dict = OrderedDict()
         self.latency_dict = OrderedDict()
         self.area_dict = OrderedDict()

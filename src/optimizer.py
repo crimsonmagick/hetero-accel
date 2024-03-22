@@ -319,7 +319,7 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"Evaluation results:\n"
                         f"\tEnergy={self.latest_energy:.3e}\n"
                         f"\tLatency={self.latest_latency:.3e}\n"
-                        f"\EDP={self.latest_energy * self.latest_latency:.3e}\n"
+                        f"\tEDP={self.latest_energy * self.latest_latency:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
         elif initial:
             raise ValueError("Initial metric calculation cannot be invalid")
