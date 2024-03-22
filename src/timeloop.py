@@ -351,7 +351,7 @@ class TimeloopArch:
         self.init_params = deepcopy(self.params)
         self.get_config()
         self._sync_version()
-        self.to_yaml()
+        self.to_yaml(do_components=accelerator_type == AcceleratorType.Simba)
 
     def _sync_version(self):
         """Set the correct timeloop+accelergy version to all files

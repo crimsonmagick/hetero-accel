@@ -1,5 +1,5 @@
 github_balaskas
-
+.vscode/settings.json
 **/__pycache__
 logs/
 **/*.pth*
