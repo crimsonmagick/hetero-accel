@@ -21,9 +21,8 @@ def run_baseline(args, workload, accuracy_lut):
     for accelerator in bl_evaluator.state:
         logger.info(f"\t{accelerator}")
 
-    # get the results of the evaluation
+    # get the results of the evaluation (automatically saved)
     bl_evaluator.evaluate()
-    bl_evaluator.save_state()
 
 
 class BaselineEvaluator(AcceleratorOptimizer):
@@ -90,9 +89,9 @@ class BaselineEvaluator(AcceleratorOptimizer):
             self.state.append(self.accelerator_cfg.state(*values))
 
     def evaluate(self):
-        super().energy()
+        super().energy(save_best=False)
 
-    def save_state(self):
+    def save_state(self, **kwargs):
         """Save the baseline measurements
         """
         savefile = os.path.join(self.logdir, 'baseline.results.pkl')

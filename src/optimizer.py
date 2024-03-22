@@ -300,7 +300,7 @@ class AcceleratorOptimizer(Annealer):
         for state in new_state:
             logger.info(f"\t{state}")
 
-    def energy(self, initial=False):
+    def energy(self, initial=False, save_best=True):
         """Wrapper function for estimating the SA energy metric
         """
         start = time()
@@ -310,9 +310,10 @@ class AcceleratorOptimizer(Annealer):
 
         # save the results
         self.save_state()
-        # save the best state
-        self.save_state(save_state_to=os.path.join(self.logdir, 'best_state.sa.pkl'),
-                        state_to_save=self.best_state)
+        if save_best:
+            # save the best state
+            self.save_state(save_state_to=os.path.join(self.logdir, 'best_state.sa.pkl'),
+                            state_to_save=self.best_state)
 
         if self.latest_schedule is not None:
             logger.info(f"Evaluation results:\n"
