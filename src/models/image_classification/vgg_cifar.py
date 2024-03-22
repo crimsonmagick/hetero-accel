@@ -83,7 +83,7 @@ def _vgg16_cifar(pretrained=False, num_classes=10):
 
 def _vgg19_cifar(pretrained=False, num_classes=10):
     model = VGG('VGG19', num_classes)
-    if pretrained is not None:
+    if pretrained:
         checkpoint = torch.load(pretrained)
         state_dict = checkpoint['net']
         new_state_dict = OrderedDict()
