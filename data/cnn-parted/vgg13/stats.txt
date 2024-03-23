@@ -1,0 +1,9 @@
+nondom 51
+dom 19593
+1 Partition(s): 1
+2 Partition(s): 5
+3 Partition(s): 7
+4 Partition(s): 8
+5 Partition(s): 13
+6 Partition(s): 11
+7 Partition(s): 6

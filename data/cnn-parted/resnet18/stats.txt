@@ -1,0 +1,12 @@
+nondom 165
+dom 54004
+1 Partition(s): 5
+2 Partition(s): 4
+3 Partition(s): 11
+4 Partition(s): 27
+5 Partition(s): 25
+6 Partition(s): 31
+7 Partition(s): 38
+8 Partition(s): 14
+9 Partition(s): 8
+10 Partition(s): 2

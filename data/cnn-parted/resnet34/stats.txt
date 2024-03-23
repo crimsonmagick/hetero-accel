@@ -1,0 +1,26 @@
+nondom 135
+dom 94419
+1 Partition(s): 2
+2 Partition(s): 7
+3 Partition(s): 5
+4 Partition(s): 6
+5 Partition(s): 2
+6 Partition(s): 6
+7 Partition(s): 4
+8 Partition(s): 4
+9 Partition(s): 8
+10 Partition(s): 6
+11 Partition(s): 9
+12 Partition(s): 12
+13 Partition(s): 9
+14 Partition(s): 9
+15 Partition(s): 8
+16 Partition(s): 13
+17 Partition(s): 7
+18 Partition(s): 5
+19 Partition(s): 6
+20 Partition(s): 2
+21 Partition(s): 0
+22 Partition(s): 1
+23 Partition(s): 2
+24 Partition(s): 2
