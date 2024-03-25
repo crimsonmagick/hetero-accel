@@ -5,9 +5,9 @@ app_args:
         name: partition
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/motiv_example/lut.csv
+        dnn_accuracy_lut_file: data/classifiersA/lut.csv
         load_state_from: data/motiv_example/eyeriss/baseline.results.pkl
-        scheduler_type: layerwise
+        scheduler_type: partitionaware
         solver_type: mthggreedy
 
 dnn_op_mode_args:
@@ -18,16 +18,16 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: MotivExample
+        workload_idx: ClassifiersA
         workers: 15
         batch_size: 128
         load_serialized: False
         gpus: 0
         cpu: False
         validation_split: 0.0
-        effective_train_size: 0.5
-        effective_valid_size: 0.5
-        effective_test_size: 0.5
+        effective_train_size: 0.01
+        effective_valid_size: 0.01
+        effective_test_size: 0.01
         model_verbose: False
 
 compression_args:
@@ -74,3 +74,6 @@ baseline_args:
 
 partition_args:
         partition_results_path: data/cnn-parted
+        partition_optim_metric_type: edp
+        partition_optim_iterations: 10
+        partition_selection_probability: 0.8

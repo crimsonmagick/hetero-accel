@@ -165,7 +165,7 @@ def simanneal_args(parser):
                                      'Overrides the other simulated annealing-related arguments')
     simanneal_args.add_argument('--simanneal-state-delta', dest='simanneal_state_delta', type=int, default=0.5,
                                 help='Percentage [0, 1] that the state of the SA will be altered by')
-    simanneal_args.add_argument('--simanneal-optimization-metric', type=metric_type_arg, default='energy',
+    simanneal_args.add_argument('--simanneal-optimization-metric', type=metric_type_arg, default='edp',
                                 help='Select the optimization metric to minimize during simmulated annealing')
     parser.add_argument('--skip-exploration', action='store_true',
                         help='Skip the simmulated annealing entirely')
@@ -224,6 +224,15 @@ def partition_args(parser):
     partition_args = parser.add_argument_group('Partition-related arguments')
     partition_args.add_argument('--partition-results-path', metavar='PATH',
                                 help='Directory where partitioning results from CNN-Parted are located')
+    partition_args.add_argument('--partition-optimization-metric', dest='partition_optim_metric_type',
+                                type=metric_type_arg, default='edp',
+                                help='Select the optimization metric for the partitioning design space')
+    partition_args.add_argument('--partition-optimization-iterations', dest='partition_optim_iterations',
+                                type=int, default=10,
+                                help='Number of iterations for the partition-aware optimization')
+    partition_args.add_argument('--partition-selection-probability', type=float, default=0.6,
+                                help='Probability within [0, 1] that a partitioning instance from previous '
+                                     'iterations will be kept')
     return parser
 
 
@@ -237,6 +246,7 @@ def check_args(args):
     assert 0 <= args.pruning_low <= args.pruning_high <= 1
     assert 2 <= args.quant_low <= args.quant_high <= 8
     assert args.simanneal_state_delta is None or 0 <= args.simanneal_state_delta <= 1
+    assert args.partition_selection_probability is None or 0 <= args.partition_selection_probability <= 1
 
 
 
@@ -312,7 +322,7 @@ def scheduler_type_arg(argstr):
                                  'random': SchedulerType.Random,
                                  'multiknapsack': SchedulerType.MultiKnapsack,
                                  'sota': SchedulerType.SOTA,
-                                 'layerwise': SchedulerType.LayerWise}
+                                 'partitionaware': SchedulerType.PartitionAware}
     try:
         return str_to_scheduler_type_map[argstr.lower()]
     except KeyError:
