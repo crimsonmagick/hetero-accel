@@ -368,15 +368,6 @@ class TimeloopArch:
             with open(component_file, 'w') as f:
                 f.write(yaml.dump(yaml_dict))
 
-    def adjust_params(self, params):
-        """Generic function to override parameter values
-        """
-        for param_name, value in params.items():
-            assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
-            setattr(self.params, param_name, value)
-        # update the configuration with new parameters
-        self.get_config()
-
     def to_yaml(self, filepath=None, do_components=False):
         """Write the configuration of the architecture to a yaml file
         """
@@ -414,24 +405,16 @@ class TimeloopArch:
             f.write(yaml.dump({'architecture': self.config},
                               default_flow_style=use_default_flow_style))
 
-    ### Accelerator-specific functions: Eyeriss ###
-
-    def _adjust_eyeriss(self, accelerator_instance):
-        """Adjust the parameter of the architecture based on the
-           given accelerator instance
+    def adjust_params(self, params):
+        """Generic function to override parameter values
         """
-        # NOTE: VERY important to change the PE array dimensions first,
-        #       such that the memory width can adjust to the new dimensions
-        #       and the change in precision
-        self._adjust_pe_array_eyeriss(accelerator_instance.pe_array_x,
-                                      accelerator_instance.pe_array_y)
-        self._adjust_memories_eyeriss(accelerator_instance.sram_size,
-                                      accelerator_instance.ifmap_spad_size,
-                                      accelerator_instance.weights_spad_size,
-                                      accelerator_instance.psum_spad_size)
-        self.adjust_precision(accelerator_instance.precision)
+        for param_name, value in params.items():
+            assert hasattr(self.params, param_name), f'{param_name} is not a valid parameter'
+            setattr(self.params, param_name, value)
+        # update the configuration with new parameters
+        self.get_config()
 
-    def _adjust_pe_array_eyeriss(self, pe_x, pe_y):
+    def adjust_pe_array(self, pe_x, pe_y):
         """Adjust the dimensions of the PE array
         """
         if self.params.pe_array_x == pe_x and \
@@ -442,21 +425,8 @@ class TimeloopArch:
                   'pe_array_y': pe_y}
         self.adjust_params(params)
 
-    def _adjust_memories_eyeriss(self, sram_size, ifmap_spad_size,
-                                 weights_spad_size, psum_spad_size):
-        """Adjust each specific memory unit of the accelerator
-        """
-        params = {
-            'sram_depth': sram_size,
-            'ifmap_spad_depth': ifmap_spad_size,
-            'weights_spad_depth': weights_spad_size,
-            'psum_spad_depth': psum_spad_size
-        }
-        self.adjust_params(params)
-
-    def _adjust_precision_eyeriss(self, precision, num_clusters=1):
-        """Adjust the data precision of the architecture, including memory and compute units.
-           We only change the parameters of the MAC unit and the scratchpads, not the DRAM or SRAM.
+    def adjust_mem_width(self, buffer_name, word_bits, block_size, num_clusters=1):
+        """Adjust the memory width of a buffer.
 
            For each memory unit/buffer, the two following assertions must be satisfied:
            1) width % (word_bits * block_size) == 0
@@ -474,17 +444,47 @@ class TimeloopArch:
             We modify the memory width, via the number of clusters, to comply with the
             above assertions, whilst keeping the same block size.
         """
-        def adjust_mem_width(buffer_name, word_bits, block_size):
-            width = num_clusters * word_bits * block_size
-            cluster_size = width / (word_bits * block_size)
-            assert self.params.pe_array_x % cluster_size == 0, \
-                f"{buffer_name}: Instances ({self.params.pe_array_x}) are not dividable by cluster_size " \
-                f"({cluster_size} = {width} / ({word_bits} * {block_size}))"
-            return width
-            # round the width to the immediately higher perfect divisor of word_bits
-            # choices = np.arange(prev_width, prev_width + word_bits)
-            # return int(choices[np.where(choices % word_bits == 0)][0])
+        width = num_clusters * word_bits * block_size
+        cluster_size = width / (word_bits * block_size)
+        assert self.params.pe_array_x % cluster_size == 0, \
+            f"{buffer_name}: Instances ({self.params.pe_array_x}) are not dividable by cluster_size " \
+            f"({cluster_size} = {width} / ({word_bits} * {block_size}))"
+        return width
 
+
+    ### Accelerator-specific functions: Eyeriss ###
+
+    def _adjust_eyeriss(self, accelerator_instance):
+        """Adjust the parameter of the architecture based on the
+           given accelerator instance
+        """
+        # NOTE: VERY important to change the PE array dimensions first,
+        #       such that the memory width can adjust to the new dimensions
+        #       and the change in precision
+        self.adjust_pe_array(accelerator_instance.pe_array_x,
+                             accelerator_instance.pe_array_y)
+        self._adjust_memories_eyeriss(accelerator_instance.sram_size,
+                                      accelerator_instance.ifmap_spad_size,
+                                      accelerator_instance.weights_spad_size,
+                                      accelerator_instance.psum_spad_size)
+        self._adjust_precision_eyeriss(accelerator_instance.precision)
+
+    def _adjust_memories_eyeriss(self, sram_size, ifmap_spad_size,
+                                 weights_spad_size, psum_spad_size):
+        """Adjust each specific memory unit of the Eyeriss-like accelerator
+        """
+        params = {
+            'sram_depth': sram_size,
+            'ifmap_spad_depth': ifmap_spad_size,
+            'weights_spad_depth': weights_spad_size,
+            'psum_spad_depth': psum_spad_size
+        }
+        self.adjust_params(params)
+
+    def _adjust_precision_eyeriss(self, precision):
+        """Adjust the data precision of the Eyeriss sarchitecture, including memory and compute units.
+           We only change the parameters of the MAC unit and the scratchpads, not the DRAM or SRAM.
+        """
         if self.params.mac_datawidth == precision:
             return
 
@@ -498,18 +498,22 @@ class TimeloopArch:
             'psum_spad_word_bits': precision,
             'regfile_word_bits': precision,
             # width of scratchpads/dummy register file
-            'ifmap_spad_width': adjust_mem_width('ifmap_spad',
-                                                 precision,
-                                                 self.init_params.ifmap_spad_block_size),
-            'weights_spad_width': adjust_mem_width('weights_spad',
+            'ifmap_spad_width': self.adjust_mem_width('ifmap_spad',
+                                                      precision,
+                                                      self.init_params.ifmap_spad_block_size,
+                                                      getattr(self.params, 'ifmap_spad_cluster_size', 1)),
+            'weights_spad_width': self.adjust_mem_width('weights_spad',
+                                                        precision,
+                                                        self.init_params.weights_spad_block_size,
+                                                        getattr(self.params, 'weights_spad_cluster_size', 1)),
+            'psum_spad_width': self.adjust_mem_width('psum_spad',
+                                                     precision,
+                                                     self.init_params.psum_spad_block_size,
+                                                     getattr(self.params, 'psum_spad_cluster_size', 1)),
+            'regfile_width': self.adjust_mem_width('dummy_regfile',
                                                    precision,
-                                                   self.init_params.weights_spad_block_size),
-            'psum_spad_width': adjust_mem_width('psum_spad',
-                                                precision,
-                                                self.init_params.psum_spad_block_size),
-            'regfile_width': adjust_mem_width('dummy_regfile',
-                                              precision,
-                                              self.init_params.regfile_block_size,)
+                                                   self.init_params.regfile_block_size,
+                                                   getattr(self.params, 'dummy_regfile_cluster_size', 1)),
         }
         self.adjust_params(params)
 
@@ -680,7 +684,7 @@ class TimeloopArch:
         self.config = config
 
     ### Accelerator-specific functions: Simba ###
-    
+
     def _adjust_simba(self, accelerator_instance):
         """Adjust the parameters of the Simba-like architecture based on the
            given accelerator instance
@@ -688,42 +692,33 @@ class TimeloopArch:
         # NOTE: VERY important to change the PE array dimensions first,
         #       such that the memory width can adjust to the new dimensions
         #       and the change in precision
-        self._adjust_pe_array_simba(accelerator_instance.pe_array_x,
-                                    accelerator_instance.pe_array_y)
-        self._adjust_memories_simba(accelerator_instance.input_buffer_size,
+        self.adjust_pe_array(accelerator_instance.pe_array_x,
+                             accelerator_instance.pe_array_y)
+        self._adjust_memories_simba(accelerator_instance.sram_size,
+                                    accelerator_instance.input_buffer_size,
                                     accelerator_instance.weight_buffer_size,
                                     accelerator_instance.accum_buffer_size)
-        self.adjust_precision(accelerator_instance.precision)
+        self._adjust_precision_simba(accelerator_instance.precision)
 
-    def _adjust_pe_array_simba(self, pe_x, pe_y):
-        """Adjust the dimensions of the PE array
-        """
-        if self.params.pe_array_x == pe_x and \
-           self.params.pe_array_y == pe_y:
-            return
-
-        params = {'pe_array_x': pe_x,
-                  'pe_array_y': pe_y}
-        self.adjust_params(params)
-
-    def _adjust_memories_simba(self, input_buffer_size, weight_buffer_size, accum_buffer_size):
-        """Adjust the size of the Simba-related memory buffers
+    def _adjust_memories_simba(self, sram_size, input_buffer_size, weight_buffer_size, accum_buffer_size):
+        """Adjust the size of the Simba-related memory units
         """
         params = {
+            'sram_depth': sram_size,
             'input_buffer_depth': input_buffer_size,
             'weight_buffer_depth': weight_buffer_size,
-            'accum_buffer_depth': accum_buffer_size
+            'accum_buffer_depth': accum_buffer_size,
         }
+        # NOTE: We also adjust the cluster-size of the weight register to be
+        #       perfectly dividable by the meshX paremeter
+        if self.params.weight_reg_cluster_size % (self.params.pe_array_x * self.params.pe_array_y) != 0:
+            params['weight_reg_cluster_size'] = self.params.pe_array_x * self.params.pe_array_y
+
         self.adjust_params(params)
-    
+
     def _adjust_precision_simba(self, precision):
         """Adjust the precision of a Simba-like architecture
         """
-        def _adjust_mem_width(word_bits, block_size, num_clusters=1):
-            # see `_adjust_precision_eyeriss()`
-            width = num_clusters * word_bits * block_size
-            return width
-
         if precision == self.params.mac_precision:
             return
 
@@ -737,14 +732,19 @@ class TimeloopArch:
             'accum_buffer_precision': precision,
             'weight_reg_word_bits': precision,
             # adjust the width of the memories
-            'dram_width': _adjust_mem_width(precision,
-                                            self.params.dram_block_size),
-            'sram_width': _adjust_mem_width(precision,
-                                            self.params.sram_block_size),
-            'input_buffer_width': _adjust_mem_width(precision,
-                                                    self.params.input_buffer_block_size),
-            # 'weight_buffer_width': _adjust_mem_width(precision,
-            #                                          self.params.weight_buffer_block_size),
+            'dram_width': self.adjust_mem_width('dram',
+                                                precision,
+                                                self.params.dram_block_size,
+                                                getattr(self.params, 'dram_cluster_size', 1)),
+            'sram_width': self.adjust_mem_width('sram',
+                                                precision,
+                                                self.params.sram_block_size,
+                                                getattr(self.params, 'sram_cluster_size', 1)),
+            'input_buffer_width': self.adjust_mem_width('input_buffer',
+                                                        precision,
+                                                        self.params.input_buffer_block_size,
+                                                        getattr(self.params, 'input_buffer_cluster_size')),
+            # Weight and accumulatio buffers do not have a 'width' parameter
             # 'weight_reg_sth': # TODO: not sure what to do here
         }
         self.adjust_params(params)
@@ -958,13 +958,15 @@ class TimeloopMapper:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+
     accel_type = AcceleratorType.Simba
-    DO_EXPLORATION = True
+    DO_EXPLORATION = False
     
     tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
 
-    prob_name = 'resnet18__layer0_conv1'
-    # prob_name = 'vgg11__layer0_features.0'
+    # prob_name = 'resnet18__layer0_conv1'
+    prob_name = 'vgg13__layer0_features.0'
     prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
     # have the file already in the test_tl/yamls/ directory
     shutil.copyfile(project_dir + f'/test_tl/{prob_name}.yaml', prob_fp)
@@ -984,15 +986,17 @@ if __name__ == "__main__":
                                 weights_spad_size=accel_cfg.weights_spad_size,
                                 psum_spad_size=accel_cfg.psum_spad_size)
     elif accel_type == AcceleratorType.Simba:
-        accel = accel_cfg.state(pe_array_x=accel_cfg.pe_array_y,
-                                pe_array_y=accel_cfg.pe_array_x,
+        accel = accel_cfg.state(pe_array_x=7,
+                                pe_array_y=7,
                                 precision=accel_cfg.precision_weights,
                                 sram_size=accel_cfg.sram_size,
                                 input_buffer_size=accel_cfg.input_buffer_size,
                                 weight_buffer_size=accel_cfg.weight_buffer_size,
                                 accum_buffer_size=accel_cfg.accum_buffer_size)
 
+    logger.info(f'Accelerator:{accel}')
     tw.adjust_architecture(accel, adjust_components=True)
+    tw.cleanup()
     p = tw.run(prob_name)
     results = tw.get_results()
     print(results._asdict())

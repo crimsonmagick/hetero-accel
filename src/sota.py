@@ -92,7 +92,7 @@ class SOTAEvaluator(AcceleratorOptimizer):
         """Load the evaluation results of the baseline accelerator
         """
         assert load_from is not None and os.path.exists(load_from), \
-            "SOTA evaluations require the use of evaluation results of the baseline accelerator"
+            f"SOTA evaluations require the use of evaluation results of the baseline accelerator ({load_from})"
         with open(load_from, 'rb') as f:
             bl_state_dict = pickle.load(f)
         copy(load_from, self.logdir)
