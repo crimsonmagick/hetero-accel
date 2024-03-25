@@ -743,7 +743,7 @@ class TimeloopArch:
             'input_buffer_width': self.adjust_mem_width('input_buffer',
                                                         precision,
                                                         self.params.input_buffer_block_size,
-                                                        getattr(self.params, 'input_buffer_cluster_size')),
+                                                        getattr(self.params, 'input_buffer_cluster_size', 1)),
             # Weight and accumulatio buffers do not have a 'width' parameter
             # 'weight_reg_sth': # TODO: not sure what to do here
         }
