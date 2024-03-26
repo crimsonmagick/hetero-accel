@@ -10,9 +10,8 @@ from collections import namedtuple, OrderedDict
 from types import SimpleNamespace
 from glob import glob
 from src.accelerator_cfg import AcceleratorProfile
-from src.scheduler import Scheduler
+from src.scheduler import Scheduler, SchedulerType
 from src.baseline import BaselineEvaluator
-from src.optimizer import AcceleratorOptimizer as OurEvaluator
 from src.args import MetricType
 
 
@@ -24,27 +23,21 @@ def run_partition_comparison(args, workload, accuracy_lut):
       for multi-DNN workloads with ours
    """
    accel_cfg = AcceleratorProfile(args.accelerator_arch_type)
-   accelerator = BaselineEvaluator(args, accel_cfg, workload, accuracy_lut).state
 
-   logger.info("Accelerator for comparisons:")
-   for sub_accelerator in accelerator:
-      logger.info(f"\t{sub_accelerator}")
+   # evaluate our scheduling with a set architecture
+   args.sceduler_type = SchedulerType.Ours
+   ours = BaselineEvaluator(args, accel_cfg, workload, accuracy_lut)
+   ours.evaluate()
 
    # a hypothetical partition-aware scheduling technique
    theirs = PartitionEvaluator(args, args.baseline_num_accelerators, workload)
    theirs.run_optimization()
 
-   # our technique
-   ours = OurEvaluator(args=args,
-                       num_accelerators=len(accelerator),
-                       accelerator_cfg=accel_cfg,
-                       workload=workload,
-                       accuracy_lut=accuracy_lut,
-                       hw_constraints=SimpleNamespace(deadline=args.deadline_constraint,
-                                                      area=args.area_constraint)
-                       )
-   ours.set_state(accelerator)
-   ours.energy()
+   logger.info(f"Ours: evaluation results:\n"
+            f"\tEnergy={ours.latest_energy:.3e}\n"
+            f"\tLatency={ours.latest_latency:.3e}\n"
+            f"\tEDP={ours.latest_energy * ours.latest_latency:.3e}\n"
+            f"\tArea={ours.latest_area:.3e}")
 
 
 PartitionMetrics = namedtuple('PartitionMetrics', ['partition_latency', 'partition_link_latency',
@@ -71,8 +64,7 @@ class PartitionEvaluator:
       self.num_accelerators = num_accelerators
 
       # initialize scheduler
-      self.scheduler = Scheduler(args.scheduler_type)
-      self.solver_type = args.solver_type
+      self.scheduler = Scheduler(SchedulerType.PartitionAware)
       
       # preapare partitioning data for scheduling
       self.load_partition_results(args.partition_results_path,
@@ -227,17 +219,21 @@ class PartitionEvaluator:
       # log the results of the final scheduling
       logger.info("*--------------*")
       schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in self.best_schedule.entries])
-      logger.info(f"Scheduler results:\n\t{schedule_str}")
+      logger.debug(f"Final scheduling:\n\t{schedule_str}")
       logger.info(f"Evaluation results:\n"
                   f"\tEnergy={self.best_energy:.3e}\n"
                   f"\tLatency={self.best_latency:.3e}\n"
                   f"\tEDP={self.best_energy * self.best_latency:.3e}\n")
-      logger.info("*--------------*")
+      logger.info("*--------------*\n")
 
    def _optimize_search(self):
       """Search-based optimization algorithm to find optimal schedules for partitioned DNNs
       """
-      for iteration in range(self.num_iterations):
+      for iteration in range(1, self.num_iterations + 1):
+         logger.info("*--------------*")
+         logger.info(f"Iteration {iteration}/{self.num_iterations}")
+         start = time()
+
          self.sample_partitions()
          self.evaluate_partitions()
 
@@ -256,10 +252,13 @@ class PartitionEvaluator:
             self.best_energy, self.best_latency, self.best_edp = self.latest_energy, self.latest_latency, self.latest_edp
 
             # save and log the results
-            logger.info("\033[92m" + f"New {self.optimization_metric.name.lower()} improvement " \
-                        f"on iteration {iteration}: {best_metric:.3e} -> {latest_metric:.3e}" + "\033[0m")
+            if best_metric is not None:
+               logger.info("\033[92m" + f"New {self.optimization_metric.name.lower()} improvement " \
+                           f"on iteration {iteration}: {best_metric:.3e} < {latest_metric:.3e}" + "\033[0m")
          else:
-            logger.info(f"No improvement on iteration {iteration}: {best_metric:.3e} -> {latest_metric:.3e}")
+            logger.info(f"No improvement on iteration {iteration}: {best_metric:.3e} > {latest_metric:.3e}")
+
+         logger.info(f'Completed iteration {iteration} in {time() - start:.3e}s')
 
    def sample_partitions(self):
       """Semi-random sampling of one partitioning instance from each network
@@ -271,23 +270,46 @@ class PartitionEvaluator:
          else:
             self.latest_partition[arch] = self.best_partition[arch]
 
+      logstr = '\n\t'.join([f'{arch}: {partition_instance}' for arch, partition_instance in self.latest_partition.items()])
+      logger.debug(f"New sampled partitions:\n\t{logstr}")
+
    def evaluate_partitions(self):
       """Run scheduling on the selected partition to gather evaluation metrics
       """
       bins = list(range(1, self.num_accelerators + 1))
       partitions = list(self.latest_partition.values())
+
+      start = time()
       self.latest_schedule = self.scheduler.run(partitions, bins)
+      logger.debug(f"Completed schedule in {time() - start:.3e}s")
+
       if self.latest_schedule is None:
-         logger.info(f'Could not find valid schedule')
+         logger.warning(f'Could not find valid schedule')
          self.latest_energy = self.latest_latency = self.latest_edp = None
          return
 
+      # make sure no errors in sub-partition assignment have occured
+      assert all(
+         all(
+            entries[i].end <= entries[i+1].start
+            for i in range(len(entries)-1)
+         ) 
+         for bin, entries in self.latest_schedule.as_dict('bin').items()
+      )
+
+      # gather metrics from the schedule
       self.latest_energy = sum([
-         instance.metrics.overall_energy + instance.metrics.overall_link_latency
-         for instance in self.latest_partition
+         instance.metrics.overall_energy + instance.metrics.overall_link_energy
+         for instance in self.latest_partition.values()
       ])
-      self.latest_latency
-      self.latest_edp = self.latest_energy * self.latest_edp
+      self.latest_latency = max([
+         entries[-1].end
+         for bin, entries in self.latest_schedule.as_dict(main_key='bin').items()
+      ])
+      # latency (energy) is given in ms (mJ) instead of ns (uJ)
+      self.latest_latency *= 1e3
+      self.latest_energy *= 1e6
+      self.latest_edp = self.latest_energy * self.latest_latency
 
 
 if __name__ == "__main__":

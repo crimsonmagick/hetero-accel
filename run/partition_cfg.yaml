@@ -6,8 +6,7 @@ app_args:
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: data/classifiersA/lut.csv
-        load_state_from: data/classifiersA/eyeriss/baseline.results.pkl
-        scheduler_type: partitionaware
+        load_state_from: data/classifiersA/eyeriss/state.sa.pkl
         solver_type: mthggreedy
 
 dnn_op_mode_args:
@@ -40,7 +39,7 @@ compression_args:
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 2
+        top1_constraint: 5
         top5_constraint: null
         loss_constraint: null
         mIOU_constraint: 2
@@ -58,15 +57,15 @@ accel_args:
 
 baseline_args:
         baseline_num_accelerators: 4
-        baseline_homogeneous: True
-        baseline_pe_array_x: null
-        baseline_pe_array_y: null
-        baseline_precision: 16
-        baseline_sram_size: null
+        baseline_homogeneous: False
+        baseline_pe_array_x: [16, 25, 16, 25]
+        baseline_pe_array_y: [10, 12, 25, 8]
+        baseline_precision: [5, 6, 7, 8]
+        baseline_sram_size: [108000, 108000, 108000, 108000]
         # Eyeriss-specific
-        baseline_ifmap_spad_size: null
-        baseline_weights_spad_size: null
-        baseline_psum_spad_size: null
+        baseline_ifmap_spad_size: [32, 64, 24, 64]
+        baseline_weights_spad_size: [512, 256, 320, 384]
+        baseline_psum_spad_size: [80, 32, 32, 48]
         # Simba-specific
         baseline_input_buffer_size: null
         baseline_weight_buffer_size: null

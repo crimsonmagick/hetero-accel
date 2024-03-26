@@ -454,6 +454,8 @@ class AcceleratorOptimizer(Annealer):
             ]) for bin, entries in schedule.as_dict(main_key='bin').items()
         ])
 
+        # TODO: Would EDP be the product of the two above?
+
         # log the results of the scheduling
         schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
         logger.info(f"Scheduler results:\n\t{schedule_str}")

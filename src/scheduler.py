@@ -43,11 +43,14 @@ class Schedule:
         self.entries = []
         self.assigned = {}
 
-    def add(self, item, to_bin, duration):
+    def add(self, item, to_bin, duration, start=None):
         """Add entry to the schedule
         """
         assert item not in self.assigned, f"Item {item} is already assigned to bin {self.assigned[item]}"
-        start = self.end_timestamp[to_bin]
+        if start is None:
+            start = self.end_timestamp[to_bin]
+        start = max(start, self.end_timestamp[to_bin])
+
         end = start + duration
         self.end_timestamp[to_bin] = end
         self.entries.append(ScheduleEntry(start, end, bin=to_bin, tag=item))
@@ -343,42 +346,57 @@ class Scheduler:
     def _run_partition_aware(self, partitions, bins):
         """Greedy scheduling algorithm for partitioned tasks
         """
+        schedule = Schedule(bins)
+        
+        # prioritize partitions based on their overall latency (execution + transfer)
         sorted_partitions = sorted(partitions,
                                    key=lambda entry: entry.metrics.overall_latency + entry.metrics.overall_link_latency)
+
+        # bookkeeping dictionaries
         track_bin_execution = {bin: 0.0 for bin in bins}
         subpartition_to_be_executed = {partition.tag: 0 for partition in partitions}
-        schedule = Schedule(bins)
+        track_partition_execution = {partition.tag: 0.0 for partition in partitions}
 
         # execute until all partitions are fully assigned to bins
-        while not all(subpartition_to_be_executed[partition.tag] == len(partition.assignemnt) - 1 for partition in partitions):
+        while not all(subpartition_to_be_executed[partition.tag] == len(partition.assignment) for partition in partitions):
             assigned = False
 
             # order bins by their execution time up to this point
             ordered_bins = sorted(bins, key=lambda bin: track_bin_execution[bin])
             for selected_bin in ordered_bins:
+                if assigned: continue
+
                 # assign the first sub-partition available, in order of partition priority
                 for partition in sorted_partitions:
+                    if assigned: continue
+
                     subpartition_index = subpartition_to_be_executed[partition.tag]
                     # check if that sub-partition was selected for the specific bin
-                    if partition.assignment[subpartition_index] == selected_bin:
+                    if subpartition_index < len(partition.assignment) and \
+                        partition.assignment[subpartition_index] == selected_bin:
 
                         # duration is the sum of the transfer latency from the previous subpartition-bin assignment
                         #  and the execution time/latency for the selected one
-                        duration = partition.partition_latency[subpartition_index]
+                        duration = partition.metrics.partition_latency[subpartition_index]
                         if subpartition_index != 0:
-                            duration += partition.partition_link_latency[subpartition_index - 1]
+                            duration += partition.metrics.partition_link_latency[subpartition_index - 1]
 
                         # schedule subpartition
                         schedule.add(item=partition.tag + f'_{subpartition_index}',
                                      to_bin=selected_bin,
-                                     duration=duration)
-                        
+                                     duration=duration,
+                                     # make sure that the subpartition would be executed 
+                                     # not before the previous one from the same partition
+                                     # has finished
+                                     start=track_partition_execution[partition.tag])
+
                         # update the bin execution time and partition execution index
                         track_bin_execution[selected_bin] += duration
+                        track_partition_execution[partition.tag] += duration
                         subpartition_to_be_executed[partition.tag] += 1
                         assigned = True
 
-            # this is an exhaustive type 
+            # this is an exhaustive type of search, so at least one assignment has to be found
             assert assigned
 
         return schedule
