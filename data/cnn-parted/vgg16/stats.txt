@@ -1,0 +1,10 @@
+nondom 75                                                                                
+dom 34745                                                                               
+1 Partition(s): 3
+2 Partition(s): 10
+3 Partition(s): 10
+4 Partition(s): 7
+5 Partition(s): 8
+6 Partition(s): 15
+7 Partition(s): 16
+8 Partition(s): 6

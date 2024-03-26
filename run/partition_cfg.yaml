@@ -6,7 +6,7 @@ app_args:
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: data/classifiersA/lut.csv
-        load_state_from: data/motiv_example/eyeriss/baseline.results.pkl
+        load_state_from: data/classifiersA/eyeriss/baseline.results.pkl
         scheduler_type: partitionaware
         solver_type: mthggreedy
 

@@ -340,161 +340,49 @@ class Scheduler:
 
         return schedule
 
-    def _run_partition_aware(self,):
+    def _run_partition_aware(self, partitions, bins):
+        """Greedy scheduling algorithm for partitioned tasks
         """
-        """
-        raise NotImplementedError
+        sorted_partitions = sorted(partitions,
+                                   key=lambda entry: entry.metrics.overall_latency + entry.metrics.overall_link_latency)
+        track_bin_execution = {bin: 0.0 for bin in bins}
+        subpartition_to_be_executed = {partition.tag: 0 for partition in partitions}
+        schedule = Schedule(bins)
+
+        # execute until all partitions are fully assigned to bins
+        while not all(subpartition_to_be_executed[partition.tag] == len(partition.assignemnt) - 1 for partition in partitions):
+            assigned = False
+
+            # order bins by their execution time up to this point
+            ordered_bins = sorted(bins, key=lambda bin: track_bin_execution[bin])
+            for selected_bin in ordered_bins:
+                # assign the first sub-partition available, in order of partition priority
+                for partition in sorted_partitions:
+                    subpartition_index = subpartition_to_be_executed[partition.tag]
+                    # check if that sub-partition was selected for the specific bin
+                    if partition.assignment[subpartition_index] == selected_bin:
+
+                        # duration is the sum of the transfer latency from the previous subpartition-bin assignment
+                        #  and the execution time/latency for the selected one
+                        duration = partition.partition_latency[subpartition_index]
+                        if subpartition_index != 0:
+                            duration += partition.partition_link_latency[subpartition_index - 1]
+
+                        # schedule subpartition
+                        schedule.add(item=partition.tag + f'_{subpartition_index}',
+                                     to_bin=selected_bin,
+                                     duration=duration)
+                        
+                        # update the bin execution time and partition execution index
+                        track_bin_execution[selected_bin] += duration
+                        subpartition_to_be_executed[partition.tag] += 1
+                        assigned = True
+
+            # this is an exhaustive type 
+            assert assigned
+
+        return schedule
 
 
 if __name__ == "__main__":
-    def write_input_file(infile):
-        """Create the input file for the solver
-        """
-        with open(infile, 'w') as f:
-            # write the number of bins (agents) and items (tasks)
-            f.write(f'{len(bins)} {len(items)}\n')
-
-            # write the cost or value/profit
-            for bin in bins:
-                costs = []
-                for item in items:
-                    # in the case of an invalid mapping, the cost/value does not matter
-                    if weight_dict[(item, bin)] < 0:
-                        costs.append(0)
-                    # in the case of value/profit
-                    elif use_value:
-                        costs.append(
-                            max([value for key, value in cost_dict.items() if item in key]) - cost_dict[(item, bin)]   
-                        )
-                    # in the case of cost
-                    else:
-                        costs.append(
-                            cost_dict[(item, bin)]
-                        )
-                # TODO: Check if casting to int here is a problem. Floats do not work for this solver
-                f.write(' '.join([str(int(cost)) for cost in costs]) + '\n')
-
-            # write the weights
-            for bin_idx, bin in enumerate(bins):
-                # negative weights are marked as invalid mappings, and are assigned higher than the
-                # maximum capacity of the bin, to make that mapping impossible
-                weights = [weight_dict[(item, bin)] if weight_dict[(item, bin)] > 0 else capacities[bin_idx] + 1
-                            for item in items]
-                f.write(' '.join([str(int(weight)) for weight in weights]) + '\n')
-
-            # write the maximum weight (capacity) of each bin (agent)
-            f.write(' '.join([str(int(capacity)) for capacity in capacities]))
-
-    def execute_schedule():
-        solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
-        write_input_file(f'{solver_dir}/gas.inp')
-        solver_args = solver_args_dict.get(SolverType.MTHGGreedy)
-        command = f"cd {solver_dir} && " \
-                    f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
-                    f"-a {solver_args} " \
-                    f"-i gas.inp -o gas.out -c gas.solution " \
-                    f"2>&1 | tee gas.log"
-        # print("Command:", command)
-
-        # run command
-        start = time()
-        p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-        # print(f"Executed solver command in {time() - start:.3e} with exitcode: {p.returncode}")
-
-        # check if all items are assigned in the solution
-        assert re.search('Number of items.*[(](\d+)%', p.stdout)
-        if re.search('Number of items.*[(](\d+)%', p.stdout).group(1) != '100':
-            print("Invalid assignment")
-            return
-
-        # get assignment via the stdout of the command
-        schedule = Schedule(bins)
-        assigns = re.search('Item\s+Agent\n.*?\n(.*)', p.stdout, re.DOTALL).group(1)
-        assigns = [re.sub('\s+', ' ', assign.strip()).split(' ') for assign in assigns.split('\n')[:-1]]
-        # complete the item-to-bin assignment and define the schedule
-        for item_idx, bin_idx in assigns:
-            item = items[int(item_idx)]
-            bin = bins[int(bin_idx)]
-            print(f"{item} ({cost_dict[(item, bin)]}, {weight_dict[(item, bin)]}) -> {bin}")
-            schedule.add(item, bin, weight_dict[(item, bin)])
-
-        # print(schedule.as_dict())
-        # schedule.visualize('schedule.png')
-        return schedule
-
-    def get_results(schedule): 
-        energy = sum([
-            cost_dict[(entry.tag, entry.bin)] for entry in schedule.entries
-        ])
-        latency = max([
-            sum([
-                weight_dict[(entry.tag, entry.bin)] for entry in entries
-            ]) for bin, entries in schedule.as_dict(main_key='bin').items()
-        ])
-        return energy, latency
-
-
-    ########################
-    import random
-    random.seed(123)
-    LOAD_STATE = True
-    use_value = False
-
-    if LOAD_STATE:
-        import pickle
-        with open('state.sa.pkl', 'rb') as f:
-            state_dict = pickle.load(f)
-
-        cost_dict = state_dict['energy']
-        weight_dict = state_dict['latency']
-        initial_state = state_dict['state']
-        items = list({key[0] for key in weight_dict.keys()})
-        bins = list({key[1] for key in weight_dict.keys()})
-        capacities = [sum([weight_dict[(item, bin)] for item in items]) for bin in bins]
-
-        print()
-        schedule = execute_schedule()
-        energy, latency = get_results(schedule)
-        print("Energy:", energy)
-        print("Latency:", latency)
-
-    else:
-        items = ['apple', 'banana', 'orange', 'nectarine', 'strawberry', 'mango']
-        bins = ['BIN1', 'BIN2', 'BIN3']
-        capacities = [100, 100, 100]
-        
-        cost_dict = {}
-        weight_dict = {}
-
-        for item_idx, item in enumerate(items):
-            for bin_idx, bin in enumerate(bins):
-                cost_dict[(item, bin)] = random.randint(1, 10)
-                weight_dict[(item, bin)] = random.randint(1, 10)
-
-        from copy import deepcopy
-        og_cdict = deepcopy(cost_dict)
-        og_wdict = deepcopy(weight_dict)
-
-        prob = 0.0
-        while prob < 1.1:
-            print()
-            print("Probability:", prob)
-            cost_dict = deepcopy(og_cdict)
-            weight_dict = deepcopy(og_wdict)
-
-            for item_idx, item in enumerate(items):
-                for bin_idx, bin in enumerate(bins):
-                    if random.random() > prob:
-                        cost_dict[(item, bin)] = 0#10*max([value for key, value in cost_dict.items()
-                                                #   if item in key])
-                        weight_dict[(item, bin)] = capacities[bin_idx] + 1
-            print("Weight dict:", weight_dict)
-            print("Value dict:", cost_dict)
-            prob += 0.1
-
-            schedule = execute_schedule()
-            if schedule is None:
-                continue
-            energy, latency = get_results(schedule)
-            print("Energy:", energy)
-            print("Latency:", latency)
+    pass

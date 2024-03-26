@@ -1,0 +1,33 @@
+nondom 328
+dom 96044
+1 Partition(s): 1
+2 Partition(s): 0
+3 Partition(s): 6
+4 Partition(s): 0
+5 Partition(s): 8
+6 Partition(s): 4
+7 Partition(s): 9
+8 Partition(s): 2
+9 Partition(s): 8
+10 Partition(s): 2
+11 Partition(s): 3
+12 Partition(s): 3
+13 Partition(s): 6
+14 Partition(s): 1
+15 Partition(s): 6
+16 Partition(s): 13
+17 Partition(s): 11
+18 Partition(s): 36
+19 Partition(s): 26
+20 Partition(s): 36
+21 Partition(s): 39
+22 Partition(s): 21
+23 Partition(s): 24
+24 Partition(s): 15
+25 Partition(s): 13
+26 Partition(s): 13
+27 Partition(s): 11
+28 Partition(s): 5
+29 Partition(s): 3
+30 Partition(s): 0
+31 Partition(s): 3

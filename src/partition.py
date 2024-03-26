@@ -2,6 +2,7 @@ import logging
 import os.path
 import pickle
 import random
+import re
 import pandas as pd
 from time import time
 from shutil import copy
@@ -30,7 +31,7 @@ def run_partition_comparison(args, workload, accuracy_lut):
       logger.info(f"\t{sub_accelerator}")
 
    # a hypothetical partition-aware scheduling technique
-   theirs = PartitionEvaluator(args, args.baseline_num_accelerators)
+   theirs = PartitionEvaluator(args, args.baseline_num_accelerators, workload)
    theirs.run_optimization()
 
    # our technique
@@ -46,16 +47,17 @@ def run_partition_comparison(args, workload, accuracy_lut):
    ours.energy()
 
 
-PartitionMetrics = namedtuple('PartitionMetrics', ['overall_latency', 'overall_energy',
+PartitionMetrics = namedtuple('PartitionMetrics', ['partition_latency', 'partition_link_latency',
+                                                   'overall_latency', 'overall_energy',
                                                    'maximum_throughput', 'overall_link_latency', 'overall_link_energy'])
 
-ParitionInstance = namedtuple('ParitionInstance', ['index', 'points', 'accelerators', 'metrics'])
+PartitionInstance = namedtuple('PartitionInstance', ['tag', 'num_partitions', 'partition_points', 'assignment', 'metrics'])
 
 
 class PartitionEvaluator:
    """Implementation of a parititioning-aware scheduling optimizer 
    """
-   def __init__(self, args, num_accelerators):
+   def __init__(self, args, num_accelerators, workload):
       self.logdir = args.logdir
       self.best_energy = self.best_edp = self.best_latency = None
       self.latest_energy = self.latest_edp = self.latest_latency = None
@@ -73,14 +75,15 @@ class PartitionEvaluator:
       self.solver_type = args.solver_type
       
       # preapare partitioning data for scheduling
-      self.load_partition_results(args.partition_results_path)
+      self.load_partition_results(args.partition_results_path,
+                                  list(workload.dnns.keys()))
 
       # determine type of optimization
       # TODO: This method is based on sample/evaluate iterations. Find a more sophisticated
       # TODO:  technique that takes into account all partitionings (not only sampled ones)
       self.optimize = self._optimize_search
 
-   def load_partition_results(self, path):
+   def load_partition_results(self, path, networks):
       """Load the partitioning results
       """
       def isnumber(entry):
@@ -98,8 +101,17 @@ class PartitionEvaluator:
             elif len(consecutives) != 0:
                consecutives.append(number)
                return consecutives
+            
+      def keep_uniques(seq):
+         seen = set()
+         seen_add = seen.add
+         return [x for x in seq if not (x in seen or seen_add(x))]
 
-      files = glob(f'{path}/*/*result_nondom.csv')
+      # import and load the csv files
+      files = [file for file in glob(f'{path}/*/*result_nondom.csv')
+               if re.search(f'/(\w+)_result_nondom[.]csv', file).group(1) in networks]
+      logger.debug(f"Found {len(files)} csv files: ({' | '.join(files)})")
+
       dfs = OrderedDict([
          (os.path.basename(file).replace('_result_nondom.csv', ''),
           pd.read_csv(file, header=None, index_col=0))
@@ -110,32 +122,81 @@ class PartitionEvaluator:
 
       self.partitions = OrderedDict()
       for arch, df in dfs.items():
+         logger.debug(f'Parsing partition data for {arch}')
 
-         # separate column indices in initial, partition points, assignment to accelerators and eval. metrics
+         # separate column indices in sections, not counting the index
+         # first, the 2nd column shows the number of unique partition points
+         num_unique_partition_points_column = 2
+         # columns with numbers (i.e., not layer names)
          numeric_columns = [column for column in df.columns
                             if all(isnumber(entry) for entry in df.loc[:, column])]
-         initial_columns = first_consecutive_numbers(numeric_columns)
-         assert all(column in numeric_columns for column in initial_columns) and \
-                max(initial_columns) + 1 not in numeric_columns
+         # columns with the names of partition points (i.e., layers)
          partition_point_columns = first_consecutive_numbers([column for column in df.columns
-                                                              if column not in numeric_columns])                
-         metric_columns = numeric_columns[-len(PartitionMetrics._fields):]
-         partition_assignment_columns = [column for column in numeric_columns
-                                         if column not in initial_columns and column not in metric_columns]
+                                                              if column not in numeric_columns])
+         total_num_partitions = len(partition_point_columns)
+         # columns with the latency of each partition
+         start_part_latency = num_unique_partition_points_column
+         end_part_latency = start_part_latency + 1 + total_num_partitions
+         partition_latency_columns = list(df.columns[start_part_latency:end_part_latency])
+         # columns with the latency of the link between partitions
+         start_part_link_latency = end_part_latency
+         end_part_link_latency = start_part_link_latency + total_num_partitions
+         partition_link_latency_columns = list(df.columns[start_part_link_latency:end_part_link_latency])
+         # columns with the assignment of partitions to accelerators
+         start_assignment = partition_point_columns[-1]
+         end_assignment = start_assignment + total_num_partitions + 1
+         partition_assignment_columns = list(df.columns[start_assignment:end_assignment])
+         # columns with overall metrics
+         overall_metric_columns = list(df.columns[end_assignment:-1])
+         assert partition_latency_columns + partition_link_latency_columns + partition_point_columns + \
+                partition_assignment_columns + overall_metric_columns == list(df.columns[num_unique_partition_points_column:-1]), arch
+         assert len(partition_assignment_columns) == len(partition_latency_columns) == \
+                len(partition_link_latency_columns) + 1 == len(partition_point_columns) + 1, arch
 
          # gather information about each group of partitions (one group per network)
-         self.partitions[arch] = [
-            ParitionInstance(
-               index=row_index,
-               points=[row.loc[column] for column in partition_point_columns],
-               accelerators=[row.loc[column] for column in partition_assignment_columns],
+         self.partitions[arch] = []
+         for row_index, row in df.iterrows():
+
+            this_num_partition_points = row.loc[num_unique_partition_points_column]
+            if this_num_partition_points == 1:
+               continue
+
+            # TODO: The following code aims to keep only the non-identical partitions (signified by non-zero latency)
+            #       However, the non-zero link latencies do not match the number of non-zero execution latencies
+            #       Abandoning for now, but should fix this
+            # assignments, partition_latency = zip(*[(row.loc[assignment], row.loc[latency]) for assignment, latency
+            #                                        in zip(partition_assignment_columns, partition_latency_columns)
+            #                                        if row.loc[latency] != 0])
+            # assert len(assignments) == len(partition_latency), f"{arch} {row_index}"
+            # partition_points, partition_link_latency = zip(*[
+            #    (row.loc[partition_point], row.loc[link_latency])
+            #    for partition_point, link_latency in zip(partition_point_columns, partition_link_latency_columns)
+            #    if row.loc[link_latency] != 0
+            # ])
+            # assert len(partition_points) == len(partition_link_latency), f"{arch} {row_index}"
+
+            assignments = [row.loc[column] for column in partition_assignment_columns]
+            partition_points = [row.loc[column] for column in partition_point_columns]
+            partition_latency = [row.loc[column] for column in partition_latency_columns]
+            partition_link_latency = [row.loc[column] for column in partition_link_latency_columns]
+
+            # overall schedule metrics
+            overall_metrics = {metric: row.loc[column] for metric, column in 
+                                zip(PartitionMetrics._fields[-len(overall_metric_columns):], overall_metric_columns)}
+
+            # save each schedule as a namedtuple
+            partition_instance = PartitionInstance(
+               tag=f'{arch}_{row_index}',
+               num_partitions=this_num_partition_points + 1,
+               partition_points=partition_points,
+               assignment=assignments,
                metrics=PartitionMetrics(
-                  **{metric: row.loc[column] 
-                     for metric, column in zip(PartitionMetrics._fields, metric_columns)}
-                  )
+                  partition_latency=partition_latency,
+                  partition_link_latency=partition_link_latency,
+                  **overall_metrics)
             )
-            for row_index, row in df.iterrows()
-         ]
+            self.partitions[arch].append(partition_instance)
+            logger.debug(f'\t{row_index}: {partition_instance}')
 
    def save_results(self):
       """Save the most recent results
@@ -178,8 +239,7 @@ class PartitionEvaluator:
       """
       for iteration in range(self.num_iterations):
          self.sample_partitions()
-         self.prepare_mappings_from_partitions()
-         self.evaluate_mappings()
+         self.evaluate_partitions()
 
          # select optimization metric         
          latest_metric, best_metric = {
@@ -211,32 +271,23 @@ class PartitionEvaluator:
          else:
             self.latest_partition[arch] = self.best_partition[arch]
 
-   def prepare_mappings_from_partitions(self):
-      """Gather possible partition-to-accelerator mappings
+   def evaluate_partitions(self):
+      """Run scheduling on the selected partition to gather evaluation metrics
       """
-      if self.latest_partition is None:
-         self.sample_partitions()
+      bins = list(range(1, self.num_accelerators + 1))
+      partitions = list(self.latest_partition.values())
+      self.latest_schedule = self.scheduler.run(partitions, bins)
+      if self.latest_schedule is None:
+         logger.info(f'Could not find valid schedule')
+         self.latest_energy = self.latest_latency = self.latest_edp = None
+         return
 
-      execution = OrderedDict()
-      transfer = OrderedDict()
-
-      # TODO: How to prepare this?
-
-      for arch, partition in self.latest_partition.items():
-         execution[arch] = OrderedDict()
-         transfer[arch] = OrderedDict()
-
-   def evaluate_mappings(self):
-      """
-      """
-      self.scheduler.run()
-      self.latest_partition
-      self.latest_schedule
-      self.latest_energy
+      self.latest_energy = sum([
+         instance.metrics.overall_energy + instance.metrics.overall_link_latency
+         for instance in self.latest_partition
+      ])
       self.latest_latency
       self.latest_edp = self.latest_energy * self.latest_edp
-      raise NotImplementedError
-
 
 
 if __name__ == "__main__":
