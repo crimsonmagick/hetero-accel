@@ -1,30 +1,20 @@
-nondom 170
-dom 116530
+nondom 128
+dom 96917
 1 Partition(s): 0
-2 Partition(s): 0
-3 Partition(s): 1
-4 Partition(s): 0
-5 Partition(s): 5
-6 Partition(s): 1
-7 Partition(s): 5
-8 Partition(s): 4
-9 Partition(s): 7
-10 Partition(s): 2
-11 Partition(s): 5
-12 Partition(s): 14
-13 Partition(s): 8
-14 Partition(s): 8
+2 Partition(s): 1
+3 Partition(s): 2
+4 Partition(s): 12
+5 Partition(s): 3
+6 Partition(s): 18
+7 Partition(s): 4
+8 Partition(s): 8
+9 Partition(s): 3
+10 Partition(s): 29
+11 Partition(s): 2
+12 Partition(s): 19
+13 Partition(s): 4
+14 Partition(s): 12
 15 Partition(s): 2
-16 Partition(s): 10
-17 Partition(s): 8
-18 Partition(s): 9
-19 Partition(s): 13
-20 Partition(s): 15
-21 Partition(s): 12
-22 Partition(s): 10
-23 Partition(s): 12
-24 Partition(s): 6
-25 Partition(s): 7
-26 Partition(s): 2
-27 Partition(s): 2
-28 Partition(s): 2
+16 Partition(s): 7
+17 Partition(s): 1
+18 Partition(s): 1

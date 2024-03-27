@@ -74,5 +74,5 @@ baseline_args:
 partition_args:
         partition_results_path: data/cnn-parted
         partition_optim_metric_type: edp
-        partition_optim_iterations: 10
+        partition_optim_iterations: 100
         partition_selection_probability: 0.8

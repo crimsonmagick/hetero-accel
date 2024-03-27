@@ -1,7 +1,7 @@
-nondom 39
-dom 17393
+nondom 15
+dom 3264
 1 Partition(s): 1
-2 Partition(s): 8
-3 Partition(s): 12
-4 Partition(s): 12
-5 Partition(s): 6
+2 Partition(s): 4
+3 Partition(s): 5
+4 Partition(s): 4
+5 Partition(s): 1

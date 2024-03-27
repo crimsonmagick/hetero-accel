@@ -348,9 +348,10 @@ class Scheduler:
         """
         schedule = Schedule(bins)
         
-        # prioritize partitions based on their overall latency (execution + transfer)
+        # prioritize partitions based on their overall EDP (execution + transfer)
         sorted_partitions = sorted(partitions,
-                                   key=lambda entry: entry.metrics.overall_latency + entry.metrics.overall_link_latency)
+                                   key=lambda entry: (entry.metrics.overall_latency + entry.metrics.overall_link_latency) *
+                                                     (entry.metrics.overall_energy + entry.metrics.overall_link_energy))
 
         # bookkeeping dictionaries
         track_bin_execution = {bin: 0.0 for bin in bins}
