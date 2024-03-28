@@ -1,0 +1,7 @@
+WorkloadID,AcceleratorType,Method,Energy,Area,Latency,EDP
+ClassifiersA,Eyeriss,Ours,4.64E+04,4.81E+01,1.57E+07,7.30E+11
+ClassifiersA,Eyeriss,Baseline,5.58E+06,5.17E+01,5.64E+09,3.14E+16
+ClassifiersA,Eyeriss,SOTA,4.30E+06,5.60E+01,1.12E+09,4.81E+15
+ClassifiersB,Eyeriss,Ours,3.39E+06,4.18E+01,1.07E+09,3.62E+15
+ClassifiersB,Eyeriss,Baseline,5.98E+06,3.88E+01,6.42E+09,3.84E+16
+ClassifiersB,Eyeriss,SOTA,4.55E+06,4.21E+01,1.17E+09,5.33E+15

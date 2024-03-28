@@ -1,0 +1,7 @@
+WorkloadID,AcceleratorType,Method,Energy,Area,Latency,EDP
+ClassifiersB,Simba,Ours,1.49E+07,1.41E+02,9.79E+08,1.46E+16
+ClassifiersB,Simba,Baseline,1.54E+07,7.01E+01,2.54E+09,3.91E+16
+ClassifiersB,Simba,SOTA,1.52E+07,1.13E+02,1.25E+09,1.90E+16
+ClassifiersA,Simba,Ours,1.67E+05,1.58E+02,2.29E+06,3.83E+11
+ClassifiersA,Simba,Baseline,1.55E+07,9.35E+01,2.42E+09,3.75E+16
+ClassifiersA,Simba,SOTA,3.44E+06,1.26E+02,9.82E+08,3.38E+15

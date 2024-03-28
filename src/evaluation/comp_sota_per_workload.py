@@ -81,7 +81,7 @@ def cfg_each_subplot(axes, group_names, heights,
 
 def main():
     parser = argparse.ArgumentParser('Comparative evaluation with state of the art')
-    parser.add_argument('--results-file', '--resfile', default=os.path.join(project_dir, 'src', 'evaluation', 'sota.csv'),
+    parser.add_argument('--results-file', '--resfile', default=os.path.join(project_dir, 'results', 'data', 'sota.csv'),
                         help='File where results are stored')
     parser.add_argument('--single-workload', type=int, choices=[1, 2, 3],
                         help='Choose a single workload to produce a single sub-figure')
@@ -115,7 +115,7 @@ def main():
     supported_accelerators = ['Eyeriss', 'Simba']
     evaluated_methods = ['Ours', 'Baseline', 'SOTA']
     evaluated_metrics = ['Energy', 'Area', 'Latency', 'EDP']
-    workloads = [1, 2, 3]
+    workloads = ['ClassifiersA', 'ClassifiersB']
     if args.single_workload is not None:
         workloads = [args.single_workload]
     csv_columns = ['WorkloadID', 'AcceleratorType', 'Method', 'Energy', 'Area', 'Latency', 'EDP']
@@ -174,8 +174,8 @@ def main():
                          hatches=hatches,)
 
         # subfigure title
-        title_text = rf'\textbf{{({letter}) W{workload}}}' if letter != '' else \
-                     rf'\textbf{{W{workload}}}'
+        title_text = rf'\textbf{{({letter}) {workload}}}' if letter != '' else \
+                     rf'\textbf{{{workload}}}'
         ax.set_title(title_text, fontdict={'fontsize': str(font_size)})
 
     # legend

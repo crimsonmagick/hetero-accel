@@ -7,7 +7,7 @@ SHELL ["/bin/bash", "--login", "-c"]
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && \
-	apt install -y git openssh-client wget curl pip vim htop tmux scons libboost-all-dev build-essential g++-9 \
+	apt install -y git openssh-client wget curl pip vim htop tmux figlet toiletscons libboost-all-dev build-essential g++-9 \
 			   scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev
 
 # use this instead of cloning the repo (private right now)
@@ -53,9 +53,9 @@ RUN python3 -m pip install --upgrade pip && \
 
 # install timeloop-accelergy
 RUN apt install -y scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev 
-RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
-	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
-WORKDIR accelergy-timeloop-infrastructure
+# RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
+# 	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
+WORKDIR /workspace/hetero-accel/accelergy-timeloop-infrastructure
 RUN git submodule sync && \
 	git submodule update --init && \
 	sed -i '/git submodule/ c\' Makefile && \
@@ -83,5 +83,5 @@ RUN accelergy && \
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
-RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
+RUN echo 'toilet ARTEMIS -f big -F metal' >> /root/.bashrc
 SHELL ["/bin/bash", "--login", "-c"]

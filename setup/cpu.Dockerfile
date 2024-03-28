@@ -8,7 +8,7 @@ SHELL ["/bin/bash", "-c"]
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-	apt-get install -y git openssh-client wget vim htop tmux libboost-all-dev build-essential
+	apt-get install -y git openssh-client wget vim tmux figlet toilet libboost-all-dev build-essential
 
 RUN mkdir -p /workspace /workspace/chkpts
 RUN mkdir -p /root/.ssh/ && \
@@ -54,7 +54,7 @@ RUN python3 -m pip install --upgrade pip && \
 RUN apt install -y scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev 
 # RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
 # 	git clone --recurse-submodules https://github.com/Accelergy-Project/accelergy-timeloop-infrastructure.git
-WORKDIR accelergy-timeloop-infrastructure
+WORKDIR /workspace/hetero-accel/accelergy-timeloop-infrastructure
 RUN git submodule sync && \
 	git submodule update --init && \
 	sed -i '/git submodule/ c\' Makefile && \
@@ -82,7 +82,7 @@ RUN accelergy && \
 ENV PATH $PATH:/opt/conda/evns/haccel/bin
 
 WORKDIR /workspace/hetero-accel
-RUN ln -s accelergy-timeloop-infrastructure/timeloop-accelergy-exercises/workspace/exercises/2020.ispass/timeloop+accelergy/ eyeriss.timeloop
+RUN echo 'toilet ARTEMIS -f big -F metal' >> /root/.bashrc
 SHELL ["/bin/bash", "--login", "-c"]
 
 # ENTRYPOINT ["/bin/bash", "-i"]
