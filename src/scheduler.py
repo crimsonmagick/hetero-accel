@@ -350,6 +350,7 @@ class Scheduler:
         
         # prioritize partitions based on their overall EDP (execution + transfer)
         sorted_partitions = sorted(partitions,
+                                   reverse=True,
                                    key=lambda entry: (entry.metrics.overall_latency + entry.metrics.overall_link_latency) *
                                                      (entry.metrics.overall_energy + entry.metrics.overall_link_energy))
 

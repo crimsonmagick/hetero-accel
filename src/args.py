@@ -233,6 +233,8 @@ def partition_args(parser):
     partition_args.add_argument('--partition-selection-probability', type=float, default=0.6,
                                 help='Probability within [0, 1] that a partitioning instance from previous '
                                      'iterations will be kept')
+    partition_args.add_argument('--partition-use-constrained', action='store_true',
+                                help='Set to use constrained partitions, based on the accuracy constraints')
     return parser
 
 
