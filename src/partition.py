@@ -31,7 +31,7 @@ def run_partition_comparison(args, workload, accuracy_lut):
    ours.evaluate()
 
    # preprocessing for partition aware scheduling
-   # first, the number of valid mappings per NN, such that the accuracy constraint is satisfied
+   # number of valid mappings per NN, such that the accuracy constraint is satisfied
    accelerators_per_network = {arch: len(
                                  accuracy_lut.loc[
                                     (accuracy_lut['Network'] == arch) & 
@@ -40,12 +40,14 @@ def run_partition_comparison(args, workload, accuracy_lut):
                                     (accuracy_lut['Valid'] == 1),
                                  'QuantBits'].unique()
                               ) for arch in workload.dnns.keys()}
-   # all mapping evaluations, for evaluating non-partitioned NNs
-   mappings = SimpleNamespace(energy=deepcopy(ours.energy_dict),
-                              latency=deepcopy(ours.latency_dict),
-                              edp={key: ours.energy_dict[key] * ours.latency_dict[key]
-                                   for key in ours.energy_dict},
-                              area=deepcopy(ours.area_dict))
+   mappings = None
+   if args.partition_use_constrained:
+      # all mapping evaluations, for evaluating non-partitioned NNs
+      mappings = SimpleNamespace(energy=deepcopy(ours.energy_dict),
+                                 latency=deepcopy(ours.latency_dict),
+                                 edp={key: ours.energy_dict[key] * ours.latency_dict[key]
+                                    for key in ours.energy_dict},
+                                 area=deepcopy(ours.area_dict))
 
    # initializing and running partition-aware scheduling technique
    theirs = PartitionEvaluator(args, ours.state, accelerators_per_network, mappings)
@@ -69,13 +71,14 @@ PartitionInstance = namedtuple('PartitionInstance', ['tag', 'num_partitions', 'p
 class PartitionEvaluator:
    """Implementation of a parititioning-aware scheduling optimizer 
    """
-   def __init__(self, args, accelerators, accelerators_per_network, mappings):
+   def __init__(self, args, accelerators, accelerators_per_network, mappings=None):
       self.logdir = args.logdir
       self.best_energy = self.best_edp = self.best_latency = None
       self.latest_energy = self.latest_edp = self.latest_latency = None
       self.best_schedule = self.latest_schedule = None
       self.best_partition = self.latest_partition = None
       self.latest_execution = self.latest_transfer = None
+      self.constrained = mappings is not None
 
       self.optimization_metric = args.partition_optim_metric_type
       self.num_iterations = args.partition_optim_iterations
@@ -88,7 +91,8 @@ class PartitionEvaluator:
       # preapare partitioning data for scheduling
       unpartitioned_networks = self.load_partition_results(args.partition_results_path,
                                                            accelerators_per_network)
-      self.load_unpartitioned_networks(unpartitioned_networks, accelerators, mappings)
+      if self.constrained:
+         self.load_unpartitioned_networks(unpartitioned_networks, accelerators, mappings)
 
       # determine type of optimization
       # TODO: This method is based on sample/evaluate iterations. Find a more sophisticated
@@ -130,10 +134,12 @@ class PartitionEvaluator:
       missing_networks = [network for network in networks
                           if not any(network in file for file in files)]
       logger.debug(f'Missing networks: {missing_networks}')
-      # NNs that cannot sustain partitioning, due to accuracy constraints
-      single_accelerator_networks = [arch for arch, num_accelerators in accelerator_per_networks.items()
-                                     if num_accelerators == 1]
-      logger.debug(f'Non-partitioned networks: {single_accelerator_networks}')
+      single_accelerator_networks = []
+      if self.constrained:
+         # NNs that cannot sustain partitioning, due to accuracy constraints
+         single_accelerator_networks = [arch for arch, num_accelerators in accelerator_per_networks.items()
+                                       if num_accelerators == 1]
+         logger.debug(f'Non-partitioned networks: {single_accelerator_networks}')
 
       dfs = OrderedDict([
          (os.path.basename(file).replace('_result_nondom.csv', ''),
@@ -212,8 +218,9 @@ class PartitionEvaluator:
             # special handling for assignments: shift the numbers such that the highest indexed accelerator
             # always participates (it is the one with highest precision)
             assignments = [row.loc[column] for column in partition_assignment_columns]
-            shift_by = self.num_accelerators - accelerator_per_networks[arch]
-            assignments = [assignment + shift_by for assignment in assignments]
+            if (min(assignments), max(assignments)) != (1, self.num_accelerators):
+               shift_by = self.num_accelerators - accelerator_per_networks[arch]
+               assignments = [assignment + shift_by for assignment in assignments]
 
             # save each schedule as a namedtuple
             partition_instance = PartitionInstance(
@@ -233,10 +240,13 @@ class PartitionEvaluator:
 
       return list(set(missing_networks + single_accelerator_networks)) 
 
-   def load_unpartitioned_networks(self, networks, accelerators, mappings):
+   def load_unpartitioned_networks(self, networks, accelerators, mappings=None):
       """Construct dummy partition-like instance for unpartitioned networks,
          based on already evaluated mappings
       """
+      if mappings is None or networks is None or len(networks) == 0:
+         return
+
       sorted_accelerators = sorted(accelerators, key=lambda accelerator: accelerator.precision)
       for arch in networks:
          energy = [mappings.energy[(arch, accelerator)] for accelerator in sorted_accelerators]
