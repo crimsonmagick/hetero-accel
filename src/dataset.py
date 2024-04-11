@@ -322,9 +322,13 @@ def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
         weights = seg.FCN_ResNet50_Weights.DEFAULT
     elif arch == 'fcn_resnet101':
         weights = seg.FCN_ResNet101_Weights.DEFAULT
-    elif arch == 'deeplabv3':
+    elif arch == 'deeplabv3_mobilenet_v3_large':
         weights = seg.DeepLabV3_MobileNet_V3_Large_Weights.DEFAULT
-    elif arch == 'lraspp':
+    elif arch == 'deeplabv3_resnet50':
+        weights = seg.DeepLabV3_ResNet50_Weights.DEFAULT
+    elif arch == 'deeplabv3_resnet101':
+        weights = seg.DeepLabV3_ResNet101_Weights.DEFAULT
+    elif arch == 'lraspp_mobilenet_v3_large':
         weights = seg.LRASPP_MobileNet_V3_Large_Weights.DEFAULT
     transforms_both = transforms.ToTensor() if weights is None else get_voc_seg_transform(weights)
 
@@ -385,9 +389,21 @@ def get_coco_dataset(data_dir, arch, load_train=True, load_test=True):
     weights = None
     if arch == 'ssd300_vgg16':
         weights = det.SSD300_VGG16_Weights.DEFAULT
-    elif arch == 'retinanet_resnet50':
+    elif arch == 'ssdlite320_mobilenet_v3_large':
+        weights = det.SSDLite320_MobileNet_V3_Large_Weights.DEFAULT
+    elif arch == 'retinanet_resnet50_fpn':
         weights = det.RetinaNet_ResNet50_FPN_Weights.DEFAULT
-    elif arch == 'fasterrcnn_resnet50':
+    elif arch == 'retinanet_resnet50_fpn_v2':
+        weights = det.RetinaNet_ResNet50_FPN_V2_Weights.DEFAULT
+    elif arch == 'fcos_resnet50_fpn':
+        weights = det.FCOS_ResNet50_FPN_Weights.DEFAULT
+    elif arch == 'fasterrcnn_mobilenet_v3_large_320_fpn':
+        weights = det.FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT
+    elif arch == 'fasterrcnn_mobilenet_v3_large_fpn':
+        weights = det.FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT
+    elif arch == 'fasterrcnn_resnet50_fpn_v2':
+        weights = det.FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT
+    elif arch == 'fasterrcnn_resnet50_fpn':
         weights = det.FasterRCNN_ResNet50_FPN_Weights.DEFAULT
     transforms_both = transforms.ToTensor() if weights is None else get_coco_transform(weights)
 
