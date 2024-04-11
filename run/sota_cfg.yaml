@@ -8,7 +8,7 @@ app_args:
         dnn_accuracy_lut_file: data/classifiersB/lut.csv
         scheduler_type: sota
         solver_type: mthggreedyregret
-        load_state_from: data/classifiersB/eyeriss/sota.results.pkl
+        load_state_from: data/classifiersB/simba/sota.results.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -52,9 +52,9 @@ compression_args:
         sparsity_constraint: null
 
 accel_args:
-        accelerator_arch_type: eyeriss
+        accelerator_arch_type: simba
         deadline_constraint: null
         area_constraint: 0.1
 
 sota_args:
-        sota_load_baseline_results: data/classifiersB/eyeriss/baseline.single.results.pkl
+        sota_load_baseline_results: data/classifiersB/simba/baseline.single.results.pkl

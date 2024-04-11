@@ -5,12 +5,12 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/classifiersB/lut.csv
+        dnn_accuracy_lut_file: null
         scheduler_type: ours
         solver_type: mthggreedyregret
-        load_state_from: data/classifiersB/eyeriss/state.sa.pkl
+        load_state_from: null
         skip_exploration: False
-        load_pruned_mappings_from: data/classifiersB/eyeriss/pruned_mappings.pkl
+        load_pruned_mappings_from: null
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -20,7 +20,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: ClassifiersB
+        workload_idx: Test
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -55,12 +55,12 @@ compression_args:
         sparsity_constraint: null
 
 accel_args:
-        accelerator_arch_type: eyeriss
+        accelerator_arch_type: simba
         deadline_constraint: null
         area_constraint: 0.1
 
 simanneal_args:
-        simannel_state_delta: 0.2
+        simannel_state_delta: 0.4
         simanneal_Tmax: 25000.0
         simanneal_Ttmin: 2.5
         simanneal_steps: 100
