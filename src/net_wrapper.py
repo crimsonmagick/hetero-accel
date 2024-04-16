@@ -50,16 +50,15 @@ class TorchNetworkWrapper:
                 self.accuracy_meter = COCOMeter(coco_gt, iou_type="bbox")
             else:
                 self.accuracy_meter = ObjectDetectionMeter()
+        elif self.model.task == DNNType.MachineTranslation:
+            self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
+            self.accuracy_meter = TranslationMeter()
 
         # TODO: Fill the criterion/meter for the rest of the tasks
         elif self.model.task == DNNType.TextClassification:
             raise NotImplementedError
             self.criterion = ''
             self.accuracy_meter = TextClassificationMeter()
-        elif self.model.task == DNNType.MachineTranslation:
-            raise NotImplementedError
-            self.criterion = ''
-            self.accuracy_meter = TranslationMeter()
         elif self.model.task == DNNType.VideoProcessing:
             raise NotImplementedError
             self.criterion = ''

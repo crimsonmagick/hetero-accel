@@ -3,14 +3,13 @@ import torch
 import logging
 import numpy as np
 from types import SimpleNamespace
-from glob import glob
 from copy import deepcopy
 from src import project_dir
 from src.net_wrapper import TorchNetworkWrapper
-from src.utils import weight_init, load_checkpoint, compute_model_statistics
+from src.utils import compute_model_statistics
 from src.accelerator_cfg import AcceleratorProfile
 from src.compression.pruning import Pruner
-from src.compression.quantization import Quantizer
+from src.compression.quantization_bak import Quantizer
 from src.timeloop import TimeloopWrapper
 
 

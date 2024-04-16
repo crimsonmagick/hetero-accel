@@ -120,7 +120,7 @@ class COCOMeter(Meter):
         self.coco_eval[self.iou_type] = COCOeval(self.coco_gt, iouType=self.iou_type)
 
         self.img_ids = []
-        self.eval_imgs = {self.iou_type: []}
+        self.eval_imgs = []
 
     def add(self, output, target):
         outputs = [{k: v.to("cpu") for k, v in t.items()} for t in output]
@@ -138,10 +138,13 @@ class COCOMeter(Meter):
         coco_eval.params.imgIds = list(img_ids)
         img_ids, eval_imgs = self.evaluate(coco_eval)
 
-        self.eval_imgs[self.iou_type].append(eval_imgs)
+        self.eval_imgs.append(eval_imgs)
 
     def value(self, metric=None):
         assert metric in self.metrics + ['all'], f'Metric {metric} is not supported'
+        
+        eval_images = np.concatenate(self.eval_imgs, 2)
+        self.gather_eval(self.coco_eval[self.iou_type], self.img_ids, eval_images)
         
         self.accumulate()
         self.summarize()
@@ -198,3 +201,48 @@ class COCOMeter(Meter):
     def summarize(self):
         with redirect_stdout(io.StringIO()):
             self.coco_eval[self.iou_type].summarize()
+
+    def gather_eval(self, coco_eval, img_ids, eval_imgs):
+        eval_imgs = list(eval_imgs.flatten())
+        coco_eval.evalImgs = eval_imgs
+        coco_eval.params.imgIds = img_ids
+        coco_eval._paramsEval = copy.deepcopy(coco_eval.params)
+
+
+class TranslationMeter(Meter):
+    """Accuracy meter for machine translation
+       metrics: BLEU score
+    """
+    def __init__(self):
+        self.metrics = ['BLEU']
+        self.reset()
+        
+    def reset(self):
+        self.outputs = []
+        self.targets = []
+        self.num = 0
+    
+    def add(self, output, target):
+        data, model, german, english, device
+
+        targets = []
+        outputs = []
+
+        for example in data:
+            src = vars(example)["src"]
+            trg = vars(example)["trg"]
+
+            prediction = translate_sentence(model, src, german, english, device)
+            prediction = prediction[:-1]  # remove <eos> token
+
+            targets.append([trg])
+            outputs.append(prediction)
+    
+    
+    def value(self, metric=None):
+        self.bleu_score = self.bleu_score(self.outputs, self.targets)
+
+        if metric == 'BLEU':
+            return self.bleu_score     
+        elif metric == 'all':
+            return self.bleu_score,

@@ -8,6 +8,7 @@ from torchvision.models import segmentation as seg
 from torchvision.models import detection as det
 from torchvision.models import Wide_ResNet101_2_Weights, SqueezeNet1_0_Weights, GoogLeNet_Weights
 import torchvision.datasets as datasets
+import torchtext
 from functools import partial
 from src.dataset_utils import VOCDetTransform, get_voc_seg_transform, get_coco_transform
 
@@ -85,11 +86,11 @@ def get_data_loaders(dataset_fn, data_dir, arch, batch_size, workers, validation
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=batch_size,
-        # sampler=test_sampler,
+        sampler=test_sampler,
         num_workers=workers,
         #   worker_init_fn=worker_init_fn,
         pin_memory=True,
-        # drop_last=True
+        drop_last=True
     )
     if test_only:
         return None, None, test_loader
@@ -453,13 +454,13 @@ def get_multi30k_dataset(data_dir, arch, load_train=True, load_test=True, batch_
 
     train_datapipe = test_datapipe = None
     if load_train:
-        train_datapipe = torchtext.datasets.Multi30k(split="train", language_pair=language_pair)
+        train_datapipe = torchtext.datasets.Multi30k(root=data_dir, split="train", language_pair=language_pair)
         train_datapipe = train_datapipe.map(partial(apply_prefix, task))
         train_datapipe = train_datapipe.batch(batch_size)
         train_datapipe = train_datapipe.rows2columnar(["english", "german"])
 
     if load_test:
-        test_datapipe = torchtext.datasets.Multi30k(split="test", language_pair=language_pair)
+        test_datapipe = torchtext.datasets.Multi30k(root=data_dir, split="test", language_pair=language_pair)
         test_datapipe = test_datapipe.map(partial(apply_prefix, task))
         test_datapipe = test_datapipe.batch(batch_size)
         test_datapipe = test_datapipe.rows2columnar(["english", "german"])
@@ -508,25 +509,46 @@ def get_kinetics_dataset(data_dir, arch, load_train=True, load_test=True, batch_
 
 
 if __name__ == "__main__":
-    from src import project_dir, dataset_dirs
+    from src import dataset_dirs
     from src.models import create_model
     import torchtext
     from functools import partial
-    from src.utils import SegmentationMeter, ObjectDetectionMeter, TextClassificationMeter, TranslationMeter, VideoProcessingMeter
-    from src.dataset_utils import YoloLoss
+    from src.utils import load_checkpoint
 
 
-
-    model_name = 'fcn_resnet101'
-    dataset = 'voc_seg'
+    model_name = 'ssd300_vgg16'
+    dataset = 'coco'
 
     model = create_model(model_name, dataset)
     train, valid, test = load_data(
         dataset, dataset_dirs[dataset], model_name,
         batch_size=1, workers=4, validation_split=0,
         train_size=0.1, valid_size=0.1, test_size=0.1,
-        test_only=False, verbose= True
+        test_only=True, verbose= True
     )
+    model, _ = load_checkpoint(
+        model,
+        './ssd300_vgg16_q7b.pth',
+        model_device='cpu',
+    )
+    
     data, target = next(iter(test))
     out = model(data)
+    
+    # from torchtext.datasets import Multi30k
+    # from torch.utils.data import DataLoader
+
+    # def apply_prefix(task, x):
+    #     return f"{task}: " + x[0], x[1]
+
+    # multi_batch_size = 5
+    # language_pair = ("en", "de")
+    # multi_datapipe = Multi30k(split="test", language_pair=language_pair)
+    # task = "translate English to German"
+
+    # multi_datapipe = multi_datapipe.map(partial(apply_prefix, task))
+    # multi_datapipe = multi_datapipe.batch(multi_batch_size)
+    # multi_datapipe = multi_datapipe.rows2columnar(["english", "german"])
+    # multi_dataloader = DataLoader(multi_datapipe, batch_size=None)
+    # batch = next(iter(multi_dataloader))
     exit()

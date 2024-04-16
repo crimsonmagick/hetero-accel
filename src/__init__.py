@@ -16,6 +16,7 @@ dataset_dirs = {
         'voc_det': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
         'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocseg'),
         'coco': os.path.join(os.path.dirname(project_dir), 'data', 'mscoco'),
+        'multi30k': os.path.join(os.path.dirname(project_dir), 'data', 'multi30k'),
         }
 
 cifar10_pretrained_paths = {
