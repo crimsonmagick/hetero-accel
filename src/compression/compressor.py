@@ -9,7 +9,7 @@ from src.net_wrapper import TorchNetworkWrapper
 from src.utils import compute_model_statistics
 from src.accelerator_cfg import AcceleratorProfile
 from src.compression.pruning import Pruner
-from src.compression.quantization_bak import Quantizer
+from src.compression.quantization import Quantizer
 from src.timeloop import TimeloopWrapper
 
 
