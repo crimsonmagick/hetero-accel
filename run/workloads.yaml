@@ -4,8 +4,8 @@
 
 workloads:
   Test:
-    - arch: fcn_resnet50
-      dataset: voc_seg
+    - arch: tinyyolov2
+      dataset: coco
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 5
@@ -178,24 +178,9 @@ workloads:
       resumed_checkpoint_path: null
       batch_print_frequency: 100
 
-  ClassifiersC:
-    - arch: vgg11
+  Mixed:
+    - arch: resnet34
       dataset: cifar10
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    - arch: resnet18
-      dataset: cifar10
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    - arch: efficientnet
-      dataset: cifar10
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
-    - arch: mobilenetv2
-      dataset: cifar100
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
@@ -204,8 +189,27 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-    - arch: squeezenet1_0
-      dataset: imagenet
+    - arch: deeplabv3_resnet50
+      dataset: voc_seg
       pretrained: true
+      batch_size: 1
       resumed_checkpoint_path: null
       batch_print_frequency: 100
+    - arch: fcn_resnet101
+      dataset: voc_seg
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: fasterrcnn_resnet50_fpn
+      dataset: coco
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200
+    - arch: fasterrcnn_mobilenet_v3_large_320_fpn
+      dataset: coco
+      pretrained: true
+      batch_size: 1
+      resumed_checkpoint_path: null
+      batch_print_frequency: 200

@@ -5,7 +5,7 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: null
+        dnn_accuracy_lut_file: data/mixed/lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
         load_state_from: null
@@ -20,7 +20,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Test
+        workload_idx: Mixed
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -43,11 +43,11 @@ compression_args:
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 2
+        top1_constraint: 5
         top5_constraint: null
         loss_constraint: null
-        mIOU_constraint: 2
-        AvgPixelAcc_constraint: null
+        mIOU_constraint: null
+        AvgPixelAcc_constraint: 5
         mAP[IOU=0.5]_constraint: 5
         mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
@@ -55,9 +55,9 @@ compression_args:
         sparsity_constraint: null
 
 accel_args:
-        accelerator_arch_type: simba
+        accelerator_arch_type: eyeriss
         deadline_constraint: null
-        area_constraint: 0.1
+        area_constraint: 0.25
 
 simanneal_args:
         simannel_state_delta: 0.4
