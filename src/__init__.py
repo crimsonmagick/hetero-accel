@@ -15,7 +15,7 @@ dataset_dirs = {
         'imagenet': os.path.join(os.path.dirname(project_dir), 'data', 'Imagenet'),
         'voc_det': os.path.join(os.path.dirname(project_dir), 'data', 'vocdet'),
         'voc_seg': os.path.join(os.path.dirname(project_dir), 'data', 'vocseg'),
-        'coco': os.path.join(os.path.dirname(project_dir), 'data', 'mscoco'),
+        'coco': os.path.join(os.path.dirname(project_dir), 'localdata', 'mscoco'),
         'multi30k': os.path.join(os.path.dirname(project_dir), 'data', 'multi30k'),
         }
 

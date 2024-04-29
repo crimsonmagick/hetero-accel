@@ -355,16 +355,18 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         return dnn_accuracy_lut.loc[
                 (dnn_accuracy_lut['Network'] == arch) &
                 (dnn_accuracy_lut['QuantBits'] == precision)
-               ]
+            ]
 
-    def is_valid(arch, accuracy_metric, accuracy_value):
-        if isinstance(accuracy_value, pd.Series):
-            accuracy_value = accuracy_value.iloc[0]
-
-        og_metric = lut_entry(arch, 32)['Accuracy'].iloc[0]
-        accuracy_metric = accuracy_metric.lower()
-        assert getattr(args, accuracy_metric + '_constraint', None) is not None
-        return accuracy_value >= og_metric - getattr(args, accuracy_metric + '_constraint')
+    def is_valid(arch, accuracy_stats):
+        og_entry = lut_entry(arch, 32)
+        og_stats = tuple(og_entry[metric].iloc[0]
+                         for metric in dnn_accuracy_lut.columns
+                         if 'accuracy' in metric.lower())
+        return all(
+                getattr(args, f'{metric}_constraint', None) is None or
+                accuracy_stats[idx] >= og_stats[idx] - getattr(args, f'{metric}_constraint')
+                for idx, metric in enumerate(compressor.accuracy_metrics)
+            )
 
     # load measurements
     skip_mapping = False
@@ -412,15 +414,20 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 pruned_mappings.edp[(arch, accelerator)] = -1
                 continue
 
-            accuracy_metric = compressor.accuracy_metrics[0]
+            # # the accuracy metric is the first on returned from the accuracy meter
+            # # that has a valid given constraint
+            # accuracy_metric = next(metric for metric in compressor.accuracy_metrics
+            #                        if getattr(args, metric + '_constraint', None) is not None)
 
             # check compliance with accuracy threshold, in case of mismatches from previous run
-            if accuracy_satisfied and not is_valid(arch, accuracy_metric, entry['Accuracy']):
+            accuracy_stats = tuple(entry[column].iloc[0]
+                                   for column in entry.columns
+                                   if 'accuracy' in column.lower())
+            if accuracy_satisfied and not is_valid(arch, accuracy_stats):
                 logger.warning(f"A solution was accepted but surpasses the given constraint")
 
             # increamentally prune the DNN until an accuracy violation
             prune_ratio = 0.0
-            accuracy = entry['Accuracy']
             while accuracy_satisfied:
                 prune_ratio += 0.05
 
@@ -429,9 +436,9 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 compressor.prune_and_quantize(prune_ratio, accelerator.precision)
 
                 # evaluate for accuracy and network statistics
-                accuracy, *_ = compressor.validate() if args.use_validation_set else compressor.test()
+                accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
                 # check constraint again
-                accuracy_satisfied = is_valid(arch, accuracy_metric, accuracy)
+                accuracy_satisfied = is_valid(arch, accuracy_stats)
 
             # continue from lastly pruned model that satisfied the accuracy constraint
             prune_ratio = max(0.0, prune_ratio - 0.05)
