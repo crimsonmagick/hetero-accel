@@ -6,7 +6,7 @@ app_args:
         deterministic: True
         global_seed: 0
         dnn_accuracy_lut_file: data/classifiersA/lut.csv
-        load_state_from: data/classifiersA/eyeriss/state.sa.pkl
+        load_state_from: data/classifiersA/eyeriss/best_state.sa.pkl
         solver_type: mthggreedy
 
 dnn_op_mode_args:
@@ -76,4 +76,4 @@ partition_args:
         partition_optim_metric_type: edp
         partition_optim_iterations: 100
         partition_selection_probability: 0.8
-        partition_use_constrained: True
+        partition_use_constrained: False

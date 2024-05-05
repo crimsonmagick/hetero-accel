@@ -7,7 +7,7 @@ jupyter lab \
 	--port 8888 \
 	--allow-root \
 	--notebook-dir $haccel_dir \
-	--preferred-dir $haccel_dir/src
+	--preferred-dir $haccel_dir
 #jupyter lab \
 #	--ip 0.0.0.0 \
 #	--port 8888 \

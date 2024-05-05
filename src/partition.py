@@ -53,6 +53,7 @@ def run_partition_comparison(args, workload, accuracy_lut):
    theirs = PartitionEvaluator(args, ours.state, accelerators_per_network, mappings)
    theirs.run_optimization()
 
+   # repeat the evaluation results from our method in the end
    logger.info(f"Ours: evaluation results:\n"
             f"\tEnergy={ours.latest_energy:.3e}\n"
             f"\tLatency={ours.latest_latency:.3e}\n"
@@ -87,6 +88,10 @@ class PartitionEvaluator:
 
       # initialize scheduler
       self.scheduler = Scheduler(SchedulerType.PartitionAware)
+
+      # latency (energy) is given in ms (mJ) instead of ns (uJ)
+      self.latency_multiplier = 1e6
+      self.energy_multiplier = 1e3
 
       # preapare partitioning data for scheduling
       unpartitioned_networks = self.load_partition_results(args.partition_results_path,
@@ -247,6 +252,11 @@ class PartitionEvaluator:
       if mappings is None or networks is None or len(networks) == 0:
          return
 
+      # transform from our units, according to the partition data
+      # this is reversed later on the aggregate results
+      energy_multiplier = 1 / self.energy_multiplier
+      latency_multiplier = 1 / self.latency_multiplier
+
       sorted_accelerators = sorted(accelerators, key=lambda accelerator: accelerator.precision)
       for arch in networks:
          energy = [mappings.energy[(arch, accelerator)] for accelerator in sorted_accelerators]
@@ -258,6 +268,9 @@ class PartitionEvaluator:
 
          assert len(energy) == len(latency) == 1, f'{arch}: Found {len(energy)} possible assignments ' \
                                                    'for hypothetically un-partitioned network'
+
+         energy = [item * energy_multiplier for item in energy]
+         latency = [item * latency_multiplier for item in latency]
 
          # include as partition object
          partition_instance = PartitionInstance(
@@ -395,9 +408,9 @@ class PartitionEvaluator:
          entries[-1].end
          for bin, entries in self.latest_schedule.as_dict(main_key='bin').items()
       ])
-      # latency (energy) is given in ms (mJ) instead of ns (uJ)
-      self.latest_latency *= 1e3
-      self.latest_energy *= 1e6
+      # apply numerical transformations
+      self.latest_latency *= self.latency_multiplier
+      self.latest_energy *= self.energy_multiplier
       self.latest_edp = self.latest_energy * self.latest_latency
 
 

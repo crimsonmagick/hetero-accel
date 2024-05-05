@@ -11,3 +11,4 @@ timeloop-model*
 test_tl/
 saved_logs/
 dnn_workloads/
+.ipynb_checkpoints/

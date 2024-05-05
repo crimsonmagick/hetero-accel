@@ -53,7 +53,10 @@ class Schedule:
 
         end = start + duration
         self.end_timestamp[to_bin] = end
-        self.entries.append(ScheduleEntry(start, end, bin=to_bin, tag=item))
+        self.entries.append(ScheduleEntry(start=start,
+                                          end=end,
+                                          bin=to_bin,
+                                          tag=item))
         self.assigned[item] = to_bin
 
     def as_dict(self, main_key='bin'):
@@ -126,7 +129,7 @@ class Schedule:
             logdir = logging.getLogger().logdir
             savefile = os.path.join(logdir, 'latest_schedule.png')
         plt.savefig(savefile, bbox_inches='tight', pad_inches=0)
-        logger.info(f"Schedule was saved in {savefile}")
+        logger.info(f"Schedule visualization was saved in {savefile}")
 
 
 # TODO: Study the possible options for the solver
@@ -319,7 +322,6 @@ class Scheduler:
                                                      weight_dict[(next_item, bin)] > 0]
 
             for available_bin in available_bins:
-
                 # TODO: Here we do design-time scheduling, so the agent (bin) is not
                 #       currently executing any tasks. Rather, we assign tasks to its
                 #       ready list so they can be executed in order
@@ -355,7 +357,7 @@ class Scheduler:
                                                      (entry.metrics.overall_energy + entry.metrics.overall_link_energy))
 
         # bookkeeping dictionaries
-        track_bin_execution = {bin: 0.0 for bin in bins}
+        track_bin_execution = schedule.end_timestamp
         subpartition_to_be_executed = {partition.tag: 0 for partition in partitions}
         track_partition_execution = {partition.tag: 0.0 for partition in partitions}
 
@@ -392,9 +394,8 @@ class Scheduler:
                                      # has finished
                                      start=track_partition_execution[partition.tag])
 
-                        # update the bin execution time and partition execution index
-                        track_bin_execution[selected_bin] += duration
-                        track_partition_execution[partition.tag] += duration
+                        # update the partition execution time and index
+                        track_partition_execution[partition.tag] = track_bin_execution[selected_bin]
                         subpartition_to_be_executed[partition.tag] += 1
                         assigned = True
 
