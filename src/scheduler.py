@@ -334,7 +334,7 @@ class Scheduler:
                 #  the total weight of the items on the bin's ready list and the weight of 
                 #  the current item to-be-assigned
                 response_time[next_item][available_bin] = bin_workload + weight_ready_list + weight_next_item
-            
+
             # the item/task is assigned to the bin with the minimum response time
             selected_bin = min({bin: rtime for bin, rtime in response_time[next_item].items() if rtime >= 0},
                                key=response_time[next_item].get)
@@ -349,7 +349,7 @@ class Scheduler:
         """Greedy scheduling algorithm for partitioned tasks
         """
         schedule = Schedule(bins)
-        
+
         # prioritize partitions based on their overall EDP (execution + transfer)
         sorted_partitions = sorted(partitions,
                                    reverse=True,
