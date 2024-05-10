@@ -17,13 +17,13 @@ mapspace_constraints:
       factors: R=1 S=1
       permutation: RSCMN
     # intuitive optimization according to hardware dimension
-    - target: PEAccuBuffer
-      type: spatial
-      factors: C=4
+    # - target: PEAccuBuffer
+    #   type: spatial
+    #   factors: C=4
     # intuitive optimization according to hardware dimension
-    - target: PEInputBuffer
-      type: spatial
-      factors: M=4
+    # - target: PEInputBuffer
+    #   type: spatial
+    #   factors: M=4
     # The temporal constraints for the components below should together include all the dimensions of the problem
     # Each being responsible for a non-overlapping subset of them
     # responsible for P and Q

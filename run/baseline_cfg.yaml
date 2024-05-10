@@ -5,8 +5,8 @@ app_args:
         name: baseline
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/classifiersA/lut.csv
-        load_state_from: data/classifiersA/simba/baseline.results.pkl
+        dnn_accuracy_lut_file: data/mixed/lut.csv
+        load_state_from: null
         scheduler_type: multiknapsack
         solver_type: mthggreedyregret
 
@@ -18,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: ClassifiersA
+        workload_idx: Mixed
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -43,8 +43,8 @@ compression_args:
         top1_constraint: 5
         top5_constraint: null
         loss_constraint: null
-        mIOU_constraint: 2
-        AvgPixelAcc_constraint: null
+        mIOU_constraint: null
+        AvgPixelAcc_constraint: 5
         mAP[IOU=0.5]_constraint: 5
         mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
@@ -57,7 +57,7 @@ accel_args:
         area_constraint: null
 
 baseline_args:
-        baseline_num_accelerators: 4
+        baseline_num_accelerators: 1
         baseline_homogeneous: True
         baseline_pe_array_x: null
         baseline_pe_array_y: null

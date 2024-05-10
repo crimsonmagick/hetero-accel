@@ -382,9 +382,9 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         edp_dict = {key: optimizer.energy_dict[key] * optimizer.latency_dict[key]
                     for key in optimizer.energy_dict}
         pruned_mappings = SimpleNamespace(energy=deepcopy(optimizer.energy_dict),
-                                            latency=deepcopy(optimizer.latency_dict),
-                                            edp=edp_dict,
-                                            area=deepcopy(optimizer.area_dict))
+                                          latency=deepcopy(optimizer.latency_dict),
+                                          edp=edp_dict,
+                                          area=deepcopy(optimizer.area_dict))
 
     # re-initialize compressors if they were not loaded
     if len(compressors) == 0:
@@ -401,6 +401,11 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         logger.info(f"\tEvaluating accelerator: {accelerator}")
         # iterate over each DNN
         for arch, compressor in compressors.items():
+
+            # TODO: Fix 8-bit quantization for fasterrcnn_resnet50_fpn
+            # if arch == 'fasterrcnn_resnet50_fpn' and accelerator.precision == 8:
+            #     continue
+
             logger.info(f"\t\tCompressing DNN: {arch}")
 
             # check the accuracy of the quantized DNN
