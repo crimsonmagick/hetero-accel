@@ -638,6 +638,17 @@ def model_summary(model, dummy_input=None):
                 info.bits = getattr(getattr(module, 'quant_metadata', None), 'bits', 32)
                 info.size = info.bits * info.weights_volume
 
+            # TODO: Fix the hard-coded override for any dimension being 0 
+            # Fixing error that appears on fasterrcnn_mobilenet_v3_large_320_fpn:
+            #   the 69th layer is a FC layer, but it comes up with an empty input.
+            #   This results in the 'N' dimension being 0, which induced problems
+            #   with timeloop. So we are hardcoding the 'N' dimension to 1.
+            if any(dim == 0 for dim in dimensions.values()):
+                new_dimensions = OrderedDict()
+                for dim, dim_value in dimensions.items():
+                    new_dimensions[dim] = dim_value if dim_value != 0 else 1
+                dimensions = new_dimensions
+
             #TODO: Include descriptions of pooling layers
 
             # store all data, accessible by layer name
