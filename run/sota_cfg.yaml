@@ -18,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: classifiersB
+        workload_idx: ClassifiersB
         workers: 15
         batch_size: 128
         load_serialized: False
