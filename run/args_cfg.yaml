@@ -5,12 +5,12 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/mixed/lut.csv
-        scheduler_type: ours
-        solver_type: mthggreedyregret
-        load_state_from: data/mixed/simba/best_state.sa.pkl
-        skip_exploration: True
-        load_pruned_mappings_from: data/mixed/simba/pruned_mappings.pkl
+        dnn_accuracy_lut_file: data/classifiersB/lut.csv
+        scheduler_type: random
+        solver_type: null  # mthggreedyregret
+        load_state_from: data/classifiersB/eyeriss/best_state.sa.pkl
+        skip_exploration: False
+        load_pruned_mappings_from: null  # data/classifiersB/eyeriss/pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -20,7 +20,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Mixed
+        workload_idx: ClassifiersB
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -43,27 +43,27 @@ compression_args:
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 5
+        top1_constraint: 2
         top5_constraint: null
         loss_constraint: null
         mIOU_constraint: null
-        AvgPixelAcc_constraint: 5
-        mAP[IOU=0.5]_constraint: 5
+        AvgPixelAcc_constraint: 2
+        mAP[IOU=0.5]_constraint: 2
         mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
 
 accel_args:
-        accelerator_arch_type: simba
+        accelerator_arch_type: eyeriss
         deadline_constraint: null
-        area_constraint: 0.25
+        area_constraint: 0.1
 
 simanneal_args:
         simannel_state_delta: 0.4
         simanneal_Tmax: 25000.0
         simanneal_Ttmin: 2.5
-        simanneal_steps: 100
+        simanneal_steps: 50
         simanneal_updates: 25
         simanneal_auto_schedule: False
         simanneal_optimization_metric: edp

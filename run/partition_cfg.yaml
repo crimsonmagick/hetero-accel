@@ -72,8 +72,8 @@ baseline_args:
         baseline_accum_buffer_size: null
 
 partition_args:
-        partition_results_path: data/cnn-parted/unconstrained
+        partition_results_path: data/cnn-parted/constrained
         partition_optim_metric_type: edp
         partition_optim_iterations: 100
         partition_selection_probability: 0.8
-        partition_use_constrained: False
+        partition_use_constrained: True

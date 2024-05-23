@@ -83,10 +83,11 @@ class AcceleratorOptimizer(Annealer):
         self.hw_constraints = hw_constraints
         self.energy_dict = OrderedDict()
         self.latency_dict = OrderedDict()
+        self.edp_dict = OrderedDict()
         self.area_dict = OrderedDict()
         self.step = 0
         self.state = None
-        self.latest_energy = self.latest_latency = self.latest_area = None
+        self.latest_energy = self.latest_latency = self.latest_edp = self.latest_area = None
         self.metric = args.simanneal_optimization_metric
         self.solver_type = args.solver_type
         self.logdir = args.logdir
@@ -116,11 +117,12 @@ class AcceleratorOptimizer(Annealer):
         self.initial_metric = initial_metric
         self.initial_energy = self.latest_energy
         self.initial_latency = self.latest_latency
+        self.initial_edp = self.latest_edp
         self.initial_area = self.latest_area
         logger.info("Initial results -> "
                     f"Energy={self.initial_energy:.3e}, "
                     f"Latency={self.initial_latency:.3e}, "
-                    f"EDP={self.initial_energy * self.initial_latency:.3e}"
+                    f"EDP={self.initial_edp:.3e}"
                     f"Area={self.initial_area:.3e}")
 
         # setup scheduling parameters during annealing
@@ -201,19 +203,20 @@ class AcceleratorOptimizer(Annealer):
         save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
         copy(load_from, save_state_to)
 
-        self.energy_dict.update(state_dict['energy'])
-        self.latency_dict.update(state_dict['latency'])
-        self.area_dict.update(state_dict['area'])
+        self.energy_dict.update(state_dict.get('energy', {}))
+        self.latency_dict.update(state_dict.get('latency', {}))
+        self.edp_dict.update(state_dict.get('edp', {}))
+        self.area_dict.update(state_dict.get('area', {}))
         if getattr(self, 'hw_constraints', None) is None:
             self.hw_constraints = state_dict.get('constraints', None)
-        self.latest_schedule = state_dict['schedule']
-        return state_dict['state']
+        self.latest_schedule = state_dict.get('schedule', None)
+        return state_dict.get('state', None)
 
     def set_state(self, state):
         """Set a given state
         """
         self.state = state
-        self.latest_energy = self.latest_latency = self.latest_area = None
+        self.latest_energy = self.latest_latency = self.latest_edp = self.latest_area = None
         self.latest_schedule = None
 
     def save_state(self, save_state_to=None, state_to_save=None):
@@ -221,12 +224,14 @@ class AcceleratorOptimizer(Annealer):
         """
         state_dict = {'energy': self.energy_dict,
                       'latency': self.latency_dict,
+                      'edp': self.edp_dict,
                       'area': self.area_dict,
                       'schedule': self.latest_schedule,
                       'state': self.state if state_to_save is None else state_to_save,
                       'constraints': getattr(self, 'hw_constraints', None),
                       'latest_energy': self.latest_energy,
                       'latest_latency': self.latest_latency,
+                      'latest_edp': self.latest_edp,
                       'latest_area': self.latest_area}
 
         save_state_to = save_state_to or os.path.join(self.logdir, 'state.sa.pkl')
@@ -319,7 +324,7 @@ class AcceleratorOptimizer(Annealer):
             logger.info(f"Evaluation results:\n"
                         f"\tEnergy={self.latest_energy:.3e}\n"
                         f"\tLatency={self.latest_latency:.3e}\n"
-                        f"\tEDP={self.latest_energy * self.latest_latency:.3e}\n"
+                        f"\tEDP={self.latest_edp:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
         elif initial:
             raise ValueError("Initial metric calculation cannot be invalid")
@@ -328,9 +333,7 @@ class AcceleratorOptimizer(Annealer):
         energy_metric = {
             MetricType.Energy: self.latest_energy,
             MetricType.Latency: self.latest_latency,
-            MetricType.EDP: self.latest_energy * self.latest_latency
-                            if self.latest_energy is not None
-                            else None,
+            MetricType.EDP: self.latest_edp,
             MetricType.Area: self.latest_area
         }.get(self.metric)
 
@@ -367,6 +370,7 @@ class AcceleratorOptimizer(Annealer):
         # metrics to be accumulated
         energy_dict = {}
         latency_dict = {}
+        edp_dict = {}
         results = None
 
         # iterate over each accelerator
@@ -375,8 +379,13 @@ class AcceleratorOptimizer(Annealer):
             # iterate over each DNN
             for arch in self.workload.dnns.keys():
                 logger.info(f"\t\tEvaluating on DNN: {arch}")
+
                 # check if this evaluation was executed before
                 if (arch, accelerator) in self.energy_dict:
+                    # NOTE: This is not as accurate as accumulate layer-wise EDP results,
+                    #       but it is a good approximation for not re-running the simulation
+                    if (arch, accelerator) not in self.edp_dict:
+                        self.edp_dict[(arch, accelerator)] = self.energy_dict[(arch, accelerator)] * self.latency_dict[(arch, accelerator)]
                     logger.info(f"\t\tSkipping evaluation: already estimated")
                     continue
 
@@ -386,6 +395,7 @@ class AcceleratorOptimizer(Annealer):
                     # Invalid scheduling mappings are marked with negative weight (latency)
                     self.energy_dict[(arch, accelerator)] = -1
                     self.latency_dict[(arch, accelerator)] = -1
+                    self.edp_dict[(arch, accelerator)] = -1
                     continue
 
                 # adjust timeloop with the accelerator parameters
@@ -393,25 +403,36 @@ class AcceleratorOptimizer(Annealer):
 
                 energy_dict[(arch, accelerator)] = 0
                 latency_dict[(arch, accelerator)] = 0
+                edp_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
                 for problem_name in self.timeloop_problems_per_dnn[arch]:
                     logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
 
-                    # run timeloop and get results
+                    # run timeloop
                     self.timeloop_wrapper.run(problem_name)
+
+                    # gather simulation results
                     results = self.timeloop_wrapper.get_results()
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
+                    edp_dict[(arch, accelerator)] += results.edp
+
+                    # print layer-wise results
                     logger.debug(f"\t\t\tLayer-wise results: "
-                                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}")
+                                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
+                    
+                    # reset simulator for next run
+                    self.timeloop_wrapper.cleanup()
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}")
+                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
+                             f"\t\t\EDP={edp_dict[(arch, accelerator)]:.3e}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
             self.latency_dict.update(latency_dict)
+            self.edp_dict.update(edp_dict)
             # store the accelerator area from the results of the last mapping
             # all layers with the same accelerator should give the same area
             if accelerator not in self.area_dict:
@@ -429,6 +450,7 @@ class AcceleratorOptimizer(Annealer):
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         start = time()
+        # TODO: Consider the metrics used for weight_dict and cost_dict
         schedule = self.scheduler.run(items=list(self.workload.dnns.keys()),
                                       bins=self.state,
                                       cost_dict=self.energy_dict,
@@ -440,7 +462,7 @@ class AcceleratorOptimizer(Annealer):
 
         if schedule is None:
             # return in case of invalid schedule
-            self.latest_energy = self.latest_latency = None
+            self.latest_energy = self.latest_latency = self.latest_edp = None
             logger.info(f"Could not find valid schedule")
             return False
 
@@ -453,8 +475,9 @@ class AcceleratorOptimizer(Annealer):
                 self.latency_dict[(entry.tag, entry.bin)] for entry in entries
             ]) for bin, entries in schedule.as_dict(main_key='bin').items()
         ])
-
-        # TODO: Would EDP be the product of the two above?
+        self.latest_edp = sum([
+            self.edp_dict[(entry.tag, entry.bin)] for entry in schedule.entries
+        ])
 
         # log the results of the scheduling
         schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])

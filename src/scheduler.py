@@ -288,7 +288,7 @@ class Scheduler:
         schedule = Schedule(bins)
         for item in items:
             bin_sel = random.choice(bins)
-            while (item, bin_sel) not in cost_dict:
+            while (item, bin_sel) not in weight_dict:
                 bin_sel = random.choice(bins)
             schedule.add(item, bin_sel, weight_dict[(item, bin_sel)])
         return schedule

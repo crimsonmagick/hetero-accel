@@ -43,8 +43,8 @@ def main():
         # perform a DSE to define the sub-accelerator architectures
         accel, optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
         # prune the DNNs to produce the final scheduler
-        schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
-                                            compressors, optimizer, accel)
+        # schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
+        #                                     compressors, optimizer, accel)
 
     # evaluate a given baseline accelerator architecture
     elif args.operation_mode == OperationMode.Baseline:
