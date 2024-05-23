@@ -44,8 +44,9 @@ class BaselineEvaluator(AcceleratorOptimizer):
         self.metric = MetricType.EDP
         self.energy_dict = OrderedDict()
         self.latency_dict = OrderedDict()
+        self.edp_dict = OrderedDict()
         self.area_dict = OrderedDict()
-        self.latest_energy = self.latest_latency = self.latest_area = None
+        self.latest_energy = self.latest_latency = self.latest_edp = self.latest_area = None
         self.latest_schedule = None
 
         # initialize accelerator

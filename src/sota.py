@@ -100,9 +100,13 @@ class SOTAEvaluator(AcceleratorOptimizer):
         logger.debug(f"Checkpoint contents:\n{bl_state_dict}")
 
         # load the baseline mapping evaluations
-        self.energy_dict = bl_state_dict['energy']
-        self.latency_dict = bl_state_dict['latency']
-        self.area_dict = bl_state_dict['area']
+        try:
+            self.energy_dict = bl_state_dict['energy']
+            self.latency_dict = bl_state_dict['latency']
+            self.edp_dict = bl_state_dict['edp']
+            self.area_dict = bl_state_dict['area']
+        except KeyError:
+            raise KeyError("The baseline state_dict should include all evaluation metrics")
         # load the baseline architecture/state as a single accelerator 
         assert len(bl_state_dict['state']) == 1, "A single baseline accelerator is needed as a baseline"
         self.baseline_state = bl_state_dict['state'][0]

@@ -5,9 +5,9 @@ app_args:
         name: baseline
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/mixed/lut.csv
+        dnn_accuracy_lut_file: data/classifiersB/lut.csv
         load_state_from: null
-        scheduler_type: multiknapsack
+        scheduler_type: random  # multiknapsack
         solver_type: mthggreedyregret
 
 dnn_op_mode_args:
@@ -18,7 +18,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: Mixed
+        workload_idx: ClassifiersB
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -40,28 +40,28 @@ compression_args:
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 5
+        top1_constraint: 2
         top5_constraint: null
         loss_constraint: null
         mIOU_constraint: null
-        AvgPixelAcc_constraint: 5
-        mAP[IOU=0.5]_constraint: 5
+        AvgPixelAcc_constraint: 2
+        mAP[IOU=0.5]_constraint: 2
         mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
         size_constraint: 50
         sparsity_constraint: null
  
 accel_args:
-        accelerator_arch_type: simba
+        accelerator_arch_type: eyeriss
         deadline_constraint: null
         area_constraint: null
 
 baseline_args:
-        baseline_num_accelerators: 1
+        baseline_num_accelerators: 3
         baseline_homogeneous: True
         baseline_pe_array_x: null
         baseline_pe_array_y: null
-        baseline_precision: 8
+        baseline_precision: 16
         baseline_sram_size: null
         # Eyeriss-specific
         baseline_ifmap_spad_size: null
