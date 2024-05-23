@@ -76,7 +76,7 @@ workloads:
       batch_print_frequency: 100
 
   Mixed:
-    - arch: resnet34
+    - arch: resnet18
       dataset: cifar10
       pretrained: true
       resumed_checkpoint_path: null
