@@ -119,7 +119,6 @@ class TimeloopWrapper:
             return area * 1e-6  # in mm^2
 
         stats_file = os.path.join(self.output_dir, 'timeloop-mapper.stats.txt')
-        assert os.path.exists(stats_file)
         with open(stats_file, 'r') as f:
             stats = f.read()
 

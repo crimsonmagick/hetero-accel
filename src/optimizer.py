@@ -412,7 +412,13 @@ class AcceleratorOptimizer(Annealer):
                     self.timeloop_wrapper.run(problem_name)
 
                     # gather simulation results
-                    results = self.timeloop_wrapper.get_results()
+                    try:
+                        results = self.timeloop_wrapper.get_results()
+                    except FileNotFoundError:
+                        self.latest_schedule = self.latest_energy = self.latest_latency = None
+                        logger.info("Invalid timeloop/accelergy simulation")
+                        return False
+
                     energy_dict[(arch, accelerator)] += results.energy
                     latency_dict[(arch, accelerator)] += results.cycles
                     edp_dict[(arch, accelerator)] += results.edp
