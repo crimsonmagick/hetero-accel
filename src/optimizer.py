@@ -122,7 +122,8 @@ class AcceleratorOptimizer(Annealer):
         logger.info("Initial results -> "
                     f"Energy={self.initial_energy:.3e}, "
                     f"Latency={self.initial_latency:.3e}, "
-                    f"EDP={self.initial_edp:.3e}"
+                    f"EDP={self.initial_edp:.3e}, "
+                    f"EDP(artificial)={self.initial_energy * self.initial_latency:.3e}, "
                     f"Area={self.initial_area:.3e}")
 
         # setup scheduling parameters during annealing
@@ -325,6 +326,7 @@ class AcceleratorOptimizer(Annealer):
                         f"\tEnergy={self.latest_energy:.3e}\n"
                         f"\tLatency={self.latest_latency:.3e}\n"
                         f"\tEDP={self.latest_edp:.3e}\n"
+                        f"\tEDP(artificial)={self.latest_energy * self.latest_latency:.3e}\n"
                         f"\tArea={self.latest_area:.3e}")
         elif initial:
             raise ValueError("Initial metric calculation cannot be invalid")
@@ -334,6 +336,9 @@ class AcceleratorOptimizer(Annealer):
             MetricType.Energy: self.latest_energy,
             MetricType.Latency: self.latest_latency,
             MetricType.EDP: self.latest_edp,
+            MetricType.EDP_Artificial: self.latest_energy * self.latest_latency
+                                       if self.latest_energy is not None
+                                       else None,
             MetricType.Area: self.latest_area
         }.get(self.metric)
 

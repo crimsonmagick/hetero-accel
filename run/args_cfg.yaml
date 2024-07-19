@@ -5,10 +5,10 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/classifiersB/lut.csv
-        scheduler_type: random
-        solver_type: null  # mthggreedyregret
-        load_state_from: data/classifiersB/eyeriss/best_state.sa.pkl
+        dnn_accuracy_lut_file: data/mixed/lut.csv
+        scheduler_type: ours
+        solver_type: mthggreedyregret
+        load_state_from: data/mixed/eyeriss/best_state.sa.pkl
         skip_exploration: False
         load_pruned_mappings_from: null  # data/classifiersB/eyeriss/pruned_mappings.pkl
 
@@ -20,7 +20,7 @@ dnn_op_mode_args:
         model_summary_mode: null
 
 workload_args:
-        workload_idx: ClassifiersB
+        workload_idx: Mixed
         workers: 15
         batch_size: 128
         load_serialized: False
@@ -48,7 +48,7 @@ compression_args:
         loss_constraint: null
         mIOU_constraint: null
         AvgPixelAcc_constraint: 2
-        mAP[IOU=0.5]_constraint: 2
+        mAP[IOU=0.5]_constraint: 4
         mAP[IoU=0.50:0.95]_constraint: null
         mAP[IOU=0.75]_constraint: null
         size_constraint: 50
@@ -66,5 +66,5 @@ simanneal_args:
         simanneal_steps: 50
         simanneal_updates: 25
         simanneal_auto_schedule: False
-        simanneal_optimization_metric: edp
+        simanneal_optimization_metric: edp_artificial
 
