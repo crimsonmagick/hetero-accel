@@ -345,13 +345,15 @@ class MetricType(Enum):
     Energy = 1
     Latency = 2
     EDP = 3
-    Area = 4
+    EDP_Artificial = 4
+    Area = 5
 
 
 def metric_type_arg(argstr):
     str_to_metric_type_map = {'energy': MetricType.Energy,
                               'latency': MetricType.Latency,
                               'edp': MetricType.EDP,
+                              'edp_artificial': MetricType.EDP_Artificial,
                               'area': MetricType.Area}
 
     try:
