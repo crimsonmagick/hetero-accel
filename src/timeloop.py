@@ -148,6 +148,8 @@ class TimeloopWrapper:
             outdir = override_outdir
         elif len(glob(f'{self.output_dir}/*')) > 0:
             outdir = self.output_dir
+        else:
+            return
         for file in glob(os.path.join(outdir, 'timeloop-mapper*')):
             os.remove(file)
 
@@ -959,13 +961,12 @@ class TimeloopMapper:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
-    accel_type = AcceleratorType.Simba
+    accel_type = AcceleratorType.Eyeriss
     DO_EXPLORATION = False
-    
-    tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
-
     # prob_name = 'resnet18__layer0_conv1'
     prob_name = 'vgg13__layer0_features.0'
+
+    tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
     prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
     # have the file already in the test_tl/yamls/ directory
     shutil.copyfile(project_dir + f'/test_tl/{prob_name}.yaml', prob_fp)

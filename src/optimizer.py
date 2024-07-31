@@ -438,7 +438,7 @@ class AcceleratorOptimizer(Annealer):
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
                              f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\EDP={edp_dict[(arch, accelerator)]:.3e}")
+                             f"\t\t\tEDP={edp_dict[(arch, accelerator)]:.3e}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)
