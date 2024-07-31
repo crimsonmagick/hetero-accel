@@ -1,9 +1,11 @@
 #!/bin/bash
 set -eou pipefail
 
+node="$(tmux display -p '#S')"
+
 python3 main.py \
 	--yaml-cfg run/args_cfg.yaml \
 	--workload-cfg run/workloads.yaml
 
-final_results="$(grep -A 4 "Evaluation results:" logs/ours___2024.05.28-15.48.41.131/ours___2024.05.28-15.48.41.131.log | tail -n 5)"
-curl -d "ours completed: $final_results" ntfy.sh/hetero-accel
+final_results="$(grep -A 4 "Evaluation results:" latest_log_file | tail -n 5)"
+curl -d "[$node] ours completed: $final_results" ntfy.sh/hetero-accel
