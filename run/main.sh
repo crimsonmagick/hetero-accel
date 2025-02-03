@@ -7,5 +7,5 @@ python3 main.py \
 	--yaml-cfg run/args_cfg.yaml \
 	--workload-cfg run/workloads.yaml
 
-final_results="$(grep -A 4 "Evaluation results:" latest_log_file | tail -n 5)"
+final_results="$(grep -A 5 "Evaluation results:" latest_log_file | tail -n 5)"
 curl -d "[$node] ours completed: $final_results" ntfy.sh/hetero-accel

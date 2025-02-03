@@ -259,12 +259,12 @@ class OperationMode(Enum):
     Baseline = 2
     SOTA = 3
     Partition = 4
+    GA = 5
+    RandomSearch = 6
 
 def operation_mode_arg(argstr):
-    str_to_operation_mode_map = {'ours': OperationMode.Ours,
-                                 'baseline': OperationMode.Baseline,
-                                 'sota': OperationMode.SOTA,
-                                 'partition': OperationMode.Partition}
+    str_to_operation_mode_map = {entry.name.lower(): entry
+                                 for entry in OperationMode}
     try:
         return str_to_operation_mode_map[argstr.lower()]
     except KeyError:

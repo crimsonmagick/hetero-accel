@@ -140,7 +140,15 @@ class SOTAEvaluator(AcceleratorOptimizer):
             # make sure that as the precision lowers, the number of PEs increase and
             #  at the same time the area is kept within the margins
             # NOTE: We assume a 'rectangular' PE array (i.e., pe_x == pe_y)
-            while not (num_pes >= previous_pes and area_min <= area <= area_max):
+            
+            # TODO: Here we assume that as the precision lowers, the number of PEs increase.
+            #       But we change some things in Timeloop and the memory buffers. So, the area
+            #       of an accelerator is not lower than the area of the acceleartor with higher precision,
+            #       with equal number of PEs. We need to change this, but for now we remove the constraint
+            #       on the number of PEs.
+            # while not (num_pes >= previous_pes and area_min <= area <= area_max):
+
+            while not (area_min <= area <= area_max):
                 # decrease the number of PEs
                 pe_x -= 1
                 assert pe_x > 0, "Invalid PE elements. Relax the area " \

@@ -19,6 +19,7 @@ from src.optimizer import AcceleratorOptimizer
 from src.baseline import run_baseline
 from src.sota import run_sota
 from src.partition import run_partition_comparison
+from src.other_heuristics import run_genetic_algorithm, run_random_search
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,14 @@ def main():
     # compare our technique against partition-aware scheduling
     elif args.operation_mode == OperationMode.Partition:
         run_partition_comparison(args, workload, dnn_accuracy_lut)
+
+    # compare against a genetic algorithm
+    elif args.operation_mode == OperationMode.Genetic:
+        run_genetic_algorithm(args, workload, dnn_accuracy_lut)
+
+    # compare against a random-search approach
+    elif args.operation_mode == OperationMode.RandomSearch:
+        run_random_search(args, workload, dnn_accuracy_lut)
 
 
 def setup_workload(args):
