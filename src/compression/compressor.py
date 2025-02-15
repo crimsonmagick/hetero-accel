@@ -59,23 +59,23 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.pruner.reset()
         self.quantizer.reset()
 
-    def quantize(self, quant_bits):
-        self.prune_and_quantize(None, quant_bits)
+    def quantize(self, q_bits):
+        self.prune_and_quantize(None, q_bits)
 
     def prune(self, pruning_ratio):
         self.prune_and_quantize(pruning_ratio, None)
 
-    def prune_and_quantize(self, pruning_ratio=None, quant_bits=None):
+    def prune_and_quantize(self, pruning_ratio=None, q_bits=None):
         if pruning_ratio is not None and pruning_ratio != 0.0:
             assert self.pruning_low <= pruning_ratio <= self.pruning_high
             self.pruner.prune(self.model, pruning_ratio)
-        if quant_bits is not None:
+        if q_bits is not None:
             # NOTE: Assuming no accuracy degradation INT8, so quantization is skipped
-            if quant_bits > max(self.quant_high, 8):
+            if q_bits > max(self.quant_high, 8):
                 return
 
-            assert self.quant_low <= quant_bits <= self.quant_high
-            self.quantizer.quantize(self.model, quant_bits)
+            assert self.quant_low <= q_bits <= self.quant_high
+            self.quantizer.quantize(self.model, q_bits)
 
     def translate_pruning_action(self, pruning_action):
         pruning_action = pruning_action * (self.pruning_high - self.pruning_low) + self.pruning_low

@@ -8,8 +8,8 @@ app_args:
         dnn_accuracy_lut_file: data/mixed/lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
-        load_state_from: data/mixed/eyeriss/best_state.sa.pkl
-        skip_exploration: False
+        load_state_from: data/mixed/eyeriss/tight_constraint/best_state.sa.pkl
+        skip_exploration: True
         load_pruned_mappings_from: null  # data/classifiersB/eyeriss/pruned_mappings.pkl
 
 dnn_op_mode_args:

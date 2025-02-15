@@ -189,7 +189,6 @@ class COCOMeter(Meter):
         xmin, ymin, xmax, ymax = boxes.unbind(1)
         return torch.stack((xmin, ymin, xmax - xmin, ymax - ymin), dim=1)
 
-
     def evaluate(self, imgs):
         with redirect_stdout(io.StringIO()):
             imgs.evaluate()

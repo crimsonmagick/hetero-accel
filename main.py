@@ -43,6 +43,7 @@ def main():
     if args.operation_mode == OperationMode.Ours:
         # perform a DSE to define the sub-accelerator architectures
         accel, optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
+        optimizer.state = accel
         # prune the DNNs to produce the final scheduler
         schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
                                             compressors, optimizer, accel)
@@ -410,11 +411,6 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         logger.info(f"\tEvaluating accelerator: {accelerator}")
         # iterate over each DNN
         for arch, compressor in compressors.items():
-
-            # TODO: Fix 8-bit quantization for fasterrcnn_resnet50_fpn
-            # if arch == 'fasterrcnn_resnet50_fpn' and accelerator.precision == 8:
-            #     continue
-
             logger.info(f"\t\tCompressing DNN: {arch}")
 
             # check the accuracy of the quantized DNN
@@ -427,7 +423,7 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 pruned_mappings.latency[(arch, accelerator)] = -1
                 pruned_mappings.edp[(arch, accelerator)] = -1
                 continue
-
+ 
             # # the accuracy metric is the first on returned from the accuracy meter
             # # that has a valid given constraint
             # accuracy_metric = next(metric for metric in compressor.accuracy_metrics
