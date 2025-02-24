@@ -333,6 +333,7 @@ def get_vocseg_dataset(data_dir, arch, load_train=True, load_test=True):
         weights = seg.LRASPP_MobileNet_V3_Large_Weights.DEFAULT
     transforms_both = transforms.ToTensor() if weights is None else get_voc_seg_transform(weights)
 
+    # TODO: Downloading/Extracting this dataset takes a long time
     if load_train:
         traindata = datasets.VOCSegmentation(data_dir,
                                              year="2012",

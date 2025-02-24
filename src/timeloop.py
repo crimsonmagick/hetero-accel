@@ -92,7 +92,7 @@ class TimeloopWrapper:
         logger.debug(f'timeloop-mapper command: {command}')
         start = time()
         p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-        logger.debug(f"Executed timeloop-mapper command in {time() - start:.3e} "
+        logger.debug(f"Executed timeloop-mapper command in {time() - start:.3e}s "
                      f"with exitcode: {p.returncode}")
         return p
 

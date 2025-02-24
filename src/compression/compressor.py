@@ -26,17 +26,14 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.train_loader, self.valid_loader, self.test_loader = data_loaders
         self.layers_to_compress = [name for name, module in self.model.named_modules()
                                    if isinstance(module, args.layer_type_whitelist)]
-        logger.debug(f"Layers to compress: {self.layers_to_compress}")
+        logger.debug(f"{self.model.arch}: Layers to compress: {self.layers_to_compress}")
 
         # pruner and quantizer for compression
         self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,
                              eridanus_window_w=self.accelerator_cfg.pe_array_x,
                              eridanus_window_h=self.accelerator_cfg.pe_array_y)
         self.quantizer = Quantizer(self.layers_to_compress)
-
-        # timeloop wrapper to execute mapping searches and energy/area estimation
-        tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
-        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
+        self.timeloop_wrapper = None
 
     @classmethod
     def from_args(cls, args, data_loaders, model=None):
@@ -53,6 +50,11 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                                            cpu=args.cpu,
                                            verbose=args.model_verbose)
         return cls(compression_args, data_loaders, model)
+
+    def init_timeloop_wrapper(self):
+        # timeloop wrapper to execute mapping searches and energy/area estimation
+        tl_workdir = os.path.join(self.logdir, f'timeloop_compression_{self.model.arch}')
+        self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
     def reset(self):
         self.model = deepcopy(self.original_model)
@@ -92,6 +94,9 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         """Calculate the hardware-related efficiency metrics of the accelerator
            using Timeloop/Accelergy
         """
+        if self.timeloop_wrapper is None:
+            self.init_timeloop_wrapper()
+
         total_area = total_latency = total_power = total_energy = 0
         _, layer_stats = self.compute_model_statistics()
         # itearate over all layers

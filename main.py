@@ -7,6 +7,7 @@ import pandas as pd
 import yaml
 from copy import deepcopy
 from types import SimpleNamespace
+from tabulate import tabulate
 from src import dataset_dirs
 from src.workload import MultiDNNWorkload
 from src.utils import env_cfg, handle_model_subapps
@@ -20,6 +21,7 @@ from src.baseline import run_baseline
 from src.sota import run_sota
 from src.partition import run_partition_comparison
 from src.other_heuristics import run_genetic_algorithm, run_random_search
+from src.scheduler import solver_args_dict
 
 
 logger = logging.getLogger(__name__)
@@ -42,11 +44,10 @@ def main():
 
     if args.operation_mode == OperationMode.Ours:
         # perform a DSE to define the sub-accelerator architectures
-        accel, optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
-        optimizer.state = accel
+        optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
         # prune the DNNs to produce the final scheduler
         schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
-                                            compressors, optimizer, accel)
+                                            compressors, optimizer, optimizer.state)
 
     # evaluate a given baseline accelerator architecture
     elif args.operation_mode == OperationMode.Baseline:
@@ -353,9 +354,14 @@ def accelerator_exploration(args, workload, accuracy_lut):
     logger.info(f"Final heterogeneous accelerator{comment}:")
     for state in optimizer.best_state:
         logger.info(f'\t{state}')
-    logger.info("*------------------*")
 
-    return optimizer.best_state, optimizer
+    # get the scheduling evaluation from the best accelerator state
+    optimizer.set_state(optimizer.best_state)
+    logger.info(f"Final scheduling:")
+    optimizer.energy(initial=False, save_best=False)
+
+    logger.info("*------------------*")
+    return optimizer
 
 
 def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, hetero_accel):
@@ -377,6 +383,42 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 accuracy_stats[idx] >= og_stats[idx] - getattr(args, f'{metric}_constraint')
                 for idx, metric in enumerate(compressor.accuracy_metrics)
             )
+    
+    def compare_dense_pruned_results(key, pruned_mappings, prefix=""):
+        df = pd.DataFrame(columns=['Unpruned', 'Pruned'], index=['Energy', 'Latency', 'EDP'])
+        df.loc['Energy', 'Unpruned'] = optimizer.energy_dict[key]
+        df.loc['Latency', 'Unpruned'] = optimizer.latency_dict[key]
+        df.loc['EDP', 'Unpruned'] = optimizer.energy_dict[key] * optimizer.latency_dict[key]
+        df.loc['Energy', 'Pruned'] = pruned_mappings.energy[key]
+        df.loc['Latency', 'Pruned'] = pruned_mappings.latency[key]
+        df.loc['EDP', 'Pruned'] = pruned_mappings.energy[key] * pruned_mappings.latency[key]
+        t = tabulate(df, headers='keys', tablefmt='psql', floatfmt=".3e")
+        logger.info(f"{prefix}Unpruned vs Pruned results for {key[0]} -> {key[1]}:\n{t}")
+
+    def get_scheduling_results(schedule, mapping, hetero_accel, prefix="", verbose=False):
+        total_area = sum([
+            mapping.area[single_accel] for single_accel in hetero_accel
+        ])
+        total_energy = sum([
+            mapping.energy[(entry.tag, entry.bin)] for entry in schedule.entries
+        ])
+        total_latency = max([
+            sum([
+                mapping.latency[(entry.tag, entry.bin)] for entry in entries
+            ]) for bin, entries in schedule.as_dict(main_key='bin').items()
+        ])
+        metrics = SimpleNamespace(energy=total_energy,
+                                  latency=total_latency,
+                                  edp=total_energy * total_latency,
+                                  area=total_area)
+
+        if verbose:
+            prefix = f"[{prefix}] " if prefix != "" else ""
+            logger.info(f"=> {prefix}schedule metrics:")
+            for metric, value in vars(metrics).items():
+                logger.info(f"\t{metric.capitalize()} = {value:.3e}")
+
+        return metrics
 
     # load measurements
     skip_mapping = False
@@ -400,6 +442,13 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
     if len(compressors) == 0:
         for arch, net_wrapper in workload.dnns.items():
             compressors[arch] = init_compressor(args, workload, arch, net_wrapper)
+
+    # evaluate the previous schedule with the unpruned mappings
+    unpruned_schedule = deepcopy(optimizer.latest_schedule)
+    unpruned_schedule_metrics = SimpleNamespace(energy=optimizer.latest_energy,
+                                                latency=optimizer.latest_latency,
+                                                edp=optimizer.latest_energy * optimizer.latest_latency,
+                                                area=optimizer.latest_area)
 
     logger.info("=> Beginning accelerator-aware pruning")
 
@@ -498,6 +547,7 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
                 # run timeloop and get results
                 optimizer.timeloop_wrapper.run(problem_name)
                 results = optimizer.timeloop_wrapper.get_results()
+                optimizer.timeloop_wrapper.cleanup()
                 energy += results.energy
                 latency += results.cycles
 
@@ -515,40 +565,37 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
         pickle.dump(pruned_mappings, f)
     logger.info(f"Saved pruned mappings in {savefile}")
 
-    total_area = sum([
-        pruned_mappings.area[single_accel] for single_accel in hetero_accel
-    ])
-
-    # execute final schedule
+    # execute and evaluate the final schedule with the pruned mappings
     schedule = optimizer.scheduler.run(items=list(compressors.keys()),
                                        bins=hetero_accel,
-                                       cost_dict=pruned_mappings.edp,
-                                       weight_dict=pruned_mappings.latency,
+                                       weight_dict=pruned_mappings.energy,
+                                       cost_dict=pruned_mappings.latency,
                                        solver_type=args.solver_type)
-    assert schedule is not None, f"Could not find valid final schedule!"
-
-    # get results for energy and latency based on the final schedule
-    total_energy = sum([
-        pruned_mappings.energy[(entry.tag, entry.bin)] for entry in schedule.entries
-    ])
-    total_latency = max([
-        sum([
-            pruned_mappings.latency[(entry.tag, entry.bin)] for entry in entries
-        ]) for bin, entries in schedule.as_dict(main_key='bin').items()
-    ])
-
-    # log the results of the scheduling
+    pruned_schedule_metrics = get_scheduling_results(schedule, pruned_mappings, hetero_accel,
+                                                     verbose=True, prefix=f"Pruned mappings, final")
     schedule_str = '\n\t'.join([f'{entry.tag} -> {entry.bin}' for entry in schedule.entries])
     logger.info(f"Scheduler results:\n\t{schedule_str}")
-    metrics = SimpleNamespace(energy=total_energy,
-                                latency=total_latency,
-                                edp=total_energy * total_latency,
-                                area=total_area)
-    logger.info(f"=> Final schedule metrics:")
-    for metric, value in vars(metrics).items():
-        logger.info(f"\t{metric.capitalize()} = {value:.3e}")
 
-    return schedule, metrics
+    # check if the pruned schedule is better than the unpruned one
+    if pruned_schedule_metrics.edp >= unpruned_schedule_metrics.edp:
+        # check if the previous schedule (but with pruned DNNs) is better than the final one
+        unpruned_schedule_updated_metrics = get_scheduling_results(unpruned_schedule, pruned_mappings, hetero_accel,
+                                                                verbose=True, prefix="Pruned mappings, previous")
+        if unpruned_schedule_updated_metrics.edp >= unpruned_schedule_metrics.edp:
+            # scheduling has failed: neither pruning nor another schedule improved the EDP    
+            for entry in unpruned_schedule.entries:
+                compare_dense_pruned_results((entry.tag, entry.bin), pruned_mappings)
+            raise ValueError("Pruning did not improve the EDP scheduling efficiency")
+        else:
+            logger.warning("Pruning did not improve the EDP scheduling efficiency, but the previous schedule is better")
+            logger.info("=> Using the previous schedule with pruned DNNs")
+            best_schedule = unpruned_schedule
+            final_metrics = unpruned_schedule_updated_metrics
+    else:
+        best_schedule = schedule
+        final_metrics = pruned_schedule_metrics
+
+    return best_schedule, final_metrics
 
 
 if __name__ == '__main__':

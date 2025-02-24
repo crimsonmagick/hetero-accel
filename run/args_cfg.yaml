@@ -10,7 +10,7 @@ app_args:
         solver_type: mthggreedyregret
         load_state_from: data/mixed/eyeriss/tight_constraint/best_state.sa.pkl
         skip_exploration: True
-        load_pruned_mappings_from: null  # data/classifiersB/eyeriss/pruned_mappings.pkl
+        load_pruned_mappings_from: data/mixed/eyeriss/tight_constraint/pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False

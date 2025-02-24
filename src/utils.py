@@ -133,9 +133,9 @@ def logging_cfg(args):
     )
 
     # disable logging for specific modules
-    for module_name in ['absl', 'matplotlib']:
-        logging.getLogger(module_name).setLevel(logging.WARN)
-    
+    for module_name in ['absl', 'matplotlib', 'PIL']:
+        logging.getLogger(module_name).setLevel(logging.WARNING)
+
     # save the experiment logging directory and file as root logger attributes
     logging.getLogger().logdir = logdir
     logging.getLogger().log_filename = log_filename
