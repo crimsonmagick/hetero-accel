@@ -7,7 +7,7 @@ SHELL ["/bin/bash", "--login", "-c"]
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && \
-	apt install -y git openssh-client wget curl pip vim htop tmux figlet toiletscons libboost-all-dev build-essential g++-9 \
+	apt install -y git openssh-client wget curl python3-pip vim htop tmux figlet toilet scons libboost-all-dev build-essential g++-9 \
 			   scons libconfig++-dev libboost-dev libboost-iostreams-dev libboost-serialization-dev libyaml-cpp-dev libncurses-dev libtinfo-dev libgpm-dev
 
 # use this instead of cloning the repo (private right now)
@@ -17,20 +17,22 @@ RUN mkdir -p /root/.ssh/ && \
 	ssh-keyscan github.com >> /root/.ssh/known_hosts
 # TODO: maybe use this to copy private key into image
 #RUN if [ -z "$DEVELOP_MODE" ]; then
-#COPY sth 
+
+
 WORKDIR /workspace
 RUN --mount=type=secret,id=ssh_id,target=/root/.ssh/id_rsa \
-	 git clone git@github.com:kompalas/hetero-accel.git
+    git clone --recurse-submodules git@github.com:kompalas/hetero-accel.git
 WORKDIR /workspace/hetero-accel
 
 # install generalized assignment solver
-RUN apt-get install apt-transport-https curl gnupg -y && \
-	curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor >bazel-archive-keyring.gpg && \
-	mv bazel-archive-keyring.gpg /usr/share/keyrings && \
-	echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8" | tee /etc/apt/sources.list.d/bazel.list && \
-	apt-get update && apt-get install bazel
-RUN cd generalizedassignmentsolver && \
-	bazel build -- //...
+RUN apt-get install apt-transport-https curl gnupg -y
+
+RUN curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor >bazel-archive-keyring.gpg
+RUN mv bazel-archive-keyring.gpg /usr/share/keyrings
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8" | tee /etc/apt/sources.list.d/bazel.list
+RUN apt-get update && apt-get install -y bazel-7.6.2 && \
+    ln -s /usr/bin/bazel-7.6.2 /usr/local/bin/bazel
+RUN cd generalizedassignmentsolver && bazel build //...
 
 # install anaconda
 ENV CONDA_DIR /opt/conda
