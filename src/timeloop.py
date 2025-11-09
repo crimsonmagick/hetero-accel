@@ -386,17 +386,17 @@ class TimeloopArch:
             use_default_flow_style = False
 
             # reload the component files with minor changes (quoting string values in yaml)
-            if do_components:
-                # use quotes only on 'nm' and 'ns' strings
-                filter_fn = None if self.type != AcceleratorType.Simba else \
-                            lambda entry: isinstance(entry, str) and ('ns' in entry or 'nm' in entry)
-
-                for component_file in self.component_files:
-                    with open(component_file, 'r') as stream:
-                        comp_cfg = yaml.safe_load(stream)
-                    force_quotes_on_str(comp_cfg, filter_fn=filter_fn)
-                    with open(component_file, 'w') as f:
-                        f.write(yaml.dump(comp_cfg, default_flow_style=False))
+            # if do_components:
+            #     # use quotes only on 'nm' and 'ns' strings
+            #     filter_fn = None if self.type != AcceleratorType.Simba else \
+            #                 lambda entry: isinstance(entry, str) and ('ns' in entry or 'nm' in entry)
+            #
+            #     for component_file in self.component_files:
+            #         with open(component_file, 'r') as stream:
+            #             comp_cfg = yaml.safe_load(stream)
+            #         force_quotes_on_str(comp_cfg, filter_fn=filter_fn)
+            #         with open(component_file, 'w') as f:
+            #             f.write(yaml.dump(comp_cfg, default_flow_style=False))
 
         if filepath is None:
             assert self.arch_filepath is not None
@@ -491,30 +491,30 @@ class TimeloopArch:
 
         params = {
             # MAC unit
-            'mac_datawidth': precision,
+            'mac_datawidth': precision, # multiplying activations/inpus * weights
             'mac_class': 'fpmac' if precision == 32 else 'intmac',
             # word bits of scratchpads/dummy register file
-            'ifmap_spad_word_bits': precision,
-            'weights_spad_word_bits': precision,
-            'psum_spad_word_bits': precision,
-            'regfile_word_bits': precision,
+            'ifmap_spad_word_bits': precision, #activations
+            'weights_spad_word_bits': precision, #weights
+            'psum_spad_word_bits': precision, # outputs from MAC units
+            'regfile_word_bits': precision, # memory used by MACs
             # width of scratchpads/dummy register file
             'ifmap_spad_width': self.adjust_mem_width('ifmap_spad',
                                                       precision,
                                                       self.init_params.ifmap_spad_block_size,
-                                                      getattr(self.params, 'ifmap_spad_cluster_size', 1)),
+                                                      getattr(self.params, 'ifmap_spad_cluster_size', 1)), #memory bus for ifmap (activations/input features)
             'weights_spad_width': self.adjust_mem_width('weights_spad',
                                                         precision,
                                                         self.init_params.weights_spad_block_size,
-                                                        getattr(self.params, 'weights_spad_cluster_size', 1)),
+                                                        getattr(self.params, 'weights_spad_cluster_size', 1)), #memory bus for weights
             'psum_spad_width': self.adjust_mem_width('psum_spad',
                                                      precision,
                                                      self.init_params.psum_spad_block_size,
-                                                     getattr(self.params, 'psum_spad_cluster_size', 1)),
+                                                     getattr(self.params, 'psum_spad_cluster_size', 1)), #partial sum/outputs from MAC units bus width
             'regfile_width': self.adjust_mem_width('dummy_regfile',
                                                    precision,
                                                    self.init_params.regfile_block_size,
-                                                   getattr(self.params, 'dummy_regfile_cluster_size', 1)),
+                                                   getattr(self.params, 'dummy_regfile_cluster_size', 1)), #bus width used by register files/used by MACs
         }
         self.adjust_params(params)
 
@@ -969,7 +969,7 @@ if __name__ == "__main__":
     tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
     prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
     # have the file already in the test_tl/yamls/ directory
-    shutil.copyfile(project_dir + f'/test_tl/{prob_name}.yaml', prob_fp)
+    shutil.copyfile(project_dir + f'/test_problems/{prob_name}.yaml', prob_fp)
 
     tw.workloads[prob_name] = SimpleNamespace()
     tw.workloads[prob_name].problem_filepath = prob_fp
