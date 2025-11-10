@@ -9,18 +9,18 @@ from time import time
 from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
+from net_wrapper import TorchNetworkWrapper
 from types import SimpleNamespace
 from src import eyeriss_timeloop_dir, simba_timeloop_dir, project_dir
 from src.accelerator_cfg import AcceleratorType
+from src.args import OptimizerType
 from src.utils import force_quotes_on_str
-
 
 __all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper']
 
 logger = logging.getLogger(__name__)
 
 TIMELOOP_ACCELERGY_VERSION = 0.4
-
 
 TimeloopStats = namedtuple('TimeloopStats', ['gflops', 'utilization', 'cycles',
                                              'energy', 'edp', 'area'])
@@ -29,6 +29,7 @@ TimeloopStats = namedtuple('TimeloopStats', ['gflops', 'utilization', 'cycles',
 class TimeloopWrapper:
     """Wrapper for Timeloop+Accelergy tool
     """
+
     def __init__(self, accelerator_type, workdir, workloads=None):
         self.template = TimeloopTemplate(accelerator_type)
         self.workdir = workdir
@@ -72,7 +73,7 @@ class TimeloopWrapper:
         self.arch = TimeloopArch(accelerator_type=accelerator_type,
                                  workdir=os.path.join(self.workdir, 'arch'),
                                  component_files=self.template.arch_components)
- 
+
     def init_mapper(self):
         """Initialize the mapper object for the mapping optimization
         """
@@ -82,6 +83,7 @@ class TimeloopWrapper:
         """Execute the Timeloop+Accelergy infrastructure via command-line
         """
         logfile = os.path.join(self.output_dir, 'timeloop-mapper.log')
+        path = os.environ.get("PATH")
         command = f'timeloop-mapper ' \
                   f'{self.arch.arch_filepath} ' \
                   f'{" ".join(self.arch.component_files)} ' \
@@ -101,6 +103,7 @@ class TimeloopWrapper:
            a script that does a more analytical parsing: 
            https://github.com/NVlabs/timeloop/blob/master/scripts/parse_timeloop_output.py#L55
         """
+
         def _get_area_from_ART(area_file=None):
             """Gather an area measurement from the ART file. Note, the area
                measurements in the file are per unit
@@ -124,21 +127,21 @@ class TimeloopWrapper:
 
         # NOTE: More results can be extracted here, but not needed for now
         gflops = re.search('GFLOPs .*?: ([\d.]+)', stats).group(1)
-        gflops = float(gflops)              # @1GHz
+        gflops = float(gflops)  # @1GHz
         utilization = re.search('Utilization: ([\d.]+)', stats).group(1)
-        utilization = float(utilization)    # non-unit
+        utilization = float(utilization)  # non-unit
         cycles = re.search('Cycles: ([\d.]+)', stats).group(1)
-        cycles = float(cycles)              # non-unit
+        cycles = float(cycles)  # non-unit
         energy = re.search('Energy: ([\d.]+)', stats).group(1)
-        energy = float(energy)              # uJ
+        energy = float(energy)  # uJ
         edp = re.search('EDP.*?: (.*)', stats).group(1)
-        edp = float(edp)                    # J * cycle
+        edp = float(edp)  # J * cycle
 
         # get the area in mm^2 from the stats file
         area = re.search('Area: ([\d.]+)', stats).group(1)
         # if area is 0.0 from the stats file, we override with ART values
         area = _get_area_from_ART() if float(area) <= 0.0 else float(area)
-            
+
         return TimeloopStats(gflops, utilization, cycles, energy, edp, area)
 
     def cleanup(self, override_outdir=None):
@@ -179,6 +182,7 @@ class TimeloopWrapper:
 class TimeloopTemplate:
     """Configuration environment for Timeloop files
     """
+
     def __init__(self, accelerator_type):
         if accelerator_type == AcceleratorType.Eyeriss:
             self.arch_components = glob(os.path.join(eyeriss_timeloop_dir, 'arch', 'components', '*.yaml'))
@@ -196,6 +200,7 @@ class TimeloopTemplate:
 class TimeloopProblem:
     """Utility class to handle and create a Timeloop-related workload
     """
+
     def __init__(self, name, problem_type, dimensions, problem_filepath):
         self.name = name
         self.dims = dimensions
@@ -203,7 +208,7 @@ class TimeloopProblem:
         self.config = None
 
         assert problem_type in ['Linear', 'Conv2d', 'AvgPool2d', 'MaxPool2d'], \
-               f"Layer of type {problem_type} is not supported"
+            f"Layer of type {problem_type} is not supported"
         self.problem_type = problem_type
         self.get_config()
         self.to_yaml()
@@ -320,6 +325,7 @@ class TimeloopArch:
     """Utility class to handle the architectural parameters of the accelerator
        when using timeloop
     """
+
     def __init__(self, accelerator_type, workdir, component_files):
         self.name = self.__class__.__name__
         self.workdir = workdir
@@ -343,7 +349,7 @@ class TimeloopArch:
             self.get_config = self._get_config_simba
             self.adjust = self._adjust_simba
             self.adjust_precision = self._adjust_precision_simba
-            
+
         else:
             raise NotImplementedError(f"Accelerator type {accelerator_type} is not supported")
 
@@ -360,7 +366,7 @@ class TimeloopArch:
         for component_file in self.component_files:
             with open(component_file, 'r') as stream:
                 yaml_dict = yaml.safe_load(stream)
-            
+
             if 'compound_components' in yaml_dict:
                 yaml_dict['compound_components']['version'] = TIMELOOP_ACCELERGY_VERSION
             else:
@@ -419,7 +425,7 @@ class TimeloopArch:
         """Adjust the dimensions of the PE array
         """
         if self.params.pe_array_x == pe_x and \
-           self.params.pe_array_y == pe_y:
+                self.params.pe_array_y == pe_y:
             return
 
         params = {'pe_array_x': pe_x,
@@ -451,7 +457,6 @@ class TimeloopArch:
             f"{buffer_name}: Instances ({self.params.pe_array_x}) are not dividable by cluster_size " \
             f"({cluster_size} = {width} / ({word_bits} * {block_size}))"
         return width
-
 
     ### Accelerator-specific functions: Eyeriss ###
 
@@ -491,30 +496,34 @@ class TimeloopArch:
 
         params = {
             # MAC unit
-            'mac_datawidth': precision, # multiplying activations/inpus * weights
+            'mac_datawidth': precision,  # multiplying activations/inpus * weights
             'mac_class': 'fpmac' if precision == 32 else 'intmac',
             # word bits of scratchpads/dummy register file
-            'ifmap_spad_word_bits': precision, #activations
-            'weights_spad_word_bits': precision, #weights
-            'psum_spad_word_bits': precision, # outputs from MAC units
-            'regfile_word_bits': precision, # memory used by MACs
+            'ifmap_spad_word_bits': precision,  # activations
+            'weights_spad_word_bits': precision,  # weights
+            'psum_spad_word_bits': precision,  # outputs from MAC units
+            'regfile_word_bits': precision,  # memory used by MACs
             # width of scratchpads/dummy register file
             'ifmap_spad_width': self.adjust_mem_width('ifmap_spad',
                                                       precision,
                                                       self.init_params.ifmap_spad_block_size,
-                                                      getattr(self.params, 'ifmap_spad_cluster_size', 1)), #memory bus for ifmap (activations/input features)
+                                                      getattr(self.params, 'ifmap_spad_cluster_size', 1)),
+            # memory bus for ifmap (activations/input features)
             'weights_spad_width': self.adjust_mem_width('weights_spad',
                                                         precision,
                                                         self.init_params.weights_spad_block_size,
-                                                        getattr(self.params, 'weights_spad_cluster_size', 1)), #memory bus for weights
+                                                        getattr(self.params, 'weights_spad_cluster_size', 1)),
+            # memory bus for weights
             'psum_spad_width': self.adjust_mem_width('psum_spad',
                                                      precision,
                                                      self.init_params.psum_spad_block_size,
-                                                     getattr(self.params, 'psum_spad_cluster_size', 1)), #partial sum/outputs from MAC units bus width
+                                                     getattr(self.params, 'psum_spad_cluster_size', 1)),
+            # partial sum/outputs from MAC units bus width
             'regfile_width': self.adjust_mem_width('dummy_regfile',
                                                    precision,
                                                    self.init_params.regfile_block_size,
-                                                   getattr(self.params, 'dummy_regfile_cluster_size', 1)), #bus width used by register files/used by MACs
+                                                   getattr(self.params, 'dummy_regfile_cluster_size', 1)),
+            # bus width used by register files/used by MACs
         }
         self.adjust_params(params)
 
@@ -816,9 +825,9 @@ class TimeloopArch:
                 }
             }
         ]
-        
+
         level2 = {}
-        level2['name'] = 'simba' # 'ws' in template file
+        level2['name'] = 'simba'  # 'ws' in template file
         level2['local'] = [
             {
                 'name': 'GlobalBuffer',
@@ -907,6 +916,7 @@ class TimeloopArch:
 class TimeloopMapper:
     """Utility wrapper class fot the mapping optimizer
     """
+
     def __init__(self, mapper_file):
         self.mapper_filepath = mapper_file
         self.get_params()
@@ -964,17 +974,29 @@ if __name__ == "__main__":
     accel_type = AcceleratorType.Eyeriss
     DO_EXPLORATION = False
     # prob_name = 'resnet18__layer0_conv1'
-    prob_name = 'vgg13__layer0_features.0'
+    # prob_name = 'vgg13__layer0_features.0'
 
     tw = TimeloopWrapper(accel_type, project_dir + '/test_tl')
-    prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
-    # have the file already in the test_tl/yamls/ directory
-    shutil.copyfile(project_dir + f'/test_problems/{prob_name}.yaml', prob_fp)
 
-    tw.workloads[prob_name] = SimpleNamespace()
-    tw.workloads[prob_name].problem_filepath = prob_fp
+    # prob_fp = os.path.join(tw.workload_dir, prob_name + '.yaml')
+    # have the file already in the test_tl/yamls/ directory
+    # shutil.copyfile(project_dir + f'/test_problems/{prob_name}.yaml', prob_fp)
+
+    # tw.workloads[prob_name] = SimpleNamespace()
+    # tw.workloads[prob_name].problem_filepath = prob_fp
+
+    model_config = SimpleNamespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False,
+                                   load_serialized=False, pretrained=True, resumed_checkpoint_path=None, optimizer_type=
+                                   OptimizerType.Adam, print_frequency=100, verbose=True,
+                                   logdir='/home/welby/workspace/hetero-accel/logs/baseline___2025.11.10-01.20.36.915')
+    prob_name = "conv_test"
+    net_wrapper = TorchNetworkWrapper(model_config)
+    to_serialize = net_wrapper.summary['module.conv1']
+    tw.init_problem(prob_name, "Conv2d", to_serialize.dimensions)
+
 
     from src.accelerator_cfg import AcceleratorProfile
+
     accel_cfg = AcceleratorProfile(accel_type)
 
     if accel_type == AcceleratorType.Eyeriss:
@@ -1001,25 +1023,29 @@ if __name__ == "__main__":
     results = tw.get_results()
     print(results._asdict())
 
-    if DO_EXPLORATION and accel_type == AcceleratorType.Simba:
-        from random import choices
-        to_sample = 2
-        for pex in choices(accel_cfg.design_space['pe_array_x'], k=to_sample):
-            for pey in choices(accel_cfg.design_space['pe_array_y'], k=to_sample):
-                for precision in choices(accel_cfg.design_space['precision'], k=to_sample):
-                    for sram_size in choices(accel_cfg.design_space['sram_size'], k=to_sample):
-                        for inpbuf in choices(accel_cfg.design_space['input_buffer_size'], k=to_sample):
-                            for wbuf in choices(accel_cfg.design_space['weight_buffer_size'], k=to_sample):
-                                for accumbuf in choices(accel_cfg.design_space['accum_buffer_size'], k=to_sample):
-                                    accel = accel_cfg.state(pe_array_x=pex,
-                                                            pe_array_y=pey,
-                                                            precision=precision,
-                                                            sram_size=sram_size,
-                                                            input_buffer_size=inpbuf,
-                                                            weight_buffer_size=wbuf,
-                                                            accum_buffer_size=accumbuf)
+    # namespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False, load_serialized=False,
+    #           pretrained=True, resumed_checkpoint_path=None, optimizer_type= < OptimizerType.Adam: 2 >, print_frequency = 100, verbose = False,
+    # logdir = '/home/welby/workspace/hetero-accel/logs/baseline___2025.11.10-01.20.36.915')
 
-                                    tw.adjust_architecture(accel, adjust_components=True)
-                                    p = tw.run(prob_name)
-                                    results = tw.get_results()
-                                    print(results._asdict())
+    # if DO_EXPLORATION and accel_type == AcceleratorType.Simba:
+    #     from random import choices
+    #     to_sample = 2
+    #     for pex in choices(accel_cfg.design_space['pe_array_x'], k=to_sample):
+    #         for pey in choices(accel_cfg.design_space['pe_array_y'], k=to_sample):
+    #             for precision in choices(accel_cfg.design_space['precision'], k=to_sample):
+    #                 for sram_size in choices(accel_cfg.design_space['sram_size'], k=to_sample):
+    #                     for inpbuf in choices(accel_cfg.design_space['input_buffer_size'], k=to_sample):
+    #                         for wbuf in choices(accel_cfg.design_space['weight_buffer_size'], k=to_sample):
+    #                             for accumbuf in choices(accel_cfg.design_space['accum_buffer_size'], k=to_sample):
+    #                                 accel = accel_cfg.state(pe_array_x=pex,
+    #                                                         pe_array_y=pey,
+    #                                                         precision=precision,
+    #                                                         sram_size=sram_size,
+    #                                                         input_buffer_size=inpbuf,
+    #                                                         weight_buffer_size=wbuf,
+    #                                                         accum_buffer_size=accumbuf)
+    #
+    #                                 tw.adjust_architecture(accel, adjust_components=True)
+    #                                 p = tw.run(prob_name)
+    #                                 results = tw.get_results()
+    #                                 print(results._asdict())
