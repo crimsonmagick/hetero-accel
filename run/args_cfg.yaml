@@ -5,12 +5,12 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-        dnn_accuracy_lut_file: data/mixed/lut.csv
+#        dnn_accuracy_lut_file: data/mixed/lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
-        load_state_from: data/mixed/eyeriss/tight_constraint/best_state.sa.pkl
-        skip_exploration: True
-        load_pruned_mappings_from: data/mixed/eyeriss/tight_constraint/pruned_mappings.pkl
+#        load_state_from: data/mixed/eyeriss/tight_constraint/best_state.sa.pkl
+        skip_exploration: False
+#        load_pruned_mappings_from: data/mixed/eyeriss/tight_constraint/pruned_mappings.pkl
 
 dnn_op_mode_args:
         evaluate_model_mode: False
@@ -64,7 +64,7 @@ simanneal_args:
         simanneal_Tmax: 25000.0
         simanneal_Ttmin: 2.5
         simanneal_steps: 50
-        simanneal_updates: 25
+#        simanneal_updates: 25 # NOT USED
         simanneal_auto_schedule: False
         simanneal_optimization_metric: edp_artificial
 

@@ -11,7 +11,7 @@ import torchvision.datasets as datasets
 import torchtext
 from functools import partial
 from src.dataset_utils import VOCDetTransform, get_voc_seg_transform, get_coco_transform
-
+from src.datasets.imagenet_dataset import ImagenetDataset
 
 logger = logging.getLogger(__name__)
 
@@ -191,47 +191,59 @@ def get_cifar100_dataset(cifar100_path, arch, load_train, load_test):
 
     return train_dataset, test_dataset
 
-
 def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
-    """Load the ImageNet dataset according to:
-       https://github.com/pytorch/examples/blob/main/imagenet/main.py
-    """
-    if 'inception' in arch.lower():
-        resize, crop = 336, 299
-    else:
-        resize, crop = 256, 224
+    transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
 
-    if 'googlenet' in arch.lower():
-        mean=[0.5, 0.5, 0.5]
-        std=[0.5, 0.5, 0.5]
-    else:
-        mean=[0.485, 0.456, 0.406]
-        std=[0.229, 0.224, 0.225]
+    test_dataset = ImagenetDataset(f"{data_dir}/ILSVRC2012_validation_label.txt",
+                              f"{data_dir}/val", transform=transform)
+    return None, test_dataset
 
-    train_dir = os.path.join(data_dir, 'train')
-    test_dir = os.path.join(data_dir, 'val')
-
-    train_dataset = None
-    if load_train:
-        train_transform = transforms.Compose([
-            transforms.RandomResizedCrop(crop),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-             transforms.Normalize(mean, std),
-        ])
-        train_dataset = datasets.ImageFolder(train_dir, train_transform)
-
-    test_dataset = None
-    if load_test:
-        test_transform = transforms.Compose([
-            transforms.Resize(resize),
-            transforms.CenterCrop(crop),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std),
-        ])
-        test_dataset = datasets.ImageFolder(test_dir, test_transform)
-
-    return train_dataset, test_dataset
+# def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
+#     """Load the ImageNet dataset according to:
+#        https://github.com/pytorch/examples/blob/main/imagenet/main.py
+#     """
+#     if 'inception' in arch.lower():
+#         resize, crop = 336, 299
+#     else:
+#         resize, crop = 256, 224
+#
+#     if 'googlenet' in arch.lower():
+#         mean=[0.5, 0.5, 0.5]
+#         std=[0.5, 0.5, 0.5]
+#     else:
+#         mean=[0.485, 0.456, 0.406]
+#         std=[0.229, 0.224, 0.225]
+#
+#     train_dir = os.path.join(data_dir, 'train')
+#     test_dir = os.path.join(data_dir, 'val')
+#
+#     train_dataset = None
+#     if load_train:
+#         train_transform = transforms.Compose([
+#             transforms.RandomResizedCrop(crop),
+#             transforms.RandomHorizontalFlip(),
+#             transforms.ToTensor(),
+#              transforms.Normalize(mean, std),
+#         ])
+#         train_dataset = datasets.ImageFolder(train_dir, train_transform)
+#
+#     test_dataset = None
+#     if load_test:
+#         test_transform = transforms.Compose([
+#             transforms.Resize(resize),
+#             transforms.CenterCrop(crop),
+#             transforms.ToTensor(),
+#             transforms.Normalize(mean, std),
+#         ])
+#         test_dataset = datasets.ImageFolder(test_dir, test_transform)
+#
+#     return train_dataset, test_dataset
 
 
 def get_tinyimagenet_dataset(data_dir, load_train=True, load_test=True):

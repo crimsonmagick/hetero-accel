@@ -9,7 +9,7 @@ from time import time
 from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
-from net_wrapper import TorchNetworkWrapper
+from src.net_wrapper import TorchNetworkWrapper
 from types import SimpleNamespace
 from src import eyeriss_timeloop_dir, simba_timeloop_dir, project_dir
 from src.accelerator_cfg import AcceleratorType
@@ -987,8 +987,7 @@ if __name__ == "__main__":
 
     model_config = SimpleNamespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False,
                                    load_serialized=False, pretrained=True, resumed_checkpoint_path=None, optimizer_type=
-                                   OptimizerType.Adam, print_frequency=100, verbose=True,
-                                   logdir='/home/welby/workspace/hetero-accel/logs/baseline___2025.11.10-01.20.36.915')
+                                   OptimizerType.Adam, print_frequency=100, verbose=True)
     prob_name = "conv_test"
     net_wrapper = TorchNetworkWrapper(model_config)
     to_serialize = net_wrapper.summary['module.conv1']
@@ -1021,7 +1020,12 @@ if __name__ == "__main__":
     tw.cleanup()
     p = tw.run(prob_name)
     results = tw.get_results()
+    print(net_wrapper.summary.keys())
     print(results._asdict())
+    for v in net_wrapper.summary.values():
+        print(v.layer_type)
+    # 'Linear', 'Conv2d', 'AvgPool2d', 'MaxPool2d'
+
 
     # namespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False, load_serialized=False,
     #           pretrained=True, resumed_checkpoint_path=None, optimizer_type= < OptimizerType.Adam: 2 >, print_frequency = 100, verbose = False,

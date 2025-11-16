@@ -108,7 +108,12 @@ workloads:
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
 #
-#  Mixed:
+  Mixed:
+    - arch: resnet50
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
 #    - arch: resnet18
 #      dataset: cifar10
 #      pretrained: true

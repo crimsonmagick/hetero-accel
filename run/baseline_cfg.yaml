@@ -11,7 +11,7 @@ app_args:
         solver_type: mthggreedyregret
 
 dnn_op_mode_args:
-        evaluate_model_mode: True
+        evaluate_model_mode: False
         train_model_mode: False
         test_timeloop_accelergy_mode: False
         test_pruning_quant_mode: False
