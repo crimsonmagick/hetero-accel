@@ -21,8 +21,10 @@ create_directory "$local_directory/bin"
 create_directory "$local_directory/share"
 mkdir -p "$HOME/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/"
 
-curl -L -o "$HOME/.local/bin/bazel" "https://github.com/bazelbuild/bazel/releases/download/7.7.1/bazel-7.7.1-linux-x86_64"
-chmod 777 "$HOME/.local/bin/bazel"
+if [ ! -f "$local_directory/bin/bazel" ]; then
+  curl -L -o "$HOME/.local/bin/bazel" "https://github.com/bazelbuild/bazel/releases/download/7.7.1/bazel-7.7.1-linux-x86_64"
+  chmod 755 "$HOME/.local/bin/bazel"
+fi
 
 # create venv, install project requirements
 if [ ! -d "$VENV_NAME" ]; then
@@ -49,10 +51,31 @@ cp -r accelergy-timeloop-infrastructure/src/cacti "$HOME/.local/share/accelergy/
 pip3 install accelergy-timeloop-infrastructure/src/accelergy-table-based-plug-ins
 ln -s  accelergy-timeloop-infrastructure/src/timeloop/pat-public/src/pat accelergy-timeloop-infrastructure/src/timeloop/src
 scons -C accelergy-timeloop-infrastructure/src/timeloop -j4 --accelergy --static
-cp -r accelergy-timeloop-infrastructure/src/timeloop-* ~/.local/bin
+cp -r accelergy-timeloop-infrastructure/src/timeloop/build/timeloop-* ~/.local/bin
 
-cd generalizedassignmentsolver
+cd generalizedassignmentsolver || { echo "Failed to enter generalizedassignmentsolver directory, aborting"; exit 1; }
 bazel build -- ...
 cd ..
 
 deactivate
+
+# adding dirs to PATH as necessary
+DIRS=("$HOME/.local/bin" "$HOME/.local/share")
+
+for TARGET_DIR in "${DIRS[@]}"; do
+    # Check if directory is already in PATH
+    if [[ ":$PATH:" == *":$TARGET_DIR:"* ]]; then
+        echo "$TARGET_DIR already in PATH"
+    else
+        echo "Adding $TARGET_DIR to PATH in ~/.bashrc"
+
+        # Only add if not already in bashrc
+        if ! grep -qF "$TARGET_DIR" "$HOME/.bashrc"; then
+            echo "export PATH=\"\$PATH:$TARGET_DIR\"" >> "$HOME/.bashrc"
+        else
+            echo " - Skipped: $TARGET_DIR already present in ~/.bashrc"
+        fi
+    fi
+done
+
+source "$HOME/.bashrc"

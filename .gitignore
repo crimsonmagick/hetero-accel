@@ -12,3 +12,6 @@ test_tl/
 saved_logs/
 dnn_workloads/
 .ipynb_checkpoints/
+.venv
+.vence
+.idea
