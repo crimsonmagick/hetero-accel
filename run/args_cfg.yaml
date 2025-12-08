@@ -21,8 +21,8 @@ dnn_op_mode_args:
 
 workload_args:
         workload_idx: Mixed
-        workers: 15
-        batch_size: 128
+        workers: 16
+        batch_size: 32
         load_serialized: False
         gpus: 0
         cpu: False
