@@ -40,7 +40,8 @@ else
   echo "$VENV_NAME venv already exists, continuing."
 fi
 
-. $VENV_NAME/bin/activate
+activate_venv=$VENV_NAME/bin/activate
+source activate_venv
 pip3 install -r setup/requirements.txt
 
 make -C accelergy-timeloop-infrastructure/src/cacti -f accelergy-timeloop-infrastructure/src/cacti/makefile
@@ -78,4 +79,20 @@ for TARGET_DIR in "${DIRS[@]}"; do
     fi
 done
 
+imagenet_dir=../data/Imagenet
+if [ ! -d $imagenet_dir ]; then
+    echo "$imagenet_dir does not exist."
+    mkdir -p $imagenet_dir
+    if [ $? -eq 0 ]; then
+      echo "Created $imagenet_dir successfully"
+    else
+      echo "Failed to create $imagenet_dir. Ending script early..."
+      exit
+    fi
+    cp -r setup/data/Imagenet $imagenet_dir
+    ln -s /data/imagenet $imagenet_dir/val
+else
+  echo "imagenet_dir already exists, continuing."
+fi
 source "$HOME/.bashrc"
+source activate_venv
