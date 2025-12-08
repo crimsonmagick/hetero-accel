@@ -88,7 +88,7 @@ if [ ! -d $imagenet_dir ]; then
       echo "Failed to create $imagenet_dir. Ending script early..."
       return 1
     fi
-    cp -r setup/data/Imagenet $imagenet_dir
+    cp -r setup/data/Imagenet/* $imagenet_dir
     ln -s /data/imagenet $imagenet_dir/val
 else
   echo "imagenet_dir already exists, continuing."
