@@ -46,7 +46,7 @@ class TimeloopWrapper:
         os.makedirs(workload_dir, exist_ok=True)
         self.workload_dir = workload_dir
         constraint_dir = os.path.join(self.workdir, 'constraints')
-        os.makedirs(constraint_dir, existis_valid_ok=True)
+        os.makedirs(constraint_dir, exist_ok=True)
         self.constraint_dir = constraint_dir
         output_dir = os.path.join(self.workdir, 'output')
         os.makedirs(output_dir, exist_ok=True)
