@@ -125,7 +125,7 @@ Test your Timeloop + Accelergy Installation:
 PYTHONPATH=. python3 src/timeloop.py
 ```
 
-Run the full process annealing simulation:
+Run the full annealing simulation:
 ```
 python3 main.py --yaml-cfg-file run/args_cfg.yaml --workload-cfg-file run/workloads.yaml
 ```

@@ -985,7 +985,7 @@ if __name__ == "__main__":
     # tw.workloads[prob_name] = SimpleNamespace()
     # tw.workloads[prob_name].problem_filepath = prob_fp
 
-    model_config = SimpleNamespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False,
+    model_config = SimpleNamespace(arch='resnet50', dataset='imagenet', batch_size=1, gpus=0, cpu=False,
                                    load_serialized=False, pretrained=True, resumed_checkpoint_path=None, optimizer_type=
                                    OptimizerType.Adam, print_frequency=100, verbose=True)
     prob_name = "conv_test"
