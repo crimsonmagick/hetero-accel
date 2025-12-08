@@ -56,7 +56,7 @@ if [ ! -d "$VENV_NAME" ]; then
       echo "Created $VENV_NAME successfully"
     else
       echo "Failed to create venv $VENV_NAME. Ending script early..."
-      exit
+      return 1
     fi
 else
   echo "$VENV_NAME venv already exists, continuing."
@@ -74,7 +74,7 @@ pip3 install accelergy-timeloop-infrastructure/src/accelergy-table-based-plug-in
 ln -s "$(pwd)/accelergy-timeloop-infrastructure/src/timeloop/pat-public/src/pat" accelergy-timeloop-infrastructure/src/timeloop/src/pat
 scons -C accelergy-timeloop-infrastructure/src/timeloop -j4 --accelergy --static
 cp -r accelergy-timeloop-infrastructure/src/timeloop/build/timeloop-* ~/.local/bin
-cd generalizedassignmentsolver || { echo "Failed to enter generalizedassignmentsolver directory, aborting"; exit 1; }
+cd generalizedassignmentsolver || { echo "Failed to enter generalizedassignmentsolver directory, aborting"; return 1; }
 bazel build -- ...
 cd ..
 
@@ -86,11 +86,10 @@ if [ ! -d $imagenet_dir ]; then
       echo "Created $imagenet_dir successfully"
     else
       echo "Failed to create $imagenet_dir. Ending script early..."
-      exit
+      return 1
     fi
     cp -r setup/data/Imagenet $imagenet_dir
     ln -s /data/imagenet $imagenet_dir/val
 else
   echo "imagenet_dir already exists, continuing."
 fi
-deactivate
