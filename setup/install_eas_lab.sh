@@ -62,8 +62,7 @@ else
   echo "$VENV_NAME venv already exists, continuing."
 fi
 
-activate_venv=$VENV_NAME/bin/activate
-source $activate_venv
+source $VENV_NAME/bin/activate
 pip3 install -r setup/requirements.txt
 
 make -C accelergy-timeloop-infrastructure/src/cacti -f makefile
@@ -94,4 +93,4 @@ if [ ! -d $imagenet_dir ]; then
 else
   echo "imagenet_dir already exists, continuing."
 fi
-deactiavte
+deactivate
