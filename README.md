@@ -98,3 +98,34 @@ For related work (HDA-Q method):
   publisher={IEEE}
 }
 ```
+
+## EAS Lab Installation
+
+### Clone and Build
+Git with SSH:
+```
+git clone git@github.com:crimsonmagick/hetero-accel.git \
+    && cd hetero-accel/  \
+    && . ./setup/install_eas_lab.sh
+```
+
+OR
+
+Git with HTTPS:
+```
+git clone https://github.com/crimsonmagick/hetero-accel.git \
+    && cd hetero-accel/  \
+    && . ./setup/install_eas_lab.sh
+```
+
+### Test Your Installation
+
+Test your Timeloop + Accelergy Installation:
+```
+PYTHONPATH=. python3 src/timeloop.py
+```
+
+Run the full process annealing simulation:
+```
+python3 main.py --yaml-cfg-file run/args_cfg.yaml --workload-cfg-file run/workloads.yaml
+```
