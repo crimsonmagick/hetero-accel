@@ -21,6 +21,27 @@ create_directory "$local_directory/bin"
 create_directory "$local_directory/share"
 mkdir -p "$HOME/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/"
 
+
+# adding dirs to PATH as necessary
+DIRS=("$HOME/.local/bin" "$HOME/.local/share")
+
+for TARGET_DIR in "${DIRS[@]}"; do
+    # Check if directory is already in PATH
+    if [[ ":$PATH:" == *":$TARGET_DIR:"* ]]; then
+        echo "$TARGET_DIR already in PATH"
+    else
+        echo "Adding $TARGET_DIR to PATH in ~/.bashrc"
+
+        # Only add if not already in bashrc
+        if ! grep -qF "$TARGET_DIR" "$HOME/.bashrc"; then
+            echo "export PATH=\"\$PATH:$TARGET_DIR\"" >> "$HOME/.bashrc"
+        else
+            echo " - Skipped: $TARGET_DIR already present in ~/.bashrc"
+        fi
+    fi
+done
+
+# install bazel build system
 if [ ! -f "$local_directory/bin/bazel" ]; then
   curl -L -o "$HOME/.local/bin/bazel" "https://github.com/bazelbuild/bazel/releases/download/7.7.1/bazel-7.7.1-linux-x86_64"
   chmod 755 "$HOME/.local/bin/bazel"
@@ -59,25 +80,6 @@ bazel build -- ...
 cd ..
 
 deactivate
-
-# adding dirs to PATH as necessary
-DIRS=("$HOME/.local/bin" "$HOME/.local/share")
-
-for TARGET_DIR in "${DIRS[@]}"; do
-    # Check if directory is already in PATH
-    if [[ ":$PATH:" == *":$TARGET_DIR:"* ]]; then
-        echo "$TARGET_DIR already in PATH"
-    else
-        echo "Adding $TARGET_DIR to PATH in ~/.bashrc"
-
-        # Only add if not already in bashrc
-        if ! grep -qF "$TARGET_DIR" "$HOME/.bashrc"; then
-            echo "export PATH=\"\$PATH:$TARGET_DIR\"" >> "$HOME/.bashrc"
-        else
-            echo " - Skipped: $TARGET_DIR already present in ~/.bashrc"
-        fi
-    fi
-done
 
 imagenet_dir=../data/Imagenet
 if [ ! -d $imagenet_dir ]; then
