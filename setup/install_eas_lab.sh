@@ -41,6 +41,8 @@ for TARGET_DIR in "${DIRS[@]}"; do
     fi
 done
 
+source ~/.bashrc
+
 # install bazel build system
 if [ ! -f "$local_directory/bin/bazel" ]; then
   curl -L -o "$HOME/.local/bin/bazel" "https://github.com/bazelbuild/bazel/releases/download/7.7.1/bazel-7.7.1-linux-x86_64"
@@ -65,21 +67,18 @@ activate_venv=$VENV_NAME/bin/activate
 source $activate_venv
 pip3 install -r setup/requirements.txt
 
-make -C accelergy-timeloop-infrastructure/src/cacti -f accelergy-timeloop-infrastructure/src/cacti/makefile
+make -C accelergy-timeloop-infrastructure/src/cacti -f makefile
 pip3 install accelergy-timeloop-infrastructure/src/accelergy
 pip3 install accelergy-timeloop-infrastructure/src/accelergy-aladdin-plug-in
 pip3 install accelergy-timeloop-infrastructure/src/accelergy-cacti-plug-in
 cp -r accelergy-timeloop-infrastructure/src/cacti "$HOME/.local/share/accelergy/estimation_plug_ins/accelergy-cacti-plug-in/"
 pip3 install accelergy-timeloop-infrastructure/src/accelergy-table-based-plug-ins
-ln -s  accelergy-timeloop-infrastructure/src/timeloop/pat-public/src/pat accelergy-timeloop-infrastructure/src/timeloop/src
+ln -s "$(pwd)/accelergy-timeloop-infrastructure/src/timeloop/pat-public/src/pat" accelergy-timeloop-infrastructure/src/timeloop/src/pat
 scons -C accelergy-timeloop-infrastructure/src/timeloop -j4 --accelergy --static
 cp -r accelergy-timeloop-infrastructure/src/timeloop/build/timeloop-* ~/.local/bin
-
 cd generalizedassignmentsolver || { echo "Failed to enter generalizedassignmentsolver directory, aborting"; exit 1; }
 bazel build -- ...
 cd ..
-
-deactivate
 
 imagenet_dir=../data/Imagenet
 if [ ! -d $imagenet_dir ]; then
@@ -96,5 +95,3 @@ if [ ! -d $imagenet_dir ]; then
 else
   echo "imagenet_dir already exists, continuing."
 fi
-source "$HOME/.bashrc"
-source $activate_venv
