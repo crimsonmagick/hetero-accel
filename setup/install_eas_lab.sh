@@ -35,13 +35,12 @@ for TARGET_DIR in "${DIRS[@]}"; do
         # Only add if not already in bashrc
         if ! grep -qF "$TARGET_DIR" "$HOME/.bashrc"; then
             echo "export PATH=\"\$PATH:$TARGET_DIR\"" >> "$HOME/.bashrc"
+            export PATH=\"\$PATH:$TARGET_DIR\"
         else
             echo " - Skipped: $TARGET_DIR already present in ~/.bashrc"
         fi
     fi
 done
-
-source ~/.bashrc
 
 # install bazel build system
 if [ ! -f "$local_directory/bin/bazel" ]; then
@@ -95,3 +94,4 @@ if [ ! -d $imagenet_dir ]; then
 else
   echo "imagenet_dir already exists, continuing."
 fi
+deactiavte
