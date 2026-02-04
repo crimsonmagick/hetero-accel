@@ -698,9 +698,10 @@ def handle_model_subapps(net_wrapper, data_loaders, args):
 
     # perform training on DNN model
     elif args.train_model_mode:
-        net_wrapper.args.verbose = True
-        net_wrapper.args.print_frequency = args.batch_print_frequency
-        net_wrapper.train(args.train_epochs, train_loader)
+        net_wrapper.verbose = True
+        # net_wrapper.train(args.train_epochs, train_loader)
+        net_wrapper.train(1500, train_loader)
+        net_wrapper.save_model(verbose=True)
         do_exit = True
 
     elif args.model_summary_mode:

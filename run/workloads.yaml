@@ -11,12 +11,12 @@ workloads:
 #      batch_print_frequency: 5
 #      batch_size: 1
 #
-#  ClassifiersA:
-#    - arch: vgg11
-#      dataset: cifar10
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
+  ClassifiersA:
+    - arch: vgg11
+      dataset: cifar10
+      pretrained: false
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
 #    - arch: resnet18
 #      dataset: cifar10
 #      pretrained: true
@@ -64,11 +64,11 @@ workloads:
 #      pretrained: true
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
-    - arch: resnet50
-      dataset: imagenet
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
+#    - arch: resnet50
+#      dataset: imagenet
+#      pretrained: true
+#      resumed_checkpoint_path: null
+#      batch_print_frequency: 100
 #    - arch: googlenet
 #      dataset: imagenet
 #      pretrained: true
@@ -109,14 +109,14 @@ workloads:
 #      batch_print_frequency: 100
 #
   Mixed:
-    - arch: resnet50
-      dataset: imagenet
-      pretrained: true
-      resumed_checkpoint_path: null
-      batch_print_frequency: 100
+#    - arch: resnet50
+#      dataset: imagenet
+#      pretrained: true
+#      resumed_checkpoint_path: null
+#      batch_print_frequency: 100
 #    - arch: resnet18
 #      dataset: cifar10
-#      pretrained: true
+#      pretrained: false
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
 #    - arch: vgg16

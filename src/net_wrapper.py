@@ -20,6 +20,8 @@ class TorchNetworkWrapper:
     """DNN wrapper with training/testing functionality
     """
     def __init__(self, args, model=None):
+        self.print_frequency = None
+        self.verbose = None
         for name, value in vars(args).items():
             setattr(self, name, value)
 

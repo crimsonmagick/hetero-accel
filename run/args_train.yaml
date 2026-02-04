@@ -14,13 +14,13 @@ app_args:
 
 dnn_op_mode_args:
         evaluate_model_mode: False
-        train_model_mode: False
+        train_model_mode: True
         test_timeloop_accelergy_mode: False
         test_pruning_quant_mode: False
         model_summary_mode: null
 
 workload_args:
-        workload_idx: ClassifiersA
+        workload_idx: Mixed
         workers: 16
         batch_size: 32
         load_serialized: False
