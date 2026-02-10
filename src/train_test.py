@@ -2,11 +2,9 @@ import logging
 import time
 import math
 import torch
-import torch.nn.functional as F
 import torchnet.meter as tnt
 from collections import OrderedDict
 from src.utils import log_training_progress 
-from src.models import DNNType
 
 
 logger = logging.getLogger(__name__)

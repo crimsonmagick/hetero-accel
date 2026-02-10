@@ -3,7 +3,6 @@ import logging
 import re
 import os.path
 from types import SimpleNamespace
-from pycocotools.coco import COCO
 from src import pretrained_checkpoint_paths, dataset_dirs
 from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
 from src.meter import *

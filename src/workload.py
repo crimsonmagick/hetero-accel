@@ -1,5 +1,4 @@
 import logging
-from src.models import DNNType
 
 
 logger = logging.getLogger(__name__)

@@ -3,11 +3,6 @@ import logging
 import torchvision.models as torch_models
 from enum import Enum
 from . import image_classification as ic_models
-from . import image_segmentation as is_models
-from . import object_detection as od_models
-from . import text_classification as tc_models
-from . import machine_translation as mt_models
-from . import video_processing as vp_models
 
 
 logger = logging.getLogger(__name__)
@@ -38,13 +33,6 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
             'cifar10': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 32, 32)),
             'cifar100': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 32, 32)),
             'imagenet': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 224, 224)),
-            'voc_seg': (create_image_segmentation_model, DNNType.SemanticSegmantation, (batch_size, 3, 520, 520)),
-            'voc_det': (create_object_detection_model, DNNType.ObjectDetection, (batch_size, 3, 320, 320)),
-            'coco': (create_object_detection_model, DNNType.ObjectDetection, (batch_size, 3, 300, 300)),
-            'sst2': (create_text_classification_model, DNNType.TextClassification, None),
-            'multi30k': (create_machine_translation_model, DNNType.MachineTranslation, None),
-            'moving_mnist': (create_video_processing_model, DNNType.VideoProcessing, None),
-            'kinetics': (create_video_processing_model, DNNType.VideoProcessing, None),
         }[dataset]
     except KeyError:
         raise ValueError(f"Dataset {dataset} is not supported")
@@ -111,31 +99,3 @@ def create_image_classification_model(arch, dataset, pretrained):
         return _create_imagenet_model()
     else:
         return _create_mnist_model()
-
-
-def create_image_segmentation_model(arch, dataset, pretrained):
-    return is_models.__dict__[arch](pretrained=pretrained)
-
-
-def create_text_classification_model(arch, dataset, pretrained):
-    return tc_models.__dict__[arch](pretrained=pretrained)
-
-
-def create_machine_translation_model(arch, dataset, pretrained):
-    if arch == 'transformer':
-
-        return mt_models.transformer(
-            src_vocab_size, trg_vocab_size, src_pad_idx,
-            embedding_size=512, num_heads=8, num_encoder_layers=3,
-            num_decoder_layers=3, forward_expansion=4, dropout=0.1,
-            max_len=100)
-    
-    return mt_models.__dict__[arch](pretrained=pretrained)
-
-
-def create_object_detection_model(arch, dataset, pretrained):
-    return od_models.__dict__[arch](pretrained=pretrained)
-
-
-def create_video_processing_model(arch, dataset, pretrained):
-    return vp_models.__dict__[arch](pretrained=pretrained)
