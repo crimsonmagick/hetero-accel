@@ -83,7 +83,6 @@ class TimeloopWrapper:
         """Execute the Timeloop+Accelergy infrastructure via command-line
         """
         logfile = os.path.join(self.output_dir, 'timeloop-mapper.log')
-        path = os.environ.get("PATH")
         command = f'timeloop-mapper ' \
                   f'{self.arch.arch_filepath} ' \
                   f'{" ".join(self.arch.component_files)} ' \
@@ -93,7 +92,7 @@ class TimeloopWrapper:
                   f'-o {self.output_dir} 2>&1 | tee {logfile}'
         logger.debug(f'timeloop-mapper command: {command}')
         start = time()
-        p = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+        p = subprocess.run(["bash", "-lc", command], check=True, capture_output=True)
         logger.debug(f"Executed timeloop-mapper command in {time() - start:.3e}s "
                      f"with exitcode: {p.returncode}")
         return p
