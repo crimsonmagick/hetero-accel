@@ -1,3 +1,4 @@
+import crimson_magick.cifar_zoo
 import yaml
 import os
 import shutil
@@ -9,6 +10,9 @@ from time import time
 from copy import deepcopy
 from glob import glob
 from collections import OrderedDict, namedtuple
+
+from crimson_magick.cifar_zoo import Cifar
+
 from src.net_wrapper import TorchNetworkWrapper
 from types import SimpleNamespace
 from src import eyeriss_timeloop_dir, simba_timeloop_dir, project_dir
@@ -989,6 +993,9 @@ if __name__ == "__main__":
                                    OptimizerType.Adam, print_frequency=100, verbose=True)
     prob_name = "conv_test"
     net_wrapper = TorchNetworkWrapper(model_config)
+    dataset = crimson_magick.cifar_zoo.get_test_loader(Cifar.CIFAR10)
+    net_wrapper.run_summary(dataset)
+    # to_serialize = net_wrapper.summary['model.features.0']
     to_serialize = net_wrapper.summary['module.conv1']
     tw.init_problem(prob_name, "Conv2d", to_serialize.dimensions)
 

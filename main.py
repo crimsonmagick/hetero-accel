@@ -95,15 +95,15 @@ def setup_workload(args):
 
         # configure and save DNN wrapper
         net_wrapper = TorchNetworkWrapper.from_args(dnn_args)
-        dnns[net_wrapper.model.arch] = net_wrapper
-        print_frequency[net_wrapper.model.arch] = dnn_args.batch_print_frequency
+        dnns[net_wrapper.arch] = net_wrapper
+        print_frequency[net_wrapper.arch] = dnn_args.batch_print_frequency
 
         if dnn_args.dataset not in datasets:
             # configure dataset
             data_loaders = load_data(
                 dnn_args.dataset,
                 dataset_dirs[dnn_args.dataset],
-                net_wrapper.model.arch,
+                net_wrapper.arch,
                 dnn_args.batch_size,
                 args.workers,
                 args.validation_split,
@@ -143,7 +143,7 @@ def init_compressor(args, workload, arch, net_wrapper):
                                        print_frequency=workload.print_frequency[arch],
                                        verbose=args.model_verbose)
     return PruningQuantizationCompressor(compression_args,
-                                         workload.datasets[net_wrapper.model.dataset],
+                                         workload.datasets[net_wrapper.dataset],
                                          net_wrapper.model)
 
 

@@ -3,6 +3,9 @@ import logging
 import re
 import os.path
 from types import SimpleNamespace
+
+from crimson_magick.cifar_zoo import Cifar, Arch, load_model
+
 from src import pretrained_checkpoint_paths, dataset_dirs
 from src.utils import weight_init, load_checkpoint, model_summary, save_checkpoint
 from src.meter import *
@@ -19,6 +22,7 @@ class TorchNetworkWrapper:
     """DNN wrapper with training/testing functionality
     """
     def __init__(self, args, model=None):
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.print_frequency = None
         self.verbose = None
         for name, value in vars(args).items():
@@ -31,39 +35,8 @@ class TorchNetworkWrapper:
         self.run_summary()
 
         # loss function and accuracy meter
-        if self.model.task == DNNType.ImageClassification:
-            self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
-            self.accuracy_meter = ImageClassificationMeter()
-
-        elif self.model.task == DNNType.SemanticSegmantation:
-            self.criterion = SegLoss()
-            self.accuracy_meter = SegmentationMeter()
-
-        elif self.model.task == DNNType.ObjectDetection:
-            if 'yolo' in self.model.arch:
-                self.criterion = YoloLoss().to(self.model.device)
-            else:
-                self.criterion = DummyLoss()
-            if 'coco' in self.model.dataset.lower():
-                # TODO: This is hard coded
-                annot_file = os.path.join(dataset_dirs['coco'], 'annotations', "instances_val2017.json")
-                coco_gt = COCO(annotation_file=annot_file)
-                self.accuracy_meter = COCOMeter(coco_gt, iou_type="bbox")
-            else:
-                self.accuracy_meter = ObjectDetectionMeter()
-        elif self.model.task == DNNType.MachineTranslation:
-            self.criterion = torch.nn.CrossEntropyLoss().to(self.model.device)
-            self.accuracy_meter = TranslationMeter()
-
-        # TODO: Fill the criterion/meter for the rest of the tasks
-        elif self.model.task == DNNType.TextClassification:
-            raise NotImplementedError
-            self.criterion = ''
-            self.accuracy_meter = TextClassificationMeter()
-        elif self.model.task == DNNType.VideoProcessing:
-            raise NotImplementedError
-            self.criterion = ''
-            self.accuracy_meter = VideoProcessingMeter()
+        self.criterion = torch.nn.CrossEntropyLoss().to(device)
+        self.accuracy_meter = ImageClassificationMeter()
 
         # optimizer
         if args.optimizer_type == OptimizerType.Adam:
@@ -116,6 +89,15 @@ class TorchNetworkWrapper:
         """
         assert not (self.pretrained and self.resumed_checkpoint_path is not None), "Only pretrained models are needed! " \
             "Specify either the '--pretrained' or '--resumed-checkpoint-path' arguments"
+        if 'cifar' in self.dataset:
+            arch: Arch = Arch[self.arch.upper()]
+            cifar: Cifar = Cifar[self.dataset.upper()]
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            self.model = load_model(arch, cifar, device)
+            for name, module in self.model.named_modules():
+                module.full_name = name
+            return
+
         if self.pretrained and self.arch + '_' + self.dataset in pretrained_checkpoint_paths:
             self.pretrained = False
             self.resumed_checkpoint_path = pretrained_checkpoint_paths[self.arch + '_' + self.dataset]
@@ -147,8 +129,12 @@ class TorchNetworkWrapper:
             self.summary = self.num_layers = None
         else:
             dummy_input = next(iter(data_loader))[0] if data_loader else None
+            if dummy_input is not None:
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                dummy_input = dummy_input.to(device)
             self.summary = model_summary(self.model, dummy_input)
             self.num_layers = len(self.summary)
+
 
     def log_model(self, test_loader, tb_logger):
         """Record the graph of the model and its various statistics using TensorBoard

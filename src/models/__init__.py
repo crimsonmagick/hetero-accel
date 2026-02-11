@@ -26,10 +26,8 @@ def create_model(arch, dataset, batch_size=256, pretrained=True, parallel=True, 
             module.full_name = name
 
     # initialize model from the available architectures per dataset
-    # TODO: Determine input shapes per dataset 
     try:
         create_model_f, model_type, input_shape = {
-            'mnist': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 1, 28, 28)),
             'cifar10': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 32, 32)),
             'cifar100': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 32, 32)),
             'imagenet': (create_image_classification_model, DNNType.ImageClassification, (batch_size, 3, 224, 224)),

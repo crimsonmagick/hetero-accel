@@ -26,7 +26,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.train_loader, self.valid_loader, self.test_loader = data_loaders
         self.layers_to_compress = [name for name, module in self.model.named_modules()
                                    if isinstance(module, args.layer_type_whitelist)]
-        logger.debug(f"{self.model.arch}: Layers to compress: {self.layers_to_compress}")
+        # logger.debug(f"{self.model.arch}: Layers to compress: {self.layers_to_compress}")
 
         # pruner and quantizer for compression
         self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,

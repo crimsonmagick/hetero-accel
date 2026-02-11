@@ -125,7 +125,7 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
     """Execute the validation/test loop."""
     losses = {'Objective Loss': tnt.AverageValueMeter()}
 
-    device = model.device
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     batch_time = tnt.AverageValueMeter()
     total_samples = len(valid_loader.sampler)
     batch_size = valid_loader.batch_size
