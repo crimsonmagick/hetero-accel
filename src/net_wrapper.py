@@ -90,7 +90,7 @@ class TorchNetworkWrapper:
         assert not (self.pretrained and self.resumed_checkpoint_path is not None), "Only pretrained models are needed! " \
             "Specify either the '--pretrained' or '--resumed-checkpoint-path' arguments"
         if 'cifar' in self.dataset:
-            arch: Arch = Arch[self.arch.upper()]
+            arch: Arch = Arch.MOBILENETV1 if self.arch == "mobilenet" else Arch[self.arch.upper()]
             cifar: Cifar = Cifar[self.dataset.upper()]
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.model = load_model(arch, cifar, device)
