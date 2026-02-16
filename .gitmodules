@@ -7,3 +7,6 @@
 [submodule "timeloop-accelergy-exercises"]
 	path = timeloop-accelergy-exercises
 	url = https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git
+[submodule "distiller"]
+	path = intel_distiller
+	url = git@github.com:crimsonmagick/distiller.git
