@@ -534,6 +534,7 @@ def compute_model_statistics(model, layers_to_compress=[]):
         if module_name not in layers_to_compress:
             continue
 
+
         # match the names of each sparsity-related metric
         sparsity_stats = get_sparsity(module.weight)
         per_layer_stats[module_name] = {metric: sparsity_stats[metric]

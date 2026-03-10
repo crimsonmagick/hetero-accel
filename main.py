@@ -31,6 +31,7 @@ def main():
     """Main executing function, supporting the execution of either
        our optimization, or others for comparisons
     """
+    logging.basicConfig(level=logging.DEBUG)
     args = env_cfg()
     args.logdir = logging.getLogger().logdir
     # save arguments as pkl, for reproducibility
@@ -117,7 +118,7 @@ def setup_workload(args):
 
         # manually execute the summary, if not already done
         if getattr(net_wrapper, 'summary', None) is None:
-            net_wrapper.run_summary(datasets[dnn_args.dataset][0])
+            net_wrapper.run_summary(datasets[dnn_args.dataset][2]) # use the test dataset for exploring network geometry
 
         # execute sub-applications
         if handle_model_subapps(net_wrapper, data_loaders, args):
@@ -244,10 +245,10 @@ def quant_exploration(args, workload):
                 )
                 assert len(accuracy_stats) >= max_accuracy_metrics_recorded
 
-                model_stats, _ = compressor.compute_model_statistics()
+                # model_stats, _ = compressor.compute_model_statistics()
                 stats = {
                     'accuracy': accuracy_stats[0],
-                    'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+                    'sparsity': 0, 'size': 0,
                     **{
                         metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
                     }
@@ -256,7 +257,7 @@ def quant_exploration(args, workload):
                 # save the statistics to the LUT, except of the 'valid' flag
                 df.loc[len(df.index)] = ([arch, quant_bits,
                                           *accuracy_stats[:max_accuracy_metrics_recorded],
-                                          model_stats['sparsity'], model_stats['size'], 0])
+                                          0, 0, 0])
 
             else:
                 stats = df.loc[(df['Network'] == arch) & (df['QuantBits'] == quant_bits)].iloc[0].to_dict()

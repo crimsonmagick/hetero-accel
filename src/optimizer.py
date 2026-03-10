@@ -263,10 +263,9 @@ class AcceleratorOptimizer(Annealer):
 
         elapsed = time() - self.start
         remain = (self.steps - step) * (elapsed / step)
-        logger.info("Update --> Temperature\tEnergyMetric\tAccept\tImprove\tElapsed\tRemaining")
-        logger.info(f"Update --> {T:8.3e}\t{E:8.3e}\t"
-                    f"{acceptance:6.2%}\t{improvement:6.2%}\t"
-                    f"{time_string(elapsed)}\t{time_string(remain)}")
+        logger.info(f"Update --> temperature={T:8.3e}, energy_metric={E:8.3e}, "
+                    f"accept={acceptance:6.2%}, improvement={improvement:6.2%},"
+                    f"time_elapsed={time_string(elapsed)}, time_remaining={time_string(remain)}")
 
     def move(self):
         """Alter the current state

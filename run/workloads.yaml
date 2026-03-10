@@ -22,11 +22,6 @@ workloads:
 #      pretrained: true
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
-#    - arch: efficientnet
-#      dataset: cifar10
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
 #    - arch: vgg16
 #      dataset: cifar100
 #      pretrained: true
@@ -37,43 +32,49 @@ workloads:
 #      pretrained: true
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
-#    - arch: mobilenetv2
+#    - arch: mobilenet
 #      dataset: cifar100
+#      pretrained: true
+#      resumed_checkpoint_path: null
+#      batch_print_frequency: 100
+#    - arch: inception_v3
+#      dataset: imagenet
 #      pretrained: true
 #      resumed_checkpoint_path: null
 #      batch_print_frequency: 100
 
   ClassifiersB:
-    - arch: vgg11
+    - arch: vgg13
       dataset: cifar10
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-#    - arch: resnet34
-#      dataset: cifar10
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: vgg19
-#      dataset: cifar10
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: mobilenetv2
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: resnet50
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: googlenet
-#      dataset: imagenet
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
+    - arch: resnet34
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: vgg19
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenetv2
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: googlenet
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+
 #
 ## same as ClassifiersA but without efficientnet and vgg16 on cifar10
 #  ClassifiersC:
