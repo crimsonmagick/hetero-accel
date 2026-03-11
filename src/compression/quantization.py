@@ -1,9 +1,45 @@
 import logging
 import torch
-from functools import partial
-from collections import namedtuple, OrderedDict
-from src.utils import transform_model
+from collections import namedtuple
+from argparse import Namespace
+import os
+import random
+import sys
+from typing import List
+from typing import Optional
+import warnings
 
+import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
+
+from brevitas.export import export_onnx_qcdq
+from brevitas.export import export_torch_qcdq
+from brevitas.export.inference import quant_inference_mode
+from brevitas.graph.quantize import preprocess_for_quantize
+from brevitas.graph.target.flexml import preprocess_for_flexml_quantize
+from brevitas_examples.common.parse_utils import override_defaults
+from brevitas_examples.common.parse_utils import parse_args
+from brevitas_examples.imagenet_classification.ptq.learned_round_utils import apply_learned_round
+from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_act_equalization
+from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_bias_correction
+from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_gpfq
+from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_gptq
+from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_qronos
+from brevitas_examples.imagenet_classification.ptq.ptq_common import calibrate
+from brevitas_examples.imagenet_classification.ptq.ptq_common import calibrate_bn
+from brevitas_examples.imagenet_classification.ptq.ptq_common import quantize_model
+from brevitas_examples.imagenet_classification.ptq.ptq_imagenet_args import create_args_parser
+from brevitas_examples.imagenet_classification.ptq.ptq_imagenet_args import \
+    validate as validate_args
+from brevitas_examples.imagenet_classification.ptq.utils import get_model_config
+from brevitas_examples.imagenet_classification.utils import SEED
+from brevitas_examples.imagenet_classification.utils import validate
+from crimson_magick.cifar_zoo import get_test_loader, Cifar, Arch, load_model
+from crimson_magick.cifar_zoo.fine_tuned.fine_tuned_models import ArchType
+from torchvision import datasets, transforms
+
+GRAPH_EQ_ITERATIONS = 20
 
 logger = logging.getLogger(__name__)
 
@@ -11,159 +47,158 @@ QuantMetadata = namedtuple('QuantMetadata', ['bits', 'scale', 'zero_point', 'min
 
 
 class Quantizer:
-    def __init__(self, layers_to_compress, signed_quant=True, symmetric_quant=True):
-        self.layers_to_compress = layers_to_compress
-        self.signed = signed_quant
-        self.symmetric = symmetric_quant
-        self.hook_handles = []
-
     def reset(self):
-        for handle in self.hook_handles:
-            handle.remove()
+        pass
 
     def quantize(self, model, q_bits):
-        """Apply quantization to the entire forward pass. We use the same 
-           number of quantization bits for weights and activations
-        """
-        # TODO: Consider switching to 8 bits constant for activations
-        w_bits = a_bits = q_bits
+        dtype = torch.float32
+        random.seed(SEED)
+        np.random.seed(SEED)
+        torch.manual_seed(SEED)
 
-        for name, module in model.named_modules():
-            if name not in self.layers_to_compress:
-                continue
+        # Get model-specific configurations about input shapes and normalization
+        input_shape = 224
+        resize_shape = 256
 
-            with torch.no_grad():
-                self.quantize_inputs(module, a_bits)
-                self.quantize_weights(module, w_bits)
-                self.dequantize_outputs(module, a_bits)
+        calib_loader = generate_cifar100_calib_loader(
+            'data'
+        )
+        test_loader = get_test_loader(Cifar.CIFAR100)
 
-    def quantize_inputs(self, module, q_act_bits):
-        """Quantize inputs of a given layer
-        """
-        # register the hook during the forward pass
-        hook_fn = partial(input_quant_hook, q_act_bits=q_act_bits)
-        handle = module.register_forward_pre_hook(hook_fn)
-        self.hook_handles.append(handle)
+        cudnn.benchmark = False
+        model = model.to(dtype)
+        model.eval()
 
-    def quantize_weights(self, module, q_bits):
-        """Convert floating point weights of a given module to integer
-        """
-        # hook to rescale inputs before forward pass
-        handle = module.register_forward_pre_hook(input_rescale_hook)
-        self.hook_handles.append(handle)
+        # Preprocess the model for quantization
+        target_backend = 'layerwise' if hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET else 'flexml'
+        if target_backend == 'layerwise':
+            model = preprocess_for_quantize(
+                model,
+                equalize_iters=GRAPH_EQ_ITERATIONS,
+                equalize_merge_bias=True,
+                merge_bn=True,
+                channel_splitting_ratio=0.0,
+                channel_splitting_split_input=False)
 
-        # get the quantization parameters for the weights
-        scale, zero_point, min_q_val, max_q_val = get_quant_params(module.weight, q_bits)
+        else:
+            # flexml requires static shapes, pass a representative input in
+            model = preprocess_for_flexml_quantize(
+                model,
+                torch.ones(1, 3, input_shape, input_shape, dtype=dtype),
+                equalize_iters=GRAPH_EQ_ITERATIONS,
+                equalize_merge_bias=True,
+                merge_bn=False)
 
-        if not torch.unique(module.weight).any():
-            logger.warning(f'Layer {module.full_name} has all zero weights. That could have been '
-                           'caused by pruning or initialization. Skipping quantization.')
-            setattr(module, 'quant_metadata', QuantMetadata(q_bits, 1, 0, min_q_val, max_q_val))
-            return
+        device = next(iter(model.parameters())).device
 
-        # quantize weights and get ready for the forward pass
-        linear_quantize(module.weight, scale, zero_point, min_q_val, max_q_val, inplace=True)
-        setattr(module, 'quant_metadata', QuantMetadata(q_bits, scale, zero_point, min_q_val, max_q_val))
+        act_quant_percentile = 0.999
 
-    def dequantize_outputs(self, module, q_act_bits, accum_bits=32):
-        """Revert output activations of a given layer back to floating point
-        """
-        # hook to clamp the output of the forward function
-        hook_fn = partial(quant_dequant_output_hook, q_act_bits=q_act_bits, accum_bits=accum_bits)
-        handle = module.register_forward_hook(hook_fn)
-        self.hook_handles.append(handle)
+        # Define the quantized model
+        quant_model = quantize_model(
+            model,
+            dtype=dtype,
+            device=device,
+            backend=target_backend,
+            scale_factor_type='float_scale',
+            bias_bit_width=32, # TODO should this match other parameters?
+            weight_bit_width=q_bits,
+            weight_narrow_range=False,
+            weight_param_method='stats',
+            weight_quant_granularity='per_tensor',
+            act_quant_granularity='per_tensor',
+            weight_quant_type='sym',
+            layerwise_first_last_bit_width=8,
+            act_bit_width=q_bits,
+            act_param_method='stats',
+            act_quant_percentile=act_quant_percentile,
+            act_quant_type='sym',
+            quant_format='int',
+            layerwise_first_last_mantissa_bit_width=4,
+            layerwise_first_last_exponent_bit_width=3,
+            weight_mantissa_bit_width=4,
+            weight_exponent_bit_width=3,
+            act_mantissa_bit_width=4,
+            act_exponent_bit_width=3,
+            act_scale_computation_type='static',
+            uint_sym_act_for_unsigned_values=True)
 
+        # Some quantizer configurations require a forward pass to initialize scale factors.
+        # This forward pass ensures that subsequent algorithms work as intended
+        model.eval()
+        dtype = next(model.parameters()).dtype
+        device = next(model.parameters()).device
+        images, _ = next(iter(calib_loader))
+        images = images.to(device=device, dtype=dtype)
+        with torch.no_grad():
+            model(images)
 
-def input_quant_hook(module, input, q_act_bits):
-    # TODO: this is a workaround, check how to take q_inputs as an iterable of tensors
-    assert isinstance(input, (list, tuple)) and len(input) == 1
-    input = input[0]
+        # Calibrate the quant_model on the calibration dataloader
+        print("Starting activation calibration:")
+        calibrate(calib_loader, quant_model)
 
-    if hasattr(input, 'quant_metadata'):
-        q_input = linear_quantize_w_metadata(input, inplace=False)
-        setattr(q_input, 'quant_metadata', input.quant_metadata)
-    else:
-        scale, zero_point, min_q_val, max_q_val = get_quant_params(input, q_act_bits)
-        q_input = linear_quantize(input, scale, zero_point, min_q_val, max_q_val, inplace=False)
-        setattr(q_input, 'quant_metadata', QuantMetadata(q_act_bits, scale, zero_point, min_q_val, max_q_val))
-    return q_input
+        # if args.gpfq:
+        #     print("Performing GPFQ:")
+        #     apply_gpfq(
+        #         calib_loader,
+        #         quant_model,
+        #         act_order=args.gpxq_act_order,
+        #         max_accumulator_bit_width=args.gpxq_accumulator_bit_width,
+        #         max_accumulator_tile_size=args.gpxq_accumulator_tile_size)
+        #
+        # if args.gptq:
+        #     print("Performing GPTQ:")
+        #     apply_gptq(
+        #         calib_loader,
+        #         quant_model,
+        #         act_order=args.gpxq_act_order,
+        #         create_weight_orig=not args.disable_create_weight_orig,
+        #         use_quant_activations=args.gptq_use_quant_activations,
+        #         max_accumulator_bit_width=args.gpxq_accumulator_bit_width,
+        #         max_accumulator_tile_size=args.gpxq_accumulator_tile_size)
 
+        print("Calibrate BN:")
+        calibrate_bn(calib_loader, quant_model)
 
-def input_rescale_hook(module, q_input):
-    # TODO: this is a workaround, check how to take q_inputs as an iterable of tensors
-    assert isinstance(q_input, (list, tuple)) and len(q_input) == 1
-    q_input = q_input[0]
+        print("Applying bias correction:")
+        apply_bias_correction(calib_loader, quant_model)
 
-    assert(hasattr(q_input, 'quant_metadata') and hasattr(module, 'quant_metadata'))
-    q_input.accum_scale = q_input.quant_metadata.scale * module.quant_metadata.scale
-    q_input += q_input.quant_metadata.zero_point
-    return q_input
+        # Validate the quant_model on the validation dataloader
+        print("Starting validation:")
+        with torch.no_grad(), quant_inference_mode(quant_model):
+            param = next(iter(quant_model.parameters()))
+            device, dtype = param.device, param.dtype
+            ref_input = generate_ref_input(device, dtype, input_shape)
+            quant_model(ref_input)
+            compiled_model = torch.compile(quant_model, fullgraph=True, disable=True)
+            return compiled_model
+        #     quant_top1 = validate(test_loader, compiled_model, stable=dtype != torch.bfloat16)
 
-
-def quant_dequant_output_hook(module, q_input, accum, q_act_bits, accum_bits):
-    # TODO: this is a workaround, check how to take q_inputs as an iterable of tensors
-    assert isinstance(q_input, (list, tuple)) and len(q_input) == 1
-    q_input = q_input[0]
-
-    _, _, min_q_val, max_q_val = get_quant_params(accum, accum_bits)
-    accum.clamp_(min_q_val, max_q_val)
-    out_scale, out_zero_point, min_q_val, max_q_val, = get_quant_params(accum/q_input.accum_scale, q_act_bits)
-    # https://github.com/kompalas/NN_project/blob/main/distiller/distiller/quantization/range_linear.py#L972
-    requant_scale = out_scale / q_input.accum_scale
-    q_output = linear_quantize(accum, requant_scale, out_zero_point, min_q_val, max_q_val, inplace=True)
-    fp_output = linear_dequantize(q_output, out_scale, out_zero_point, inplace=True)
-    setattr(fp_output, 'quant_metadata', QuantMetadata(q_act_bits, out_scale, out_zero_point, min_q_val, max_q_val))
-    return fp_output
-
-
-
-### Utility quantization functions ###
-
-def get_quant_params(param, q_bits):
-    """Get the scale and zero point from a given parameter
-    """
-    # TODO: The following is only for symmetric signed quantization
-    max_q_val = 2**(q_bits - 1) - 1 
-    min_q_val = (-max_q_val) - 1
-    # https://github.com/kompalas/NN_project/blob/main/distiller/distiller/quantization/q_utils.py#L141
-    sat_val = torch.max(param.min().abs(), param.max().abs())
-    # https://github.com/kompalas/NN_project/blob/main/distiller/distiller/quantization/q_utils.py#L46
-    n = (2 ** q_bits - 1) // 2
-    try:
-        scale = n/sat_val
-    except ZeroDivisionError:
-        scale = 1
-    # zero point is always set to zero
-    zero_point = torch.zeros_like(scale)
-    return scale, zero_point, min_q_val, max_q_val
-
-
-def linear_quantize(param, scale, zero_point, min_q_val, max_q_val, inplace=True):
-    """Apply linear quantization on a given parameter
-    """
-    if inplace:
-        param.mul_(scale).sub_(zero_point).round_().clamp_(min_q_val, max_q_val)
-        return param
-    q_param = torch.round(param * scale - zero_point)
-    return torch.clamp(q_param, min_q_val, max_q_val)
-
-
-def linear_quantize_w_metadata(param, inplace=False):
-    """Apply linear quantization on a given parameter using its metadata
-    """
-    assert hasattr(param, 'quant_metadata')
-    scale = param.quant_metadata.scale
-    zero_point = param.quant_metadata.zero_point
-    min_q_val = param.quant_metadata.min_q_val
-    max_q_val = param.quant_metadata.max_q_val
-    return linear_quantize(param, scale, zero_point, min_q_val, max_q_val, inplace=inplace)
+        # return {"quant_top1": float(quant_top1)}, quant_model
 
 
-def linear_dequantize(param, scale, zero_point, inplace=True):
-    """Dequantize a given parameter using the scale and zero point
-    """
-    if inplace:
-        param.add_(zero_point).div_(scale)
-        return param
-    return (param + zero_point) / scale
+# Ignore warnings about __torch_function__
+warnings.filterwarnings("ignore")
 
+def generate_ref_input(device, dtype, input_shape):
+    return torch.ones(1, 3, input_shape, input_shape, device=device, dtype=dtype)
+
+
+def generate_cifar100_calib_loader(
+        data_root: str,
+        batch_size: int = 64,
+        num_workers: int = 8,
+        n_calib: int = 2048
+):
+    tfm = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+    ])
+
+    ds = datasets.CIFAR100(root=data_root, train=True, download=True, transform=tfm)
+    subset = torch.utils.data.Subset(ds, list(range(min(n_calib, len(ds)))))
+    loader = torch.utils.data.DataLoader(
+        subset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+    )
+    return loader

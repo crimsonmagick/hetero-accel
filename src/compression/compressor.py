@@ -5,8 +5,8 @@ import numpy as np
 from types import SimpleNamespace
 from copy import deepcopy
 
-from distiller import quantization
 from src import project_dir
+from src.compression.quantization import Quantizer
 from src.net_wrapper import TorchNetworkWrapper
 from src.utils import compute_model_statistics
 from src.accelerator_cfg import AcceleratorProfile
@@ -33,6 +33,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.pruner = Pruner(self.pruning_group_type, self.layers_to_compress,
                              eridanus_window_w=self.accelerator_cfg.pe_array_x,
                              eridanus_window_h=self.accelerator_cfg.pe_array_y)
+        self.quantizer = Quantizer()
         self.timeloop_wrapper = None
 
     @classmethod
@@ -75,11 +76,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
                 return
 
             assert self.quant_low <= q_bits <= self.quant_high
-            # self.quantizer.quantize(self.model, q_bits)
-            self.model.cpu()
-            quantizer = quantization.SymmetricLinearQuantizer(self.model, q_bits, q_bits)
-            quantizer.prepare_model()
-            self.model.cuda()
+            self.model = self.quantizer.quantize(self.model, q_bits)
 
     def translate_pruning_action(self, pruning_action):
         pruning_action = pruning_action * (self.pruning_high - self.pruning_low) + self.pruning_low
