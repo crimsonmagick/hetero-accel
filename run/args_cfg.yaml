@@ -1,7 +1,7 @@
 ---
 app_args:
         operation_mode: ours
-        output_dir: 'logs'
+        output_dir: 'out_3_10'
         name: ours
         deterministic: True
         global_seed: 0
