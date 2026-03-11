@@ -38,12 +38,12 @@ compression_args:
         pruning_high: 1.0
         pruning_low: 0.0
         pruning_incr: 0.05
-        quant_high: 8
-        quant_low: 4
+        quant_high: 7
+        quant_low: 6
         quant_incr: 1
         use_validation_set: False
         # constraints
-        top1_constraint: 2
+        top1_constraint: 8
         top5_constraint: null
         loss_constraint: null
         mIOU_constraint: null
