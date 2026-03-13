@@ -47,11 +47,16 @@ QuantMetadata = namedtuple('QuantMetadata', ['bits', 'scale', 'zero_point', 'min
 
 
 class Quantizer:
+
+    # def __init__(self, test_loader):
+    #     self.test_loader = test_loader
+
     def reset(self):
         pass
 
     def quantize(self, model, q_bits):
-        dtype = torch.float32
+        q_bits = int(q_bits)
+        dtype = next(model.parameters()).dtype
         random.seed(SEED)
         np.random.seed(SEED)
         torch.manual_seed(SEED)
@@ -63,35 +68,23 @@ class Quantizer:
         calib_loader = generate_cifar100_calib_loader(
             'data'
         )
-        test_loader = get_test_loader(Cifar.CIFAR100)
 
         cudnn.benchmark = False
-        model = model.to(dtype)
         model.eval()
 
         # Preprocess the model for quantization
-        target_backend = 'layerwise' if hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET else 'flexml'
-        if target_backend == 'layerwise':
-            model = preprocess_for_quantize(
-                model,
-                equalize_iters=GRAPH_EQ_ITERATIONS,
-                equalize_merge_bias=True,
-                merge_bn=True,
-                channel_splitting_ratio=0.0,
-                channel_splitting_split_input=False)
-
-        else:
-            # flexml requires static shapes, pass a representative input in
-            model = preprocess_for_flexml_quantize(
-                model,
-                torch.ones(1, 3, input_shape, input_shape, dtype=dtype),
-                equalize_iters=GRAPH_EQ_ITERATIONS,
-                equalize_merge_bias=True,
-                merge_bn=False)
+        target_backend = 'layerwise' if hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET else 'fx'
+        model = preprocess_for_quantize(
+            model,
+            equalize_iters=GRAPH_EQ_ITERATIONS,
+            equalize_merge_bias=True,
+            merge_bn=True,
+            channel_splitting_ratio=0.0,
+            channel_splitting_split_input=False)
 
         device = next(iter(model.parameters())).device
 
-        act_quant_percentile = 0.999
+        act_quant_percentile = 99.999
 
         # Define the quantized model
         quant_model = quantize_model(
@@ -156,22 +149,24 @@ class Quantizer:
         #         max_accumulator_bit_width=args.gpxq_accumulator_bit_width,
         #         max_accumulator_tile_size=args.gpxq_accumulator_tile_size)
 
-        print("Calibrate BN:")
-        calibrate_bn(calib_loader, quant_model)
+        # print("Calibrate BN:")
+        # calibrate_bn(calib_loader, quant_model)
 
         print("Applying bias correction:")
         apply_bias_correction(calib_loader, quant_model)
 
         # Validate the quant_model on the validation dataloader
-        print("Starting validation:")
+        # print("Starting validation:")
         with torch.no_grad(), quant_inference_mode(quant_model):
             param = next(iter(quant_model.parameters()))
             device, dtype = param.device, param.dtype
             ref_input = generate_ref_input(device, dtype, input_shape)
             quant_model(ref_input)
             compiled_model = torch.compile(quant_model, fullgraph=True, disable=True)
+            test_loader = get_test_loader(Cifar.CIFAR100)
+            quant_top1 = validate(test_loader, compiled_model, stable=dtype != torch.bfloat16)
+            print(f"IN QUANTIZER - quant_top1={quant_top1}")
             return compiled_model
-        #     quant_top1 = validate(test_loader, compiled_model, stable=dtype != torch.bfloat16)
 
         # return {"quant_top1": float(quant_top1)}, quant_model
 
@@ -197,6 +192,27 @@ def generate_cifar100_calib_loader(
     ])
 
     ds = datasets.CIFAR100(root=data_root, train=True, download=True, transform=tfm)
+    subset = torch.utils.data.Subset(ds, list(range(min(n_calib, len(ds)))))
+    loader = torch.utils.data.DataLoader(
+        subset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+    )
+    return loader
+
+
+def generate_cifar10_calib_loader(
+        data_root: str,
+        batch_size: int = 64,
+        num_workers: int = 8,
+        n_calib: int = 2048
+):
+    tfm = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+    ])
+
+    ds = datasets.CIFAR10(root=data_root, train=True, download=True, transform=tfm)
     subset = torch.utils.data.Subset(ds, list(range(min(n_calib, len(ds)))))
     loader = torch.utils.data.DataLoader(
         subset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True

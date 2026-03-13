@@ -185,14 +185,14 @@ class TorchNetworkWrapper:
         self.accuracy_meter.reset()
         return self._run_inference(valid_loader)
 
-    def test(self, test_loader):
+    def test(self, test_loader, use_quant=False):
         """Run inference on the test set
         """
         logger.debug(f"Running inference on test set")
         self.accuracy_meter.reset()
-        return self._run_inference(test_loader)
+        return self._run_inference(test_loader, use_quant)
 
-    def _run_inference(self, data_loader):
+    def _run_inference(self, data_loader, use_quant=False):
         """Wrapper function for running inerence with a give data loader
         """
         accuracy_metrics = validate(valid_loader=data_loader,
@@ -201,7 +201,8 @@ class TorchNetworkWrapper:
                                     accuracy_meter=self.accuracy_meter,
                                     epoch=0,
                                     verbose=self.verbose,
-                                    print_frequency=self.print_frequency)
+                                    print_frequency=self.print_frequency,
+                                    use_quant=use_quant)
         return accuracy_metrics
 
     def save_model(self, name=None, episode=None, is_best=False, verbose=True):

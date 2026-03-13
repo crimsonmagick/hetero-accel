@@ -1,10 +1,18 @@
 import logging
 import time
 import math
+from contextlib import nullcontext
+from brevitas_examples.imagenet_classification.utils import validate as validate_quant
+
+
+import brevitas_examples
 import torch
 import torchnet.meter as tnt
 from collections import OrderedDict
-from src.utils import log_training_progress 
+
+from brevitas.export.inference import quant_inference_mode
+
+from src.utils import log_training_progress
 
 
 logger = logging.getLogger(__name__)
@@ -110,7 +118,7 @@ def train(train_loader, model, criterion, optimizer, profiler, accuracy_meter,
     return *accuracy_meter.value(metric='all'), losses['Overall Loss'].mean
 
 
-def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, print_frequency):
+def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, print_frequency, use_quant=False):
     if verbose:
         logger.info(f'--- validate (epoch={epoch})-----------')
 
@@ -138,7 +146,11 @@ def validate(valid_loader, model, criterion, accuracy_meter, epoch, verbose, pri
     model.to(device)
 
     end = time.time()
-    with torch.no_grad():
+    quant_cm = quant_inference_mode(model) if use_quant else nullcontext()
+    with torch.no_grad(), quant_cm:
+        # if use_quant:
+        #     quant_top1 = validate_quant(valid_loader, model, stable=True)
+        #     print("QUANT_TOP1: " + quant_top1)
         for validation_step, (inputs, target) in enumerate(valid_loader):
 
             # cast to device

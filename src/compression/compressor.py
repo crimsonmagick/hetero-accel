@@ -143,6 +143,6 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
     def validate(self):
         return super().validate(self.valid_loader)
 
-    def test(self):
-        return super().test(self.test_loader)
+    def test(self, use_quant=False):
+        return super().test(self.test_loader, use_quant)
 

@@ -12,11 +12,16 @@ workloads:
 #      batch_size: 1
 #
   ClassifiersA:
-    - arch: vgg11
-      dataset: cifar10
-      pretrained: false
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
+#    - arch: vgg11
+#      dataset: cifar10
+#      pretrained: false
+#      resumed_checkpoint_path: null
+#      batch_print_frequency: 100
 #    - arch: resnet18
 #      dataset: cifar10
 #      pretrained: true

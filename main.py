@@ -226,8 +226,8 @@ def quant_exploration(args, workload):
 
         # iterate over quantization bits
         quant_bits_options = np.arange(args.quant_low, args.quant_high + 1, args.quant_incr)
-        if 16 not in quant_bits_options:
-            quant_bits_options = np.append(quant_bits_options, 16)
+        # if 16 not in quant_bits_options:
+        #     quant_bits_options = np.append(quant_bits_options, 16)
 
         for quant_bits in quant_bits_options:
 
@@ -238,7 +238,7 @@ def quant_exploration(args, workload):
                 # execute the compression profile
                 compressor.quantize(quant_bits)
                 # evaluate for accuracy and network statistics
-                accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
+                accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test(use_quant=True)
                 accuracy_stats = list(accuracy_stats)
                 accuracy_stats.extend(
                     max(0, max_accuracy_metrics_recorded - len(accuracy_stats)) * [0.0]
