@@ -4,7 +4,6 @@ import logging
 import numpy as np
 from types import SimpleNamespace
 from copy import deepcopy
-
 from src import project_dir
 from src.compression.quantization import Quantizer
 from src.net_wrapper import TorchNetworkWrapper
@@ -75,8 +74,10 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
             if q_bits > max(self.quant_high, 8):
                 return
 
-            assert self.quant_low <= q_bits <= self.quant_high
-            self.model = self.quantizer.quantize(self.model, q_bits)
+            # WTF are you doing validating app config inside the quantize method?
+            # assert self.quant_low <= q_bits <= self.quant_high
+            self.model = self.quantizer.quantize(self.model, q_bits, self.test_loader.dataset)
+
 
     def translate_pruning_action(self, pruning_action):
         pruning_action = pruning_action * (self.pruning_high - self.pruning_low) + self.pruning_low

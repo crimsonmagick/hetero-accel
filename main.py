@@ -23,6 +23,8 @@ from src.partition import run_partition_comparison
 from src.other_heuristics import run_genetic_algorithm, run_random_search
 from src.scheduler import solver_args_dict
 
+BASELINE_PRECISION = 8
+
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +190,7 @@ def quant_exploration(args, workload):
             compressor = init_compressor(args, workload, arch, net_wrapper)
             compressors[arch] = compressor
             logger.info(f'=> Beginning exhaustive exploration for {arch}')
+            compressor.quantize(BASELINE_PRECISION)
 
             # compute accuracy statistics
             accuracy_stats = compressor.validate() if args.use_validation_set else compressor.test()
@@ -198,22 +201,22 @@ def quant_exploration(args, workload):
             assert len(accuracy_stats) >= max_accuracy_metrics_recorded
 
             # compute the rest and group together
-            model_stats, _ = compressor.compute_model_statistics()
+            # model_stats, _ = compressor.compute_model_statistics()
             og_stats = {
                 'accuracy': accuracy_stats[0],
-                'sparsity': model_stats['sparsity'], 'size': model_stats['size'],
+                'sparsity': 0, 'size': 0,
                 **{
                     metric: accuracy_stats[i] for i, metric in enumerate(net_wrapper.accuracy_metrics)
                 }
             }
 
             # save the statistics to the LUT
-            df.loc[len(df.index)] = ([arch, 32,
+            df.loc[len(df.index)] = ([arch, BASELINE_PRECISION,
                                       *accuracy_stats[:max_accuracy_metrics_recorded],
-                                      model_stats['sparsity'], model_stats['size'], 1])
+                                      0, 0, 1])
 
         else:
-            og_stats = df.loc[(df['Network'] == arch) & (df['QuantBits'] == 32)].iloc[0].to_dict()
+            og_stats = df.loc[(df['Network'] == arch) & (df['QuantBits'] == BASELINE_PRECISION)].iloc[0].to_dict()
             og_stats.pop('Network')
             og_stats.pop('Unnamed: 0', None)
             for metric, column in zip(net_wrapper.accuracy_metrics, accuracy_columns):
@@ -222,7 +225,7 @@ def quant_exploration(args, workload):
         og_stats_logstr = ', '.join([f'{metric.capitalize()}={value:.2f}' if metric != 'size' else
                                     f'{metric.capitalize()}={value:.2e}'
                                     for metric, value in og_stats.items()])
-        logger.info(f'{arch}: Original statistics: {og_stats_logstr}')
+        logger.info(f'{arch}: Original statistics; Precision of {BASELINE_PRECISION}: {og_stats_logstr}')
 
         # iterate over quantization bits
         quant_bits_options = np.arange(args.quant_low, args.quant_high + 1, args.quant_incr)
@@ -375,7 +378,7 @@ def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, he
             ]
 
     def is_valid(arch, accuracy_stats):
-        og_entry = lut_entry(arch, 32)
+        og_entry = lut_entry(arch, BASELINE_PRECISION)
         og_stats = tuple(og_entry[metric].iloc[0]
                          for metric in dnn_accuracy_lut.columns
                          if 'accuracy' in metric.lower())

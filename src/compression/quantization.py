@@ -37,7 +37,12 @@ from brevitas_examples.imagenet_classification.utils import SEED
 from brevitas_examples.imagenet_classification.utils import validate
 from crimson_magick.cifar_zoo import get_test_loader, Cifar, Arch, load_model
 from crimson_magick.cifar_zoo.fine_tuned.fine_tuned_models import ArchType
+from numpy.lib.function_base import percentile
 from torchvision import datasets, transforms
+from torchvision.datasets import CIFAR100, ImageNet
+
+from intel_distiller.models.imagenet import mobilenet
+from src.datasets.imagenet_dataset import ImagenetDataset
 
 GRAPH_EQ_ITERATIONS = 20
 
@@ -50,11 +55,33 @@ class Quantizer:
 
     # def __init__(self, test_loader):
     #     self.test_loader = test_loader
+    def get_quant_config(self, model, dataset):
+        config = {}
+        if type(dataset) is ImagenetDataset:
+            config['percentile'] = 99.95
+            config['target_backend'] = 'layerwise'
+            config['merge_bn'] = True
+        elif type(dataset) is hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET:
+            config['percentile'] = 99.95
+            config['gptq'] = True
+            config['target_backend'] = 'layerwise'
+            config['merge_bn'] = False
+        elif type(dataset) is CIFAR100:
+            config['percentile'] = 99.95
+            config['gptq'] = True
+            config['target_backend'] = 'fx'
+            config['merge_bn'] = True
+        else:
+            config['percentile'] = 99.999
+            config['gptq'] = True
+            config['target_backend'] = 'fx'
+            config['merge_bn'] = True
+        return config
 
     def reset(self):
         pass
 
-    def quantize(self, model, q_bits):
+    def quantize(self, model, q_bits, dataset):
         q_bits = int(q_bits)
         dtype = next(model.parameters()).dtype
         random.seed(SEED)
@@ -63,37 +90,35 @@ class Quantizer:
 
         # Get model-specific configurations about input shapes and normalization
         input_shape = 224
-        resize_shape = 256
 
-        calib_loader = generate_cifar100_calib_loader(
-            'data'
-        )
+        calib_loader = generate_calib_loader(dataset)
+        quant_config = self.get_quant_config(model, dataset)
 
         cudnn.benchmark = False
         model.eval()
 
         # Preprocess the model for quantization
-        target_backend = 'layerwise' if hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET else 'fx'
         model = preprocess_for_quantize(
             model,
+            trace_model=True,
             equalize_iters=GRAPH_EQ_ITERATIONS,
             equalize_merge_bias=True,
-            merge_bn=True,
+            merge_bn=quant_config['merge_bn'],
             channel_splitting_ratio=0.0,
             channel_splitting_split_input=False)
 
         device = next(iter(model.parameters())).device
 
-        act_quant_percentile = 99.999
+        act_quant_percentile = quant_config['percentile']
 
         # Define the quantized model
         quant_model = quantize_model(
             model,
             dtype=dtype,
             device=device,
-            backend=target_backend,
+            backend=quant_config['target_backend'],
             scale_factor_type='float_scale',
-            bias_bit_width=32, # TODO should this match other parameters?
+            bias_bit_width=32,  # TODO should this match other parameters?
             weight_bit_width=q_bits,
             weight_narrow_range=False,
             weight_param_method='stats',
@@ -129,25 +154,16 @@ class Quantizer:
         print("Starting activation calibration:")
         calibrate(calib_loader, quant_model)
 
-        # if args.gpfq:
-        #     print("Performing GPFQ:")
-        #     apply_gpfq(
-        #         calib_loader,
-        #         quant_model,
-        #         act_order=args.gpxq_act_order,
-        #         max_accumulator_bit_width=args.gpxq_accumulator_bit_width,
-        #         max_accumulator_tile_size=args.gpxq_accumulator_tile_size)
-        #
-        # if args.gptq:
-        #     print("Performing GPTQ:")
-        #     apply_gptq(
-        #         calib_loader,
-        #         quant_model,
-        #         act_order=args.gpxq_act_order,
-        #         create_weight_orig=not args.disable_create_weight_orig,
-        #         use_quant_activations=args.gptq_use_quant_activations,
-        #         max_accumulator_bit_width=args.gpxq_accumulator_bit_width,
-        #         max_accumulator_tile_size=args.gpxq_accumulator_tile_size)
+        if quant_config.get('gptq'):
+            print("Performing GPTQ:")
+            apply_gptq(
+                calib_loader,
+                quant_model,
+                act_order=False,
+                create_weight_orig=True,
+                use_quant_activations=False,
+                max_accumulator_bit_width=None,
+                max_accumulator_tile_size=None)
 
         # print("Calibrate BN:")
         # calibrate_bn(calib_loader, quant_model)
@@ -163,9 +179,6 @@ class Quantizer:
             ref_input = generate_ref_input(device, dtype, input_shape)
             quant_model(ref_input)
             compiled_model = torch.compile(quant_model, fullgraph=True, disable=True)
-            test_loader = get_test_loader(Cifar.CIFAR100)
-            quant_top1 = validate(test_loader, compiled_model, stable=dtype != torch.bfloat16)
-            print(f"IN QUANTIZER - quant_top1={quant_top1}")
             return compiled_model
 
         # return {"quant_top1": float(quant_top1)}, quant_model
@@ -173,6 +186,7 @@ class Quantizer:
 
 # Ignore warnings about __torch_function__
 warnings.filterwarnings("ignore")
+
 
 def generate_ref_input(device, dtype, input_shape):
     return torch.ones(1, 3, input_shape, input_shape, device=device, dtype=dtype)
@@ -193,6 +207,26 @@ def generate_cifar100_calib_loader(
 
     ds = datasets.CIFAR100(root=data_root, train=True, download=True, transform=tfm)
     subset = torch.utils.data.Subset(ds, list(range(min(n_calib, len(ds)))))
+    loader = torch.utils.data.DataLoader(
+        subset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+    )
+    return loader
+
+
+def generate_calib_loader(
+        dataset,
+        batch_size: int = 64,
+        num_workers: int = 8,
+        n_calib: int = 2048
+):
+    tfm = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
+    ])
+
+    subset = torch.utils.data.Subset(dataset, list(range(min(n_calib, len(dataset)))))
     loader = torch.utils.data.DataLoader(
         subset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
     )
