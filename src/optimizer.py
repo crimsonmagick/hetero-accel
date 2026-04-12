@@ -417,7 +417,7 @@ class AcceleratorOptimizer(Annealer):
 
                     # gather simulation results
                     try:
-                        results = self.timeloop_wrapper.get_results()
+                        results = self.timeloop_wrapper.get_results(problem_name)
                     except FileNotFoundError:
                         self.latest_schedule = self.latest_energy = self.latest_latency = None
                         logger.info("Invalid timeloop/accelergy simulation")
@@ -432,7 +432,7 @@ class AcceleratorOptimizer(Annealer):
                                  f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
                     
                     # reset simulator for next run
-                    self.timeloop_wrapper.cleanup()
+                    self.timeloop_wrapper.cleanup(problem_name)
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"

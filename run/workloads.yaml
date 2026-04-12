@@ -27,21 +27,21 @@ workloads:
       pretrained: true
       resumed_checkpoint_path: null
       batch_print_frequency: 100
-#    - arch: resnet50
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: mobilenet
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: inception_v3
-#      dataset: imagenet
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenet
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: inception_v3
+      dataset: imagenet
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
 
   ClassifiersB:
     - arch: vgg13

@@ -86,14 +86,15 @@ class TimeloopWrapper:
     def run(self, problem_name):
         """Execute the Timeloop+Accelergy infrastructure via command-line
         """
-        logfile = os.path.join(self.output_dir, 'timeloop-mapper.log')
+        logfile = os.path.join(self.output_dir, problem_name, 'timeloop-mapper.log')
+        os.makedirs(f"{self.output_dir}/{problem_name}", exist_ok=True)
         command = f'timeloop-mapper ' \
                   f'{self.arch.arch_filepath} ' \
                   f'{" ".join(self.arch.component_files)} ' \
                   f'{self.workloads[problem_name].problem_filepath} ' \
                   f'{self.mapper.mapper_filepath} ' \
                   f'{self.constraint_dir}/*.yaml ' \
-                  f'-o {self.output_dir} 2>&1 | tee {logfile}'
+                  f'-o {self.output_dir}/{problem_name} 2>&1 | tee {logfile}'
         logger.debug(f'timeloop-mapper command: {command}')
         start = time()
         p = subprocess.run(["bash", "-lc", command], check=True, capture_output=True)
@@ -101,7 +102,7 @@ class TimeloopWrapper:
                      f"with exitcode: {p.returncode}")
         return p
 
-    def get_results(self):
+    def get_results(self, problem_name):
         """Get the results of a succesfull run from Timeloop. Note, timeloop provides
            a script that does a more analytical parsing: 
            https://github.com/NVlabs/timeloop/blob/master/scripts/parse_timeloop_output.py#L55
@@ -111,7 +112,7 @@ class TimeloopWrapper:
             """Gather an area measurement from the ART file. Note, the area
                measurements in the file are per unit
             """
-            area_summary_file = area_file or os.path.join(self.output_dir, 'timeloop-mapper.ART.yaml')
+            area_summary_file = area_file or os.path.join(self.output_dir, problem_name, 'timeloop-mapper.ART.yaml')
             assert os.path.exists(area_summary_file)
             with open(area_summary_file, 'r') as stream:
                 area_dict = yaml.safe_load(stream)
@@ -124,7 +125,7 @@ class TimeloopWrapper:
                 area += (int(num_units) + 1) * item['area']
             return area * 1e-6  # in mm^2
 
-        stats_file = os.path.join(self.output_dir, 'timeloop-mapper.stats.txt')
+        stats_file = os.path.join(self.output_dir, problem_name, 'timeloop-mapper.stats.txt')
         with open(stats_file, 'r') as f:
             stats = f.read()
 
@@ -147,13 +148,13 @@ class TimeloopWrapper:
 
         return TimeloopStats(gflops, utilization, cycles, energy, edp, area)
 
-    def cleanup(self, override_outdir=None):
+    def cleanup(self, problem_name, override_outdir=None):
         """Remove files from the output directory after a run
         """
         if override_outdir is not None:
             outdir = override_outdir
-        elif len(glob(f'{self.output_dir}/*')) > 0:
-            outdir = self.output_dir
+        elif len(glob(f'{self.output_dir}/{problem_name}/*')) > 0:
+            outdir = f"{self.output_dir}/{problem_name}"
         else:
             return
         for file in glob(os.path.join(outdir, 'timeloop-mapper*')):

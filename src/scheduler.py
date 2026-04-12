@@ -242,7 +242,7 @@ class Scheduler:
         if max_capacity:
             capacities = [max_capacity for _ in bins]
         else:
-            alpha = 2.0
+            alpha = 1.82
             latency_per_bin = [
                 sum(weight_dict[(item, bin)] for item in items
                     if weight_dict[(item, bin)] > 0)
