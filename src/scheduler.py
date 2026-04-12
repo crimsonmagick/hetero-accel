@@ -9,6 +9,7 @@ from enum import Enum
 from time import time
 # matplotlib imports
 import matplotlib as mpl
+
 mpl.rcParams.update(mpl.rcParamsDefault)
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
@@ -215,7 +216,7 @@ class Scheduler:
                         # in the case of value/profit
                         elif use_value:
                             costs.append(
-                                max([value for key, value in cost_dict.items() if item in key]) - cost_dict[(item, bin)]   
+                                max([value for key, value in cost_dict.items() if item in key]) - cost_dict[(item, bin)]
                             )
                         # in the case of cost
                         else:
@@ -255,7 +256,7 @@ class Scheduler:
         # write cost/profit and weight to file
         write_input_file(infile)
         # construct command for solver
-        solver_args = solver_args_dict.get(solver_type)    
+        solver_args = solver_args_dict.get(solver_type)
         command = f"cd {solver_dir} && " \
                   f"./bazel-bin/generalizedassignmentsolver/main -v 3 " \
                   f"-a {solver_args} " \
@@ -406,4 +407,28 @@ class Scheduler:
 
 
 if __name__ == "__main__":
-    pass
+
+    logging.basicConfig(level=logging.DEBUG)
+    from collections import OrderedDict
+    from src.accelerator_cfg import EyerissAcceleratorState
+
+    solver_type = SolverType.MTHGGreedyRegret
+    items = ['vgg11', 'resnet18', 'vgg16']
+    bins = [EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24,
+                                    weights_spad_size=448, psum_spad_size=48),
+            EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24,
+                                    weights_spad_size=448, psum_spad_size=48),
+            EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24,
+                                    weights_spad_size=448, psum_spad_size=48)]
+
+    cost_dict = OrderedDict([(('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3718503.03), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 794431.9399999998), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 7034727.320000001), (('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3800196.9199999995), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 811770.2600000001), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 7191403.129999999), (('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3891126.39), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 831068.5699999998), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 7365794.509999999)])
+
+    weight_dict = OrderedDict([(('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3569123328.0), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 735883264.0), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=6, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 6563856384.0), (('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3569123328.0), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 735883264.0), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=7, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 6563856384.0), (('vgg11', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 3569123328.0), (('resnet18', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 735883264.0), (('vgg16', EyerissAcceleratorState(pe_array_x=14, pe_array_y=12, precision=8, sram_size=108000, ifmap_spad_size=24, weights_spad_size=448, psum_spad_size=48)), 6563856384.0)])
+
+    logging.getLogger().logdir = project_dir + "/solver_temp"
+
+    underTest = Scheduler()
+    result = underTest.run(bins=bins, items=items, cost_dict=cost_dict,
+                           weight_dict=weight_dict, solver_type=solver_type)
+    assignments = ", ".join([f"(network={entry.tag}, assignedAccel={entry.bin.precision} bits)" for entry in result.entries])
+    logger.info(assignments)
