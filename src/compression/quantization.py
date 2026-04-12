@@ -1,47 +1,22 @@
 import logging
-import torch
-from collections import namedtuple
-from argparse import Namespace
-import os
 import random
-import sys
-from typing import List
-from typing import Optional
 import warnings
+from collections import namedtuple
 
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-
-from brevitas.export import export_onnx_qcdq
-from brevitas.export import export_torch_qcdq
 from brevitas.export.inference import quant_inference_mode
 from brevitas.graph.quantize import preprocess_for_quantize
-from brevitas.graph.target.flexml import preprocess_for_flexml_quantize
-from brevitas_examples.common.parse_utils import override_defaults
-from brevitas_examples.common.parse_utils import parse_args
-from brevitas_examples.imagenet_classification.ptq.learned_round_utils import apply_learned_round
-from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_act_equalization
 from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_bias_correction
-from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_gpfq
 from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_gptq
-from brevitas_examples.imagenet_classification.ptq.ptq_common import apply_qronos
 from brevitas_examples.imagenet_classification.ptq.ptq_common import calibrate
-from brevitas_examples.imagenet_classification.ptq.ptq_common import calibrate_bn
 from brevitas_examples.imagenet_classification.ptq.ptq_common import quantize_model
-from brevitas_examples.imagenet_classification.ptq.ptq_imagenet_args import create_args_parser
-from brevitas_examples.imagenet_classification.ptq.ptq_imagenet_args import \
-    validate as validate_args
-from brevitas_examples.imagenet_classification.ptq.utils import get_model_config
 from brevitas_examples.imagenet_classification.utils import SEED
-from brevitas_examples.imagenet_classification.utils import validate
-from crimson_magick.cifar_zoo import get_test_loader, Cifar, Arch, load_model
 from crimson_magick.cifar_zoo.fine_tuned.fine_tuned_models import ArchType
-from numpy.lib.function_base import percentile
 from torchvision import datasets, transforms
-from torchvision.datasets import CIFAR100, ImageNet
+from torchvision.datasets import CIFAR100
 
-from intel_distiller.models.imagenet import mobilenet
 from src.datasets.imagenet_dataset import ImagenetDataset
 
 GRAPH_EQ_ITERATIONS = 20
@@ -61,7 +36,7 @@ class Quantizer:
             config['percentile'] = 99.95
             config['target_backend'] = 'layerwise'
             config['merge_bn'] = True
-        elif type(dataset) is hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET:
+        elif hasattr(model, 'arch_type') and model.arch_type == ArchType.MOBILENET:
             config['percentile'] = 99.95
             config['gptq'] = True
             config['target_backend'] = 'layerwise'
@@ -76,6 +51,12 @@ class Quantizer:
             config['gptq'] = True
             config['target_backend'] = 'fx'
             config['merge_bn'] = True
+
+        if hasattr(model, "arch") and 'inception' in model.arch.lower():
+            config['size'] = 299
+        else:
+            config['size'] = 224
+
         return config
 
     def reset(self):
@@ -89,7 +70,6 @@ class Quantizer:
         torch.manual_seed(SEED)
 
         # Get model-specific configurations about input shapes and normalization
-        input_shape = 224
 
         calib_loader = generate_calib_loader(dataset)
         quant_config = self.get_quant_config(model, dataset)
@@ -165,9 +145,6 @@ class Quantizer:
                 max_accumulator_bit_width=None,
                 max_accumulator_tile_size=None)
 
-        # print("Calibrate BN:")
-        # calibrate_bn(calib_loader, quant_model)
-
         print("Applying bias correction:")
         apply_bias_correction(calib_loader, quant_model)
 
@@ -176,12 +153,11 @@ class Quantizer:
         with torch.no_grad(), quant_inference_mode(quant_model):
             param = next(iter(quant_model.parameters()))
             device, dtype = param.device, param.dtype
-            ref_input = generate_ref_input(device, dtype, input_shape)
+            ref_input = generate_ref_input(device, dtype, quant_config['size'])
             quant_model(ref_input)
             compiled_model = torch.compile(quant_model, fullgraph=True, disable=True)
+            del calib_loader
             return compiled_model
-
-        # return {"quant_top1": float(quant_top1)}, quant_model
 
 
 # Ignore warnings about __torch_function__

@@ -57,6 +57,7 @@ class PruningQuantizationCompressor(TorchNetworkWrapper):
         self.timeloop_wrapper = TimeloopWrapper(self.accelerator_cfg.type, tl_workdir)
 
     def reset(self):
+        del self.model
         self.model = deepcopy(self.original_model)
 
     def quantize(self, q_bits):

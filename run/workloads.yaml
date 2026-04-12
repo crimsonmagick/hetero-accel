@@ -12,36 +12,31 @@ workloads:
 #      batch_size: 1
 #
   ClassifiersA:
-#    - arch: resnet50
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: vgg11
-#      dataset: cifar10
-#      pretrained: false
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: resnet18
-#      dataset: cifar10
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: vgg16
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: resnet50
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
-#    - arch: mobilenet
-#      dataset: cifar100
-#      pretrained: true
-#      resumed_checkpoint_path: null
-#      batch_print_frequency: 100
+    - arch: vgg11
+      dataset: cifar10
+      pretrained: false
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet18
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: vgg16
+      dataset: cifar10
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: resnet50
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
+    - arch: mobilenet
+      dataset: cifar100
+      pretrained: true
+      resumed_checkpoint_path: null
+      batch_print_frequency: 100
     - arch: inception_v3
       dataset: imagenet
       pretrained: true

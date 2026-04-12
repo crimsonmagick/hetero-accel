@@ -5,7 +5,7 @@ app_args:
         name: ours
         deterministic: True
         global_seed: 0
-#        dnn_accuracy_lut_file: /home/welby/workspace/hetero-accel/logs/ours___2026.02.16-05.53.35.795/lut.csv
+        dnn_accuracy_lut_file: /home/welby/workspace/hetero-accel/logs/complete_ours_2026.04.01/lut.csv
         scheduler_type: ours
         solver_type: mthggreedyregret
 #        load_state_from: data/mixed/eyeriss/tight_constraint/best_state.sa.pkl
@@ -39,7 +39,7 @@ compression_args:
         pruning_low: 0.0
         pruning_incr: 0.05
         quant_high: 7
-        quant_low: 6
+        quant_low: 4
         quant_incr: 1
         use_validation_set: False
         # constraints

@@ -178,9 +178,13 @@ def get_cifar100_dataset(cifar100_path, arch, load_train, load_test):
     return train_dataset, test_dataset
 
 def get_imagenet_dataset(data_dir, arch, load_train=True, load_test=True):
+    if 'inception' in arch.lower():
+        resize, crop = 336, 299
+    else:
+        resize, crop = 256, 224
     transform = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize(resize),
+        transforms.CenterCrop(crop),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
