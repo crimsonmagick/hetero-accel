@@ -238,11 +238,29 @@ class Scheduler:
                 f.write(' '.join([str(int(capacity)) for capacity in capacities]))
 
         schedule = Schedule(bins)
-        # if no deadline cosntraint is provided, the sum of all possible assignments to each bin is used
-        capacities = [
-            sum([weight_dict[(item, bin)] for item in items]) if max_capacity is None else max_capacity
-            for bin in bins
-        ]
+
+        if max_capacity:
+            capacities = [max_capacity for _ in bins]
+        else:
+            alpha = 2.0
+            latency_per_bin = [
+                sum(weight_dict[(item, bin)] for item in items
+                    if weight_dict[(item, bin)] > 0)
+                for bin in bins
+            ]
+            speeds = [1 / latency if latency > 0 else 0
+                      for latency in latency_per_bin]
+            speed_total = sum(speeds)
+            normalized_speeds = [speed / speed_total for speed in speeds]
+            latencies_per_item = [
+                [weight_dict[(item, bin)] for bin in bins if weight_dict[(item, bin)] > 0]
+                for item in items
+            ]
+            best_case_latency = sum(
+                min(latencies) for latencies in latencies_per_item if latencies
+            )
+            capacities = [int(alpha * n_speed * best_case_latency) for n_speed in normalized_speeds]
+            logger.info(f"capacities={capacities}")
 
         solver_dir = os.path.join(project_dir, 'generalizedassignmentsolver')
         logdir = logging.getLogger().logdir
@@ -427,8 +445,15 @@ if __name__ == "__main__":
 
     logging.getLogger().logdir = project_dir + "/solver_temp"
 
+    logger.info(f"Accelerators: {bins}")
+    weights = ", ".join([f"(network={key[0]}, accel={key[1].precision} bits, latency={value})" for key, value in weight_dict.items()])
+    logger.info(f"Weights/latencies: {weights}")
+
     underTest = Scheduler()
     result = underTest.run(bins=bins, items=items, cost_dict=cost_dict,
                            weight_dict=weight_dict, solver_type=solver_type)
-    assignments = ", ".join([f"(network={entry.tag}, assignedAccel={entry.bin.precision} bits)" for entry in result.entries])
-    logger.info(assignments)
+    if not result:
+        logger.error("No valid assignments found!")
+    else:
+        assignments = ", ".join([f"(network={entry.tag}, assignedAccel={entry.bin.precision} bits)" for entry in result.entries])
+        logger.info(assignments)
