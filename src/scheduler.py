@@ -237,6 +237,9 @@ class Scheduler:
                 # write the maximum weight (capacity) of each bin (agent)
                 f.write(' '.join([str(int(capacity)) for capacity in capacities]))
 
+        logger.info(f"Accelerators: {bins}")
+        weight_latencies = ", ".join([f"(network={key[0]}, accel={key[1].precision} bits, latency={value})" for key, value in weight_dict.items()])
+        logger.info(f"Weights/latencies: {weight_latencies}")
         schedule = Schedule(bins)
 
         if max_capacity:

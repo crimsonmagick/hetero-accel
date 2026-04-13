@@ -3,6 +3,8 @@ import random
 import os.path
 import math
 import pickle
+from concurrent.futures import as_completed
+from concurrent.futures.thread import ThreadPoolExecutor
 from types import SimpleNamespace
 from collections import OrderedDict
 from time import time
@@ -10,7 +12,7 @@ from enum import Enum
 from shutil import copy
 from simanneal import Annealer
 from src.scheduler import Scheduler
-from src.timeloop import TimeloopWrapper
+from src.timeloop import TimeloopWrapper, timeloop_execution
 from src.utils import get_contents_table
 from src.args import MetricType
 
@@ -409,30 +411,25 @@ class AcceleratorOptimizer(Annealer):
                 latency_dict[(arch, accelerator)] = 0
                 edp_dict[(arch, accelerator)] = 0
                 # iterate over each timeloop problem (layer) of the DNN
-                for problem_name in self.timeloop_problems_per_dnn[arch]:
-                    logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
+                with ThreadPoolExecutor(max_workers=32) as executor:
+                    tasks = {
+                        executor.submit(timeloop_execution, self.timeloop_wrapper, problem_name): problem_name
+                        for problem_name in self.timeloop_problems_per_dnn[arch]
+                    }
 
-                    # run timeloop
-                    self.timeloop_wrapper.run(problem_name)
+                    for future in as_completed(tasks):
+                        problem_name = tasks[future]
+                        try:
+                            results = future.result()
+                            energy_dict[(arch, accelerator)] += results.energy
+                            latency_dict[(arch, accelerator)] += results.cycles
+                            edp_dict[(arch, accelerator)] += results.edp
+                        except FileNotFoundError:
+                            self.latest_schedule = self.latest_energy = self.latest_latency = None
+                            logger.error(f"Invalid timeloop/accelergy simulation for {problem_name}")
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            return False
 
-                    # gather simulation results
-                    try:
-                        results = self.timeloop_wrapper.get_results(problem_name)
-                    except FileNotFoundError:
-                        self.latest_schedule = self.latest_energy = self.latest_latency = None
-                        logger.info("Invalid timeloop/accelergy simulation")
-                        return False
-
-                    energy_dict[(arch, accelerator)] += results.energy
-                    latency_dict[(arch, accelerator)] += results.cycles
-                    edp_dict[(arch, accelerator)] += results.edp
-
-                    # print layer-wise results
-                    logger.debug(f"\t\t\tLayer-wise results: "
-                                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
-                    
-                    # reset simulator for next run
-                    self.timeloop_wrapper.cleanup(problem_name)
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"

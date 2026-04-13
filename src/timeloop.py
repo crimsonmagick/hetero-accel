@@ -20,7 +20,7 @@ from src.accelerator_cfg import AcceleratorType
 from src.args import OptimizerType
 from src.utils import force_quotes_on_str
 
-__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper']
+__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper', 'timeloop_execution']
 
 logger = logging.getLogger(__name__)
 
@@ -971,6 +971,14 @@ class TimeloopMapper:
         # update the configuration with new parameters
         self.get_config()
 
+def timeloop_execution(timeloop_wrapper: TimeloopWrapper, problem_name: str):
+    logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
+    timeloop_wrapper.run(problem_name)
+    results = timeloop_wrapper.get_results(problem_name)
+    logger.debug(f"\t\t\tLayer-wise results: "
+                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
+    timeloop_wrapper.cleanup(problem_name)
+    return results
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
@@ -989,15 +997,14 @@ if __name__ == "__main__":
     # tw.workloads[prob_name] = SimpleNamespace()
     # tw.workloads[prob_name].problem_filepath = prob_fp
 
-    model_config = SimpleNamespace(arch='resnet50', dataset='imagenet', batch_size=1, gpus=0, cpu=False,
+    model_config = SimpleNamespace(arch='resnet50', dataset='cifar100', batch_size=1, gpus=0, cpu=False,
                                    load_serialized=False, pretrained=True, resumed_checkpoint_path=None, optimizer_type=
                                    OptimizerType.Adam, print_frequency=100, verbose=True)
     prob_name = "conv_test"
     net_wrapper = TorchNetworkWrapper(model_config)
-    dataset = crimson_magick.cifar_zoo.get_test_loader(Cifar.CIFAR10)
+    dataset = crimson_magick.cifar_zoo.get_test_loader(Cifar.CIFAR100)
     net_wrapper.run_summary(dataset)
-    # to_serialize = net_wrapper.summary['model.features.0']
-    to_serialize = net_wrapper.summary['module.conv1']
+    to_serialize = net_wrapper.summary['model.conv1']
     tw.init_problem(prob_name, "Conv2d", to_serialize.dimensions)
 
 
@@ -1005,58 +1012,19 @@ if __name__ == "__main__":
 
     accel_cfg = AcceleratorProfile(accel_type)
 
-    if accel_type == AcceleratorType.Eyeriss:
-        accel = accel_cfg.state(pe_array_x=accel_cfg.pe_array_x,
-                                pe_array_y=accel_cfg.pe_array_y,
-                                precision=accel_cfg.precision_weights,
-                                sram_size=accel_cfg.sram_size,
-                                ifmap_spad_size=accel_cfg.ifmap_spad_size,
-                                weights_spad_size=accel_cfg.weights_spad_size,
-                                psum_spad_size=accel_cfg.psum_spad_size)
-    elif accel_type == AcceleratorType.Simba:
-        accel = accel_cfg.state(pe_array_x=7,
-                                pe_array_y=7,
-                                precision=accel_cfg.precision_weights,
-                                sram_size=accel_cfg.sram_size,
-                                input_buffer_size=accel_cfg.input_buffer_size,
-                                weight_buffer_size=accel_cfg.weight_buffer_size,
-                                accum_buffer_size=accel_cfg.accum_buffer_size)
+    accel = accel_cfg.state(pe_array_x=accel_cfg.pe_array_x,
+                            pe_array_y=accel_cfg.pe_array_y,
+                            precision=4,
+                            sram_size=accel_cfg.sram_size,
+                            ifmap_spad_size=accel_cfg.ifmap_spad_size,
+                            weights_spad_size=accel_cfg.weights_spad_size,
+                            psum_spad_size=accel_cfg.psum_spad_size)
+
 
     logger.info(f'Accelerator:{accel}')
     tw.adjust_architecture(accel, adjust_components=True)
-    tw.cleanup()
+    tw.cleanup(prob_name)
     p = tw.run(prob_name)
-    results = tw.get_results()
-    print(net_wrapper.summary.keys())
+    results = tw.get_results(prob_name)
     print(results._asdict())
-    for v in net_wrapper.summary.values():
-        print(v.layer_type)
-    # 'Linear', 'Conv2d', 'AvgPool2d', 'MaxPool2d'
 
-
-    # namespace(arch='resnet50', dataset='imagenet', batch_size=128, gpus=0, cpu=False, load_serialized=False,
-    #           pretrained=True, resumed_checkpoint_path=None, optimizer_type= < OptimizerType.Adam: 2 >, print_frequency = 100, verbose = False,
-    # logdir = '/home/welby/workspace/hetero-accel/logs/baseline___2025.11.10-01.20.36.915')
-
-    # if DO_EXPLORATION and accel_type == AcceleratorType.Simba:
-    #     from random import choices
-    #     to_sample = 2
-    #     for pex in choices(accel_cfg.design_space['pe_array_x'], k=to_sample):
-    #         for pey in choices(accel_cfg.design_space['pe_array_y'], k=to_sample):
-    #             for precision in choices(accel_cfg.design_space['precision'], k=to_sample):
-    #                 for sram_size in choices(accel_cfg.design_space['sram_size'], k=to_sample):
-    #                     for inpbuf in choices(accel_cfg.design_space['input_buffer_size'], k=to_sample):
-    #                         for wbuf in choices(accel_cfg.design_space['weight_buffer_size'], k=to_sample):
-    #                             for accumbuf in choices(accel_cfg.design_space['accum_buffer_size'], k=to_sample):
-    #                                 accel = accel_cfg.state(pe_array_x=pex,
-    #                                                         pe_array_y=pey,
-    #                                                         precision=precision,
-    #                                                         sram_size=sram_size,
-    #                                                         input_buffer_size=inpbuf,
-    #                                                         weight_buffer_size=wbuf,
-    #                                                         accum_buffer_size=accumbuf)
-    #
-    #                                 tw.adjust_architecture(accel, adjust_components=True)
-    #                                 p = tw.run(prob_name)
-    #                                 results = tw.get_results()
-    #                                 print(results._asdict())
