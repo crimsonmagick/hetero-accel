@@ -12,7 +12,7 @@ from enum import Enum
 from shutil import copy
 from simanneal import Annealer
 from src.scheduler import Scheduler
-from src.timeloop import TimeloopWrapper, timeloop_execution
+from src.timeloop import TimeloopWrapper
 from src.utils import get_contents_table
 from src.args import MetricType
 
@@ -373,6 +373,16 @@ class AcceleratorOptimizer(Annealer):
             except IndexError:
                 return True
 
+
+        def timeloop_execution(timeloop_wrapper: TimeloopWrapper, problem_name: str):
+            logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
+            timeloop_wrapper.run(problem_name)
+            te_results = timeloop_wrapper.get_results(problem_name)
+            logger.debug(f"\t\t\tLayer-wise results: "
+                         f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
+            timeloop_wrapper.cleanup(problem_name)
+            return te_results
+
         # metrics to be accumulated
         energy_dict = {}
         latency_dict = {}
@@ -383,58 +393,59 @@ class AcceleratorOptimizer(Annealer):
         for accelerator in self.state:
             logger.info(f"\tEvaluating on accelerator: {accelerator._asdict()}")
             # iterate over each DNN
-            for arch in self.workload.dnns.keys():
-                logger.info(f"\t\tEvaluating on DNN: {arch}")
+            tasks = {}
+            with ThreadPoolExecutor(max_workers=32) as executor:
+                for arch in self.workload.dnns.keys():
+                    logger.info(f"\t\tEvaluating on DNN: {arch}")
 
-                # check if this evaluation was executed before
-                if (arch, accelerator) in self.energy_dict:
-                    # NOTE: This is not as accurate as accumulate layer-wise EDP results,
-                    #       but it is a good approximation for not re-running the simulation
-                    if (arch, accelerator) not in self.edp_dict:
-                        self.edp_dict[(arch, accelerator)] = self.energy_dict[(arch, accelerator)] * self.latency_dict[(arch, accelerator)]
-                    logger.info(f"\t\tSkipping evaluation: already estimated")
-                    continue
+                    # check if this evaluation was executed before
+                    if (arch, accelerator) in self.energy_dict:
+                        # NOTE: This is not as accurate as accumulate layer-wise EDP results,
+                        #       but it is a good approximation for not re-running the simulation
+                        if (arch, accelerator) not in self.edp_dict:
+                            self.edp_dict[(arch, accelerator)] = self.energy_dict[(arch, accelerator)] * self.latency_dict[(arch, accelerator)]
+                        logger.info(f"\t\tSkipping evaluation: already estimated")
+                        continue
 
-                # check accuracy constraint
-                if violated_accuracy_constraint(arch, accelerator.precision):
-                    logger.info(f"\t\tSkipping evaluation: accuracy violation")
-                    # Invalid scheduling mappings are marked with negative weight (latency)
-                    self.energy_dict[(arch, accelerator)] = -1
-                    self.latency_dict[(arch, accelerator)] = -1
-                    self.edp_dict[(arch, accelerator)] = -1
-                    continue
+                    # check accuracy constraint
+                    if violated_accuracy_constraint(arch, accelerator.precision):
+                        logger.info(f"\t\tSkipping evaluation: accuracy violation")
+                        # Invalid scheduling mappings are marked with negative weight (latency)
+                        self.energy_dict[(arch, accelerator)] = -1
+                        self.latency_dict[(arch, accelerator)] = -1
+                        self.edp_dict[(arch, accelerator)] = -1
+                        continue
 
-                # adjust timeloop with the accelerator parameters
-                self.timeloop_wrapper.adjust_architecture(accelerator)
+                    # adjust timeloop with the accelerator parameters
+                    self.timeloop_wrapper.adjust_architecture(accelerator)
 
-                energy_dict[(arch, accelerator)] = 0
-                latency_dict[(arch, accelerator)] = 0
-                edp_dict[(arch, accelerator)] = 0
-                # iterate over each timeloop problem (layer) of the DNN
-                with ThreadPoolExecutor(max_workers=32) as executor:
-                    tasks = {
-                        executor.submit(timeloop_execution, self.timeloop_wrapper, problem_name): problem_name
+                    energy_dict[(arch, accelerator)] = 0
+                    latency_dict[(arch, accelerator)] = 0
+                    edp_dict[(arch, accelerator)] = 0
+                    # iterate over each timeloop problem (layer) of the DNN
+                    tasks = tasks.updatae({
+                        executor.submit(timeloop_execution, self.timeloop_wrapper, problem_name): (arch, problem_name)
                         for problem_name in self.timeloop_problems_per_dnn[arch]
-                    }
+                    })
 
-                    for future in as_completed(tasks):
-                        problem_name = tasks[future]
-                        try:
-                            results = future.result()
-                            energy_dict[(arch, accelerator)] += results.energy
-                            latency_dict[(arch, accelerator)] += results.cycles
-                            edp_dict[(arch, accelerator)] += results.edp
-                        except FileNotFoundError:
-                            self.latest_schedule = self.latest_energy = self.latest_latency = None
-                            logger.error(f"Invalid timeloop/accelergy simulation for {problem_name}")
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            return False
+                for future in as_completed(tasks):
+                    arch, problem_name = tasks[future]
+                    try:
+                        results = future.result()
+                        energy_dict[(arch, accelerator)] += results.energy
+                        latency_dict[(arch, accelerator)] += results.cycles
+                        edp_dict[(arch, accelerator)] += results.edp
+                    except FileNotFoundError:
+                        self.latest_schedule = self.latest_energy = self.latest_latency = None
+                        logger.error(f"Invalid timeloop/accelergy simulation for {problem_name}")
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        return False
 
-
-                logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
-                             f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
-                             f"\t\t\tEDP={edp_dict[(arch, accelerator)]:.3e}")
+                for arch in self.workload.dnns.keys():
+                    logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
+                                 f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
+                                 f"\t\t\tLatency={latency_dict[(arch, accelerator)]:.3e}\n"
+                                 f"\t\t\tEDP={edp_dict[(arch, accelerator)]:.3e}")
 
             # update stored metrics with executed evaluations
             self.energy_dict.update(energy_dict)

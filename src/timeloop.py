@@ -20,7 +20,7 @@ from src.accelerator_cfg import AcceleratorType
 from src.args import OptimizerType
 from src.utils import force_quotes_on_str
 
-__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper', 'timeloop_execution']
+__all__ = ['TimeloopStats', 'TimeloopWrapper', 'TimeloopTemplate', 'TimeloopProblem', 'TimeloopArch', 'TimeloopMapper']
 
 logger = logging.getLogger(__name__)
 
@@ -970,15 +970,7 @@ class TimeloopMapper:
         setattr(self.params, param_name, value)
         # update the configuration with new parameters
         self.get_config()
-
-def timeloop_execution(timeloop_wrapper: TimeloopWrapper, problem_name: str):
-    logger.debug(f"\t\t\tEvaluating layer/problem: {problem_name}")
-    timeloop_wrapper.run(problem_name)
-    results = timeloop_wrapper.get_results(problem_name)
-    logger.debug(f"\t\t\tLayer-wise results: "
-                 f"energy={results.energy:.3e}, latency={results.cycles:.3e}, edp={results.edp:.3e}")
-    timeloop_wrapper.cleanup(problem_name)
-    return results
+s
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)

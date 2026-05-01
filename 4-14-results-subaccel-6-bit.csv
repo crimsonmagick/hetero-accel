@@ -1,0 +1,2 @@
+iteration,is_improved,pe_array_x,pe_array_y,precision,sram_size,ifmap_spad_size,weights_spad_size,psum_spad_size
+0,,14,12,,,,,
