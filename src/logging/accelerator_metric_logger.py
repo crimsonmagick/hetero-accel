@@ -1,0 +1,41 @@
+from collections import defaultdict
+
+from src.evaluation_result import EvaluationResult
+from src.logging.metric_logger import MetricLogger
+from src.scheduler import Schedule
+
+
+class AcceleratorMetricLogger(MetricLogger):
+    def __init__(self, base_dir):
+        super().__init__(base_dir, "accelerator_metrics.csv")
+        self._write_row(
+            ["iteration",
+             "is_improved",
+             "sim_temperature",
+             "energy",
+             "latency",
+             "edp",
+             "area",
+             "scheduled_dnns",
+             "evaluation_result"])
+
+    @staticmethod
+    def _parse_scheduled(schedule: Schedule):
+        scheduled_dnns = defaultdict(int)
+        for entry in schedule.entries:
+            scheduled_dnns[entry.bin.precision] += 1
+        return ";".join(f"{k}:{v}" for k, v in sorted(scheduled_dnns.items()))
+
+    def log(self, *, iteration, is_improved, sim_temperature, energy, latency, edp, area, scheduled: Schedule, evaluation_result: EvaluationResult):
+        self._check_closed()
+        self._write_row([
+            iteration,
+            is_improved,
+            sim_temperature,
+            energy,
+            latency,
+            edp,
+            area,
+            self._parse_scheduled(scheduled),
+            evaluation_result.value
+        ])

@@ -10,3 +10,6 @@
 [submodule "distiller"]
 	path = intel_distiller
 	url = git@github.com:crimsonmagick/distiller.git
+[submodule "tltk"]
+	path = tltk
+	url = git@github.com:crimsonmagick/tltk_mt.git

@@ -21,7 +21,6 @@ from src.baseline import run_baseline
 from src.sota import run_sota
 from src.partition import run_partition_comparison
 from src.other_heuristics import run_genetic_algorithm, run_random_search
-from src.scheduler import solver_args_dict
 
 BASELINE_PRECISION = 8
 
@@ -47,7 +46,7 @@ def main():
 
     if args.operation_mode == OperationMode.Ours:
         # perform a DSE to define the sub-accelerator architectures
-        optimizer = accelerator_exploration(args, workload, dnn_accuracy_lut)
+        accelerator_exploration(args, workload, dnn_accuracy_lut)
         # # prune the DNNs to produce the final scheduler
         # schedule, metrics = pruned_schedule(args, workload, dnn_accuracy_lut,
         #                                     compressors, optimizer, optimizer.state)
@@ -338,7 +337,7 @@ def accelerator_exploration(args, workload, accuracy_lut):
 
     logger.debug(f"Examining design space: {accel_cfg.design_space}")
 
-    # initalize and run optimizer
+    # initialize and run optimizer
     optimizer = AcceleratorOptimizer(args=args,
                                      num_accelerators=len(precision_options),
                                      accelerator_cfg=accel_cfg,
@@ -365,7 +364,7 @@ def accelerator_exploration(args, workload, accuracy_lut):
     optimizer.energy(initial=False, save_best=False)
 
     logger.info("*------------------*")
-    return optimizer
+    optimizer.close()
 
 
 def pruned_schedule(args, workload, dnn_accuracy_lut, compressors, optimizer, hetero_accel):

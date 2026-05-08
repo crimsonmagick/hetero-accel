@@ -5,26 +5,28 @@ import math
 import pickle
 from concurrent.futures import as_completed
 from concurrent.futures.thread import ThreadPoolExecutor
+from enum import Enum
 from types import SimpleNamespace
 from collections import OrderedDict
 from time import time
-from enum import Enum
 from shutil import copy
 from simanneal import Annealer
+
+from src.evaluation_result import EvaluationResult
+from src.logging.subaccelerator_params_logger import SubacceleratorParamsLogger
+from src.logging.accelerator_metric_logger import AcceleratorMetricLogger
 from src.scheduler import Scheduler
 from src.timeloop import TimeloopWrapper, timeloop_execution
 from src.utils import get_contents_table
-from src.args import MetricType
-
 
 __all__ = ['DesignSpace', 'AcceleratorOptimizer']
 
 logger = logging.getLogger(__name__)
 
-
 class DesignSpace(SimpleNamespace):
     """Wrapper for the design space of possible accelerator architectures
     """
+
     def __init__(self, accelerator_state_class, **kwargs):
         super().__init__(**kwargs)
         self._fields = list(self.__dict__.keys())
@@ -44,10 +46,10 @@ class DesignSpace(SimpleNamespace):
         override_dict = {} if override_dict is None else override_dict
         values = {
             field: random.choice(getattr(self, field))
-                if field not in override_dict else override_dict[field]
+            if field not in override_dict else override_dict[field]
             for field in self._fields
         }
-        #return super().__class__(**values)
+        # return super().__class__(**values)
         return self.accelerator_state_class(**values)
 
     def extract(self, *args, **kwargs):
@@ -67,9 +69,29 @@ class DesignSpace(SimpleNamespace):
         return self.accelerator_state_class(*values_to_get)
 
 
+lambda_1 = 1.1
+
+
+def compute_p3(schedules):
+    c = 1e17  # huge c to signal annealing there's a huge problem
+    lookback_window = 4
+    enforced_precision = 8
+    if len(schedules) < lookback_window:
+        return 0
+    lookback = schedules[-lookback_window:]
+    for s in lookback:
+        if not s or not s.assigned:
+            continue
+        for a in s.assigned.values():
+            if a.precision == enforced_precision:
+                return 0
+    return c
+
+
 class AcceleratorOptimizer(Annealer):
     """Wrapper for Simulated Annealing optimizer
     """
+
     def __init__(self,
                  args,
                  num_accelerators,
@@ -77,7 +99,7 @@ class AcceleratorOptimizer(Annealer):
                  workload,
                  accuracy_lut,
                  hw_constraints
-        ):
+                 ):
         self.num_accelerators = num_accelerators
         self.accelerator_cfg = accelerator_cfg
         self.workload = workload
@@ -89,10 +111,12 @@ class AcceleratorOptimizer(Annealer):
         self.area_dict = OrderedDict()
         self.step = 0
         self.state = None
-        self.latest_energy = self.latest_latency = self.latest_edp = self.latest_area = None
+        self.latest_energy = self.latest_latency = self.latest_edp = self.latest_area = self.latest_evaluation_result = None
         self.metric = args.simanneal_optimization_metric
         self.solver_type = args.solver_type
         self.logdir = args.logdir
+        self.accelerator_metric_logger = AcceleratorMetricLogger(self.logdir)
+        self.subaccelerator_params_logger = SubacceleratorParamsLogger(self.logdir)
         self.design_space = DesignSpace(accelerator_cfg.state,
                                         **accelerator_cfg.design_space)
 
@@ -100,7 +124,7 @@ class AcceleratorOptimizer(Annealer):
         self.init_timeloop(args.layer_type_whitelist)
         # initialize scheduler
         self.scheduler = Scheduler(args.scheduler_type)
-        self.latest_schedule = None
+        self.schedule_history = []
 
         initial_state = self.get_initial_state()
         super().__init__(initial_state, getattr(args, 'simanneal_load_state', None))
@@ -109,7 +133,7 @@ class AcceleratorOptimizer(Annealer):
         # load previous evaluations
         self.loaded_state = None
         if getattr(args, 'load_state_from', None) is not None and \
-           os.path.exists(args.load_state_from):
+                os.path.exists(args.load_state_from):
             # later, use the loaded state as the first move of the annealing procedure
             self.loaded_state = self.load_state(args.load_state_from)
         self.best_state = self.copy_state(self.loaded_state)
@@ -133,9 +157,9 @@ class AcceleratorOptimizer(Annealer):
         self.state_delta = args.simanneal_state_delta
         self.state_delta = 1 if self.state_delta is None else self.state_delta
         if args is None or \
-            getattr(args, 'simanneal_auto_schedule', False) or \
-            any(getattr(args, arg, None) is None
-                for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
+                getattr(args, 'simanneal_auto_schedule', False) or \
+                any(getattr(args, arg, None) is None
+                    for arg in ['simanneal_Tmax', 'simanneal_Tmin', 'simanneal_steps', 'simanneal_updates']):
             # automatic annealing schedule
             self.set_schedule(self.auto(minutes=10))
         else:
@@ -143,7 +167,11 @@ class AcceleratorOptimizer(Annealer):
             self.Tmax = args.simanneal_Tmax
             self.Tmin = args.simanneal_Tmin
             self.steps = args.simanneal_steps
-            self.updates = args.simanneal_updates
+            self.updates = args.simanneal_steps
+
+    def close(self):
+        self.accelerator_metric_logger.close()
+        self.subaccelerator_params_logger.close()
 
     def init_timeloop(self, layer_type_whitelist, timeloop_workdir=None):
         """Initialize timeloop wrapper object
@@ -252,12 +280,13 @@ class AcceleratorOptimizer(Annealer):
     def update(self, step, T, E, acceptance, improvement):
         """Internal update for the status of the simulated annealing
         """
+
         # return super().update(step, T, E, acceptance, improvement)
         def time_string(seconds):
             """Returns time in seconds as a string formatted HHHH:MM:SS."""
             s = int(round(seconds))  # round to nearest second
-            h, s = divmod(s, 3600)   # get hours and remainder
-            m, s = divmod(s, 60)     # split remainder into minutes and seconds
+            h, s = divmod(s, 3600)  # get hours and remainder
+            m, s = divmod(s, 60)  # split remainder into minutes and seconds
             return '%4i:%02i:%02i' % (h, m, s)
 
         if step == 0:
@@ -268,6 +297,31 @@ class AcceleratorOptimizer(Annealer):
         logger.info(f"Update --> temperature={T:8.3e}, energy_metric={E:8.3e}, "
                     f"accept={acceptance:6.2%}, improvement={improvement:6.2%},"
                     f"time_elapsed={time_string(elapsed)}, time_remaining={time_string(remain)}")
+        evaluation_result = self.latest_evaluation_result if self.latest_evaluation_result else EvaluationResult.UNKNOWN
+        self.accelerator_metric_logger.log(
+            iteration=self.step,
+            is_improved=improvement,
+            sim_temperature=T,
+            energy=self.latest_energy,
+            latency=self.latest_latency,
+            edp=self.latest_energy * self.latest_latency,
+            area=self.latest_area,
+            scheduled=self.latest_schedule,
+            evaluation_result=evaluation_result
+        )
+        for accl in self.state:
+            self.subaccelerator_params_logger.log(
+                iteration=self.step,
+                is_improved=improvement,
+                pe_array_x=accl.pe_array_x,
+                pe_array_y=accl.pe_array_y,
+                precision=accl.precision,
+                sram_size=accl.sram_size,
+                ifmap_spad_size=accl.ifmap_spad_size,
+                weights_spad_size=accl.weights_spad_size,
+                psum_spad_size=accl.psum_spad_size,
+                evaluation_result=self.latest_evaluation_result
+        )
 
     def move(self):
         """Alter the current state
@@ -312,7 +366,7 @@ class AcceleratorOptimizer(Annealer):
         """
         start = time()
         logger.info(f"=> Beginning {'initial ' if initial else ''}state evaluation")
-        is_successful = self._evaluation()
+        self.latest_evaluation_result = self._evaluation()
         logger.info(f"Completed state evaluation in {time() - start:.3e}s")
 
         # save the results
@@ -332,44 +386,48 @@ class AcceleratorOptimizer(Annealer):
         elif initial:
             raise ValueError("Initial metric calculation cannot be invalid")
 
-        # configure energy metric
-        energy_metric = {
-            MetricType.Energy: self.latest_energy,
-            MetricType.Latency: self.latest_latency,
-            MetricType.EDP: self.latest_edp,
-            MetricType.EDP_Artificial: self.latest_energy * self.latest_latency
-                                       if self.latest_energy is not None
-                                       else None,
-            MetricType.Area: self.latest_area
-        }.get(self.metric)
-
         logger.info("*--------------*")
-        return energy_metric if energy_metric is not None else math.inf
 
-    def _evaluation(self):
+        edp = (
+            self.latest_energy * self.latest_latency
+            if self.latest_energy is not None and self.latest_latency is not None
+            else None
+        )
+
+        if not initial:  # FIXME get rid of unnecessarily running first step twice.
+            self.schedule_history.append(self.latest_schedule)
+            logger.info(f"scheduleHistory={self.schedule_history}")
+
+        if edp is None:
+            return math.inf
+
+        return edp + lambda_1 * compute_p3(self.schedule_history)
+
+    def _evaluation(self) -> EvaluationResult:
         """Evaluate the fitness of the current state
            Returns a boolean variable, indicating a successful/unsuccessful evaluation
         """
+
         def violated_deadline(schedule):
             deadline = getattr(getattr(self, 'hw_constraints', None), 'deadline', None)
             # the constraint is not violated if a deadline is not given
             return deadline is not None and \
-                   any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
+                any(end_timestamp >= deadline for end_timestamp in schedule.end_timestamp.values())
 
         def violated_area_constraint(area):
             return not (
-                getattr(self, 'initial_area', None) is None or
-                getattr(self, 'hw_constraints', None) is None or
-                getattr(self.hw_constraints, 'area', None) is None or
-                area < self.initial_area * (1 + self.hw_constraints.area)
+                    getattr(self, 'initial_area', None) is None or
+                    getattr(self, 'hw_constraints', None) is None or
+                    getattr(self.hw_constraints, 'area', None) is None or
+                    area < self.initial_area * (1 + self.hw_constraints.area)
             )
 
         def violated_accuracy_constraint(arch, precision):
             try:
                 return self.accuracy_lut.loc[
-                            (self.accuracy_lut['Network'] == arch) &
-                            (self.accuracy_lut['QuantBits'] == precision)
-                        ]['Valid'].iloc[0] == 0
+                    (self.accuracy_lut['Network'] == arch) &
+                    (self.accuracy_lut['QuantBits'] == precision)
+                    ]['Valid'].iloc[0] == 0
             except IndexError:
                 return True
 
@@ -391,7 +449,8 @@ class AcceleratorOptimizer(Annealer):
                     # NOTE: This is not as accurate as accumulate layer-wise EDP results,
                     #       but it is a good approximation for not re-running the simulation
                     if (arch, accelerator) not in self.edp_dict:
-                        self.edp_dict[(arch, accelerator)] = self.energy_dict[(arch, accelerator)] * self.latency_dict[(arch, accelerator)]
+                        self.edp_dict[(arch, accelerator)] = self.energy_dict[(arch, accelerator)] * self.latency_dict[
+                            (arch, accelerator)]
                     logger.info(f"\t\tSkipping evaluation: already estimated")
                     continue
 
@@ -428,8 +487,7 @@ class AcceleratorOptimizer(Annealer):
                             self.latest_schedule = self.latest_energy = self.latest_latency = None
                             logger.error(f"Invalid timeloop/accelergy simulation for {problem_name}")
                             executor.shutdown(wait=False, cancel_futures=True)
-                            return False
-
+                            return EvaluationResult.INVALID_SIMULATION
 
                 logger.debug(f"\t\tEvaluation results for {arch} on {accelerator}:\n"
                              f"\t\t\tEnergy={energy_dict[(arch, accelerator)]:.3e}\n"
@@ -453,7 +511,7 @@ class AcceleratorOptimizer(Annealer):
         if violated_area_constraint(self.latest_area):
             self.latest_schedule = self.latest_energy = self.latest_latency = None
             logger.info("Violated area constraint")
-            return False
+            return EvaluationResult.AREA_CONSTRAINT
 
         # perform the scheduling and get a concrete DNN-to-accelerator mapping
         start = time()
@@ -471,7 +529,7 @@ class AcceleratorOptimizer(Annealer):
             # return in case of invalid schedule
             self.latest_energy = self.latest_latency = self.latest_edp = None
             logger.info(f"Could not find valid schedule")
-            return False
+            return EvaluationResult.SCHEDULE_CONSTRAINT
 
         # get results for energy and latency based on the final schedule
         self.latest_energy = sum([
@@ -493,6 +551,6 @@ class AcceleratorOptimizer(Annealer):
         # check deadline constraint
         if violated_deadline(schedule):
             logger.info(f"Violated deadline constraint")
-            return False
-        
-        return True 
+            return EvaluationResult.DEADLINE_CONSTRAINT
+
+        return EvaluationResult.SUCCESS
