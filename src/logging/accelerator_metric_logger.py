@@ -21,6 +21,8 @@ class AcceleratorMetricLogger(MetricLogger):
 
     @staticmethod
     def _parse_scheduled(schedule: Schedule):
+        if not schedule:
+            return None
         scheduled_dnns = defaultdict(int)
         for entry in schedule.entries:
             scheduled_dnns[entry.bin.precision] += 1

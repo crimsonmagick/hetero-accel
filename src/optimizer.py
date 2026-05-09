@@ -5,7 +5,6 @@ import math
 import pickle
 from concurrent.futures import as_completed
 from concurrent.futures.thread import ThreadPoolExecutor
-from enum import Enum
 from types import SimpleNamespace
 from collections import OrderedDict
 from time import time
@@ -289,22 +288,25 @@ class AcceleratorOptimizer(Annealer):
             m, s = divmod(s, 60)  # split remainder into minutes and seconds
             return '%4i:%02i:%02i' % (h, m, s)
 
-        if step == 0:
-            return
-
         elapsed = time() - self.start
         remain = (self.steps - step) * (elapsed / step)
         logger.info(f"Update --> temperature={T:8.3e}, energy_metric={E:8.3e}, "
                     f"accept={acceptance:6.2%}, improvement={improvement:6.2%},"
                     f"time_elapsed={time_string(elapsed)}, time_remaining={time_string(remain)}")
+
         evaluation_result = self.latest_evaluation_result if self.latest_evaluation_result else EvaluationResult.UNKNOWN
+        edp = (
+            self.latest_energy * self.latest_latency
+            if self.latest_energy is not None and self.latest_latency is not None
+            else None
+        )
         self.accelerator_metric_logger.log(
             iteration=self.step,
             is_improved=improvement,
             sim_temperature=T,
             energy=self.latest_energy,
             latency=self.latest_latency,
-            edp=self.latest_energy * self.latest_latency,
+            edp=edp,
             area=self.latest_area,
             scheduled=self.latest_schedule,
             evaluation_result=evaluation_result
@@ -320,7 +322,7 @@ class AcceleratorOptimizer(Annealer):
                 ifmap_spad_size=accl.ifmap_spad_size,
                 weights_spad_size=accl.weights_spad_size,
                 psum_spad_size=accl.psum_spad_size,
-                evaluation_result=self.latest_evaluation_result
+                evaluation_result=evaluation_result
         )
 
     def move(self):
