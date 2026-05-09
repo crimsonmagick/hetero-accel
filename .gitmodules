@@ -9,4 +9,4 @@
 	url = https://github.com/Accelergy-Project/timeloop-accelergy-exercises.git
 [submodule "tltk"]
 	path = tltk
-	url = git@github.com:crimsonmagick/tltk_mt.git
+	url = git@github.com:eas-lab-emich/tltk_mt.git
